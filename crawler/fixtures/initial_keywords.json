@@ -1,0 +1,132 @@
+[
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567001",
+    "fields": {
+      "keyword": "single malt scotch whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Core category keyword. Weekly search."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567002",
+    "fields": {
+      "keyword": "bourbon whiskey",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Core category keyword. Weekly search."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567003",
+    "fields": {
+      "keyword": "rye whiskey",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Growing category. Weekly search."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567004",
+    "fields": {
+      "keyword": "irish whiskey",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Growing category. Weekly search."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567005",
+    "fields": {
+      "keyword": "japanese whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Premium category. High interest."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567006",
+    "fields": {
+      "keyword": "new whisky release 2025",
+      "product_types": ["whiskey"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 24,
+      "notes": "Daily search for new releases. High priority."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567007",
+    "fields": {
+      "keyword": "limited edition whisky",
+      "product_types": ["whiskey"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 48,
+      "notes": "Twice-weekly search for limited editions."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567008",
+    "fields": {
+      "keyword": "whisky gold medal award",
+      "product_types": ["whiskey"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Competition results. Quality indicator."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567009",
+    "fields": {
+      "keyword": "whisky of the year",
+      "product_types": ["whiskey"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Top award. High publicity value."
+    }
+  },
+  {
+    "model": "crawler.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567010",
+    "fields": {
+      "keyword": "cask strength whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Premium segment. Enthusiast interest."
+    }
+  }
+]

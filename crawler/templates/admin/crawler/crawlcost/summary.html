@@ -1,0 +1,198 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block title %}{{ title }} | {{ site_title }}{% endblock %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% trans 'Home' %}</a>
+    &rsaquo; <a href="{% url 'admin:app_list' app_label='crawler' %}">Crawler</a>
+    &rsaquo; <a href="{% url 'admin:crawler_crawlcost_changelist' %}">Crawl Costs</a>
+    &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<h1>{{ title }}</h1>
+
+<style>
+    .cost-summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 30px;
+    }
+    .cost-summary-table th,
+    .cost-summary-table td {
+        padding: 10px;
+        text-align: left;
+        border-bottom: 1px solid #ddd;
+    }
+    .cost-summary-table th {
+        background-color: #f5f5f5;
+        font-weight: bold;
+    }
+    .cost-summary-table tr:hover {
+        background-color: #f9f9f9;
+    }
+    .section-title {
+        margin-top: 30px;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #79aec8;
+    }
+    .service-badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 4px;
+        color: white;
+        font-size: 12px;
+    }
+    .service-serpapi { background-color: #17a2b8; }
+    .service-scrapingbee { background-color: #6f42c1; }
+    .service-openai { background-color: #28a745; }
+    .total-row {
+        font-weight: bold;
+        background-color: #f0f0f0;
+    }
+    .summary-card {
+        display: inline-block;
+        padding: 20px;
+        margin: 10px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        text-align: center;
+        min-width: 150px;
+    }
+    .summary-card h3 {
+        margin: 0 0 10px 0;
+        font-size: 14px;
+        color: #666;
+    }
+    .summary-card .value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #333;
+    }
+    .summary-cards {
+        margin-bottom: 30px;
+    }
+</style>
+
+<!-- Grand Totals Summary Cards -->
+<div class="summary-cards">
+    <div class="summary-card">
+        <h3>Total Costs (All Time)</h3>
+        <div class="value">
+            {% if total_costs.total %}
+                ${{ total_costs.total|floatformat:2 }}
+            {% else %}
+                $0.00
+            {% endif %}
+        </div>
+    </div>
+    <div class="summary-card">
+        <h3>Total API Calls</h3>
+        <div class="value">
+            {{ total_costs.count|default:"0" }}
+        </div>
+    </div>
+</div>
+
+<!-- Monthly Totals by Service -->
+<h2 class="section-title">Last 30 Days by Service</h2>
+<table class="cost-summary-table">
+    <thead>
+        <tr>
+            <th>Service</th>
+            <th>Total Cost</th>
+            <th>Request Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in monthly_by_service %}
+        <tr>
+            <td>
+                <span class="service-badge service-{{ row.service }}">
+                    {{ row.service|upper }}
+                </span>
+            </td>
+            <td>${{ row.total_cents|floatformat:2 }}</td>
+            <td>{{ row.count }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="3">No cost data available.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Daily Costs (Last 7 Days) -->
+<h2 class="section-title">Daily Costs (Last 7 Days)</h2>
+<table class="cost-summary-table">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Service</th>
+            <th>Total Cost</th>
+            <th>Request Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in daily_costs %}
+        <tr>
+            <td>{{ row.date|date:"Y-m-d" }}</td>
+            <td>
+                <span class="service-badge service-{{ row.service }}">
+                    {{ row.service|upper }}
+                </span>
+            </td>
+            <td>${{ row.total_cents|floatformat:2 }}</td>
+            <td>{{ row.count }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="4">No daily cost data available.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<!-- Weekly Costs (Last 4 Weeks) -->
+<h2 class="section-title">Weekly Costs (Last 4 Weeks)</h2>
+<table class="cost-summary-table">
+    <thead>
+        <tr>
+            <th>Week Starting</th>
+            <th>Service</th>
+            <th>Total Cost</th>
+            <th>Request Count</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in weekly_costs %}
+        <tr>
+            <td>{{ row.week|date:"Y-m-d" }}</td>
+            <td>
+                <span class="service-badge service-{{ row.service }}">
+                    {{ row.service|upper }}
+                </span>
+            </td>
+            <td>${{ row.total_cents|floatformat:2 }}</td>
+            <td>{{ row.count }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="4">No weekly cost data available.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<p>
+    <a href="{% url 'admin:crawler_crawlcost_changelist' %}" class="button">
+        &larr; Back to Cost List
+    </a>
+</p>
+
+{% endblock %}
