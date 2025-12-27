@@ -1,0 +1,466 @@
+[
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567001",
+    "fields": {
+      "name": "Wine Spectator",
+      "slug": "wine-spectator",
+      "base_url": "https://www.winespectator.com",
+      "product_types": ["port_wine"],
+      "category": "review",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 48,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wine/[\\w-]+/\\d+",
+        "/dailypicks/"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Blocks AI bots (GPTBot, ClaudeBot, Scrapy) but allows standard crawlers. Avoid /app/, /vendor/, /srn/ paths.",
+      "notes": "Premium wine review site. Expert ratings 50-100 scale. Port section includes vintage and tawny ports. Subscription may be needed for full reviews."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567002",
+    "fields": {
+      "name": "Decanter",
+      "slug": "decanter",
+      "base_url": "https://www.decanter.com",
+      "product_types": ["port_wine"],
+      "category": "review",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 48,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wine-reviews/[\\w-]+",
+        "/wine/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "https://www.decanter.com/sitemap.xml",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Blocks search filters and wp-admin. Sitemap available. Good source.",
+      "notes": "UK-based wine publication. Expert reviews and vintage reports. Decanter World Wine Awards. Good port coverage."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567003",
+    "fields": {
+      "name": "Wine Enthusiast",
+      "slug": "wine-enthusiast",
+      "base_url": "https://www.winemag.com",
+      "product_types": ["port_wine"],
+      "category": "review",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 72,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/buying-guide/[\\w-]+",
+        "/wine/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Standard robots.txt. Wine database accessible.",
+      "notes": "Major wine publication. 100-point rating scale. Good port coverage. Buying guide format."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567004",
+    "fields": {
+      "name": "Cellar Tracker",
+      "slug": "cellar-tracker",
+      "base_url": "https://www.cellartracker.com",
+      "product_types": ["port_wine"],
+      "category": "database",
+      "is_active": true,
+      "priority": 7,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wine/[\\w-]+/\\d+",
+        "/m/wines/\\d+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Community database. User-submitted reviews. Check ToS for data usage.",
+      "notes": "Largest wine community database. Community tasting notes and ratings. Good for vintage port tracking."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567005",
+    "fields": {
+      "name": "Taylor's Port",
+      "slug": "taylors",
+      "base_url": "https://www.taylor.pt",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/en/porto/[\\w-]+",
+        "/en/wines/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Empty Disallow means all pages allowed.",
+      "notes": "Premier vintage port producer. Official product data. Vintage declarations. Historical information."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567006",
+    "fields": {
+      "name": "Graham's Port",
+      "slug": "grahams",
+      "base_url": "https://www.grahams-port.com",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wines/[\\w-]+",
+        "/our-wines/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Content signals framework detected. Standard crawling permitted.",
+      "notes": "Premium port producer (Symington). Six Grapes, Vintage, Tawny ranges. Official product data."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567007",
+    "fields": {
+      "name": "Fonseca Port",
+      "slug": "fonseca",
+      "base_url": "https://www.fonseca.pt",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/en/our-wines/[\\w-]+",
+        "/wines/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Empty Disallow means all pages allowed.",
+      "notes": "Premier vintage port producer. Guimaraens vintages. Official product data."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567008",
+    "fields": {
+      "name": "Symington Family Estates",
+      "slug": "symington",
+      "base_url": "https://www.symington.com",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wines/[\\w-]+",
+        "/brands/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Parent company. Standard robots.txt expected.",
+      "notes": "Owns Graham's, Dow's, Warre's, Cockburn's, Quinta do Vesuvio. Multi-brand source."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567009",
+    "fields": {
+      "name": "Quinta do Noval",
+      "slug": "quinta-do-noval",
+      "base_url": "https://www.quintadonoval.com",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wines/[\\w-]+",
+        "/our-ports/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Standard producer site. Nacional series (ungrafted vines) is flagship.",
+      "notes": "Nacional is legendary (ungrafted vines). Premium vintage port producer. Official product data."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567010",
+    "fields": {
+      "name": "Niepoort",
+      "slug": "niepoort",
+      "base_url": "https://www.niepoort.pt",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wines/[\\w-]+",
+        "/port/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Redirected from niepoort-vinhos.com. Standard producer site.",
+      "notes": "Innovative port producer. Colheitas and Tawnies. Also produces Douro wines."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567011",
+    "fields": {
+      "name": "Ramos Pinto",
+      "slug": "ramos-pinto",
+      "base_url": "https://www.ramospinto.pt",
+      "product_types": ["port_wine"],
+      "category": "producer",
+      "is_active": true,
+      "priority": 7,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/en/wines/[\\w-]+",
+        "/ports/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Standard producer site.",
+      "notes": "Owned by Champagne Louis Roederer. Traditional port producer. Good tawny range."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567012",
+    "fields": {
+      "name": "Decanter World Wine Awards",
+      "slug": "decanter-awards",
+      "base_url": "https://www.decanter.com/decanter-world-wine-awards",
+      "product_types": ["port_wine"],
+      "category": "competition",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/dwwa/[\\w-]+",
+        "/wines/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Part of Decanter site. Same robots.txt applies.",
+      "notes": "World's largest wine competition. Bronze/Silver/Gold/Platinum/Best in Show. Annual results."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567013",
+    "fields": {
+      "name": "International Wine Challenge",
+      "slug": "iwc-wine",
+      "base_url": "https://www.internationalwinechallenge.com",
+      "product_types": ["port_wine"],
+      "category": "competition",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wines/[\\w-]+",
+        "/results/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Standard competition site. Check for results database access.",
+      "notes": "Major wine competition. Medal results. Trophy winners. Annual awards cycle."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567014",
+    "fields": {
+      "name": "Jacques Wein-Depot",
+      "slug": "jacques-wein-depot",
+      "base_url": "https://www.jacques.de",
+      "product_types": ["port_wine"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 7,
+      "crawl_frequency_hours": 72,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": true,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/wein/[\\w-]+",
+        "/produkt/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "No robots.txt content at standard path. May require JavaScript rendering.",
+      "notes": "Large German wine retailer. EUR pricing. Port wine selection. DACH market intelligence."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567015",
+    "fields": {
+      "name": "Wein & Co",
+      "slug": "wein-co",
+      "base_url": "https://www.weinco.at",
+      "product_types": ["port_wine"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 6,
+      "crawl_frequency_hours": 72,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/weine/[\\w-]+",
+        "/shop/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Austrian retailer. Standard e-commerce site.",
+      "notes": "Major Austrian wine retailer. EUR pricing. Port selection for Austrian market."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "c1d2e3f4-a5b6-7890-cdef-ab1234567016",
+    "fields": {
+      "name": "IVDP - Port Wine Institute",
+      "slug": "ivdp",
+      "base_url": "https://www.ivdp.pt",
+      "product_types": ["port_wine"],
+      "category": "database",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 336,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/Statistics/[\\w-]+",
+        "/producers/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Official regulatory body. Public data expected.",
+      "notes": "Instituto dos Vinhos do Douro e Porto. Official statistics. Producer registry. Vintage declarations."
+    }
+  }
+]

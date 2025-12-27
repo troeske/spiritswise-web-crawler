@@ -1,0 +1,457 @@
+[
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567001",
+    "fields": {
+      "keyword": "vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Core category. Premium segment."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567002",
+    "fields": {
+      "keyword": "tawny port wine",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Core category. Aged tawnies."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567003",
+    "fields": {
+      "keyword": "ruby port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Entry-level category."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567004",
+    "fields": {
+      "keyword": "LBV port late bottled vintage",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Popular mid-range category."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567005",
+    "fields": {
+      "keyword": "colheita port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Single vintage tawny. Collector interest."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567006",
+    "fields": {
+      "keyword": "white port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 168,
+      "notes": "Niche category. Growing trend."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567007",
+    "fields": {
+      "keyword": "rose port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 5,
+      "search_frequency_hours": 168,
+      "notes": "New category. Croft Pink etc."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567008",
+    "fields": {
+      "keyword": "crusted port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 168,
+      "notes": "Niche style. Requires decanting."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567009",
+    "fields": {
+      "keyword": "10 year old tawny port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Age indication. Entry-level aged tawny."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567010",
+    "fields": {
+      "keyword": "20 year old tawny port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Age indication. Sweet spot for quality/value."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567011",
+    "fields": {
+      "keyword": "30 year old tawny port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Age indication. Premium segment."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567012",
+    "fields": {
+      "keyword": "40 year old tawny port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Age indication. Ultra-premium."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567013",
+    "fields": {
+      "keyword": "2022 vintage port declaration",
+      "product_types": ["port_wine"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 24,
+      "notes": "Most recent declared vintage. High interest."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567014",
+    "fields": {
+      "keyword": "2021 vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 72,
+      "notes": "Recent potential declaration."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567015",
+    "fields": {
+      "keyword": "2020 vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Recent vintage."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567016",
+    "fields": {
+      "keyword": "2017 vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Declared vintage. Widely acclaimed."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567017",
+    "fields": {
+      "keyword": "2016 vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Declared vintage. Excellent year."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567018",
+    "fields": {
+      "keyword": "2011 vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Declared vintage. Drinking now."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567019",
+    "fields": {
+      "keyword": "Taylor's vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Premier producer."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567020",
+    "fields": {
+      "keyword": "Graham's vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Premier producer."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567021",
+    "fields": {
+      "keyword": "Fonseca vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Premier producer."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567022",
+    "fields": {
+      "keyword": "Dow's vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Premier producer."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567023",
+    "fields": {
+      "keyword": "Warre's vintage port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Premier producer."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567024",
+    "fields": {
+      "keyword": "Quinta do Noval Nacional",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Legendary port. Ungrafted vines. Highest prestige."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567025",
+    "fields": {
+      "keyword": "Niepoort port wine",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Innovative producer."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567026",
+    "fields": {
+      "keyword": "single quinta port",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Single estate ports. Undeclared years."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567027",
+    "fields": {
+      "keyword": "port wine gold medal award",
+      "product_types": ["port_wine"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Competition results."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567028",
+    "fields": {
+      "keyword": "best port wine 2024",
+      "product_types": ["port_wine"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Annual best-of lists."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567029",
+    "fields": {
+      "keyword": "port wine 95 points rating",
+      "product_types": ["port_wine"],
+      "search_context": "review",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "High-scoring reviews."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567030",
+    "fields": {
+      "keyword": "port wine review tasting notes",
+      "product_types": ["port_wine"],
+      "search_context": "review",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "General reviews."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567031",
+    "fields": {
+      "keyword": "portwein kaufen preis EUR",
+      "product_types": ["port_wine"],
+      "search_context": "pricing",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 72,
+      "notes": "German pricing intelligence."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567032",
+    "fields": {
+      "keyword": "vintage port en primeur release",
+      "product_types": ["port_wine"],
+      "search_context": "pricing",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 72,
+      "notes": "En primeur/futures pricing."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567033",
+    "fields": {
+      "keyword": "declared vintage port 2022",
+      "product_types": ["port_wine"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 48,
+      "notes": "Vintage declaration news."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567034",
+    "fields": {
+      "keyword": "port wine vintage of the year",
+      "product_types": ["port_wine"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Top annual award."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "d1e2f3a4-b5c6-7890-defg-bc1234567035",
+    "fields": {
+      "keyword": "Douro Valley port producer",
+      "product_types": ["port_wine"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 336,
+      "notes": "Region discovery. Producer profiles."
+    }
+  }
+]

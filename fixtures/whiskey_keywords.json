@@ -1,0 +1,418 @@
+[
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567001",
+    "fields": {
+      "keyword": "single malt scotch whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Core category keyword. Weekly search."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567002",
+    "fields": {
+      "keyword": "bourbon whiskey",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Core category keyword. Weekly search."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567003",
+    "fields": {
+      "keyword": "rye whiskey",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Growing category. Weekly search."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567004",
+    "fields": {
+      "keyword": "irish whiskey",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Growing category. Weekly search."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567005",
+    "fields": {
+      "keyword": "japanese whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Premium category. High interest."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567006",
+    "fields": {
+      "keyword": "blended scotch whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Large category by volume."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567007",
+    "fields": {
+      "keyword": "cask strength whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Premium segment. Enthusiast interest."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567008",
+    "fields": {
+      "keyword": "single cask whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Limited releases. Collector interest."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567009",
+    "fields": {
+      "keyword": "new whisky release 2025",
+      "product_types": ["whiskey"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 24,
+      "notes": "Daily search for new releases. High priority."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567010",
+    "fields": {
+      "keyword": "limited edition whisky",
+      "product_types": ["whiskey"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 48,
+      "notes": "Twice-weekly search for limited editions."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567011",
+    "fields": {
+      "keyword": "special release scotch",
+      "product_types": ["whiskey"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 72,
+      "notes": "Diageo Special Releases and similar."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567012",
+    "fields": {
+      "keyword": "distillery exclusive whisky",
+      "product_types": ["whiskey"],
+      "search_context": "new_release",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Distillery-only releases."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567013",
+    "fields": {
+      "keyword": "Speyside single malt",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Region-specific. Largest Scotch region."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567014",
+    "fields": {
+      "keyword": "Islay whisky peated",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Region-specific. Peated style enthusiasts."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567015",
+    "fields": {
+      "keyword": "Highland single malt",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Region-specific."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567016",
+    "fields": {
+      "keyword": "Campbeltown whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 168,
+      "notes": "Small region. Niche interest."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567017",
+    "fields": {
+      "keyword": "Kentucky bourbon",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Region-specific. Core bourbon region."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567018",
+    "fields": {
+      "keyword": "18 year old whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Premium age statement."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567019",
+    "fields": {
+      "keyword": "21 year old whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Premium age statement."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567020",
+    "fields": {
+      "keyword": "25 year old whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Ultra-premium segment."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567021",
+    "fields": {
+      "keyword": "whisky gold medal award",
+      "product_types": ["whiskey"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 9,
+      "search_frequency_hours": 168,
+      "notes": "Competition results. Quality indicator."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567022",
+    "fields": {
+      "keyword": "whisky of the year",
+      "product_types": ["whiskey"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 10,
+      "search_frequency_hours": 168,
+      "notes": "Top award. High publicity value."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567023",
+    "fields": {
+      "keyword": "best scotch whisky award",
+      "product_types": ["whiskey"],
+      "search_context": "competition",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "Category-specific awards."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567024",
+    "fields": {
+      "keyword": "whisky 95 points rating",
+      "product_types": ["whiskey"],
+      "search_context": "review",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 168,
+      "notes": "High-scoring reviews."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567025",
+    "fields": {
+      "keyword": "whisky review tasting notes",
+      "product_types": ["whiskey"],
+      "search_context": "review",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "General reviews with tasting notes."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567026",
+    "fields": {
+      "keyword": "whisky preis EUR",
+      "product_types": ["whiskey"],
+      "search_context": "pricing",
+      "is_active": true,
+      "priority": 8,
+      "search_frequency_hours": 72,
+      "notes": "German pricing intelligence."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567027",
+    "fields": {
+      "keyword": "whisky kaufen online shop",
+      "product_types": ["whiskey"],
+      "search_context": "pricing",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 72,
+      "notes": "German e-commerce discovery."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567028",
+    "fields": {
+      "keyword": "single malt preis vergleich",
+      "product_types": ["whiskey"],
+      "search_context": "pricing",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 168,
+      "notes": "Price comparison sites (DACH)."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567029",
+    "fields": {
+      "keyword": "peated whisky heavily peated",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Style-specific. Peat enthusiasts."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567030",
+    "fields": {
+      "keyword": "sherry cask whisky finish",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 7,
+      "search_frequency_hours": 168,
+      "notes": "Cask type. Popular style."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567031",
+    "fields": {
+      "keyword": "port cask finished whisky",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 168,
+      "notes": "Cask finish type. Growing trend."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlerkeyword",
+    "pk": "b1c2d3e4-f5a6-7890-bcde-fa1234567032",
+    "fields": {
+      "keyword": "craft whiskey distillery",
+      "product_types": ["whiskey"],
+      "search_context": "general",
+      "is_active": true,
+      "priority": 6,
+      "search_frequency_hours": 168,
+      "notes": "Craft/micro distillery segment."
+    }
+  }
+]

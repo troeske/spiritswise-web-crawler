@@ -1,0 +1,348 @@
+[
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567001",
+    "fields": {
+      "name": "The Whisky Exchange",
+      "slug": "whisky-exchange",
+      "base_url": "https://www.thewhiskyexchange.com",
+      "product_types": ["whiskey"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 24,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/p/\\d+/[\\w-]+",
+        "/product/[\\w-]+"
+      ],
+      "pagination_pattern": "?pg={page}",
+      "sitemap_url": "https://www.thewhiskyexchange.com/sitemap.xml",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Product pages via ViewProduct.aspx are blocked in robots.txt. Use sitemap for discovery. Rate limit to 5 req/min to be polite.",
+      "notes": "Large UK retailer. Excellent product data, tasting notes, and prices. Sitemap provides product URLs. Blocked: checkout, basket, search pages."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567002",
+    "fields": {
+      "name": "Master of Malt",
+      "slug": "master-of-malt",
+      "base_url": "https://www.masterofmalt.com",
+      "product_types": ["whiskey"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 24,
+      "rate_limit_requests_per_minute": 3,
+      "requires_javascript": false,
+      "requires_proxy": true,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/p/[\\w-]+",
+        "/whiskies/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "https://www.masterofmalt.com/sitemap.xml",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Returns 429 rate limit errors. Requires proxy rotation and aggressive rate limiting. Max 3 req/min.",
+      "notes": "Major UK retailer with excellent whisky selection. Very detailed product specs. Rate limited aggressively - use proxy service."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567003",
+    "fields": {
+      "name": "Whisky Advocate",
+      "slug": "whisky-advocate",
+      "base_url": "https://www.whiskyadvocate.com",
+      "product_types": ["whiskey"],
+      "category": "review",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 48,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/ratings-reviews/[\\w-]+",
+        "/article/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "https://whiskyadvocate.com/sitemap.xml",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Blocks GPTBot and ChatGPT-User in robots.txt. Standard crawler (SpiritsWise-Crawler) is allowed. Blocks UTM tracking URLs.",
+      "notes": "Premium review site. Expert ratings and reviews. Good for new releases and ratings. Standard crawler allowed despite AI bot blocks."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567004",
+    "fields": {
+      "name": "Whiskybase",
+      "slug": "whiskybase",
+      "base_url": "https://www.whiskybase.com",
+      "product_types": ["whiskey"],
+      "category": "database",
+      "is_active": false,
+      "priority": 7,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 2,
+      "requires_javascript": false,
+      "requires_proxy": true,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/whiskies/[\\w-]+/\\d+",
+        "/whisky/\\d+"
+      ],
+      "pagination_pattern": "?offset={offset}",
+      "sitemap_url": "",
+      "robots_txt_compliant": false,
+      "tos_compliant": false,
+      "compliance_notes": "Returns 403 Forbidden. Aggressive anti-bot protection. Recommend using their API if available, or scraping with caution.",
+      "notes": "Largest whisky database with community ratings. Currently blocked - needs investigation for API access or alternative approach. Disabled until compliant method found."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567005",
+    "fields": {
+      "name": "Distiller",
+      "slug": "distiller",
+      "base_url": "https://distiller.com",
+      "product_types": ["whiskey"],
+      "category": "review",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 48,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/spirits/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "https://distiller.com/sitemap.xml",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Only blocks /data-admin. Sitemap available for efficient crawling.",
+      "notes": "Good whiskey review site with flavor profiles. Clean product data. Community ratings. Very crawler-friendly."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567006",
+    "fields": {
+      "name": "Scotch Whisky",
+      "slug": "scotchwhisky",
+      "base_url": "https://scotchwhisky.com",
+      "product_types": ["whiskey"],
+      "category": "review",
+      "is_active": true,
+      "priority": 7,
+      "crawl_frequency_hours": 72,
+      "rate_limit_requests_per_minute": 10,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/whiskypedia/[\\w-]+",
+        "/reviews/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "https://scotchwhisky.com/sitemap.xml",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Only blocks internal API and CDN paths. Sitemap available.",
+      "notes": "Good for Scotch whisky news, reviews, and distillery information. Focus on Scottish distilleries."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567007",
+    "fields": {
+      "name": "IWSC",
+      "slug": "iwsc",
+      "base_url": "https://www.iwsc.net",
+      "product_types": ["whiskey", "port_wine", "gin", "rum", "brandy"],
+      "category": "competition",
+      "is_active": true,
+      "priority": 9,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/results/[\\w-]+",
+        "/awarded/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Only test pages blocked. 2-second crawl delay for MJ12bot.",
+      "notes": "International Wine & Spirit Competition. Gold/Silver/Bronze awards. Authoritative quality indicator. Annual results."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567008",
+    "fields": {
+      "name": "World Whiskies Awards",
+      "slug": "world-whiskies-awards",
+      "base_url": "https://www.worldwhiskiesawards.com",
+      "product_types": ["whiskey"],
+      "category": "competition",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/winners/[\\w-]+",
+        "/\\d{4}/[\\w-]+"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "No restrictive robots.txt found. Annual competition results.",
+      "notes": "Annual whisky awards. Category winners and best in class. High authority for quality claims."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567009",
+    "fields": {
+      "name": "SF World Spirits Competition",
+      "slug": "sf-world-spirits",
+      "base_url": "https://www.sfspiritscomp.com",
+      "product_types": ["whiskey", "gin", "rum", "tequila", "vodka", "brandy"],
+      "category": "competition",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 168,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/results/",
+        "/spirits/"
+      ],
+      "pagination_pattern": "",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Standard robots.txt. Annual competition with extensive results database.",
+      "notes": "San Francisco World Spirits Competition. Double Gold, Gold, Silver, Bronze medals. US-focused but international entries."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567010",
+    "fields": {
+      "name": "Whisky.de",
+      "slug": "whisky-de",
+      "base_url": "https://www.whisky.de",
+      "product_types": ["whiskey"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 8,
+      "crawl_frequency_hours": 48,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/shop/[\\w-]+",
+        "/flaschen-db/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Permissive robots.txt. Blocks search params and AJAX content. General site crawling allowed.",
+      "notes": "Major German whisky retailer. EUR pricing. Extensive catalog. Good for DACH market pricing intelligence."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567011",
+    "fields": {
+      "name": "Weinquelle Luehmann",
+      "slug": "weinquelle",
+      "base_url": "https://www.weinquelle.com",
+      "product_types": ["whiskey", "port_wine"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 6,
+      "crawl_frequency_hours": 72,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/whisky/[\\w-]+",
+        "/portwein/[\\w-]+"
+      ],
+      "pagination_pattern": "?p={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Standard e-commerce robots.txt. Allows product page crawling.",
+      "notes": "German retailer with whisky and wine. EUR pricing. Good for cross-category pricing."
+    }
+  },
+  {
+    "model": "ai_enhancement_engine.crawlersource",
+    "pk": "a1b2c3d4-e5f6-7890-abcd-ef1234567012",
+    "fields": {
+      "name": "Whisky Online Schweiz",
+      "slug": "whisky-ch",
+      "base_url": "https://www.whisky.ch",
+      "product_types": ["whiskey"],
+      "category": "retailer",
+      "is_active": true,
+      "priority": 6,
+      "crawl_frequency_hours": 72,
+      "rate_limit_requests_per_minute": 5,
+      "requires_javascript": false,
+      "requires_proxy": false,
+      "requires_authentication": false,
+      "custom_headers": {},
+      "product_url_patterns": [
+        "/shop/[\\w-]+"
+      ],
+      "pagination_pattern": "?page={page}",
+      "sitemap_url": "",
+      "robots_txt_compliant": true,
+      "tos_compliant": true,
+      "compliance_notes": "Swiss retailer. CHF pricing. Standard e-commerce site.",
+      "notes": "Swiss whisky retailer. CHF pricing for Swiss market intelligence."
+    }
+  }
+]
