@@ -65,6 +65,5 @@ CRAWLER_REQUEST_TIMEOUT = 30
 CRAWLER_MAX_RETRIES = 3
 CRAWLER_RATE_LIMIT_DELAY = 1.0
 
-# URL prefix for reverse proxy (Caddy serves at /crawler/*)
-FORCE_SCRIPT_NAME = "/crawler"
-STATIC_URL = "/crawler/static/"
+# Static files URL (served directly, no prefix needed with dedicated subdomain)
+STATIC_URL = "/static/"

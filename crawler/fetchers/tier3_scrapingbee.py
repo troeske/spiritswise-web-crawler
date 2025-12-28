@@ -77,6 +77,7 @@ class Tier3ScrapingBeeFetcher:
         crawl_job=None,
         render_js: bool = True,
         premium_proxy: bool = True,
+        stealth_proxy: bool = True,
     ) -> FetchResponse:
         """
         Fetch URL content using ScrapingBee API.
@@ -87,6 +88,7 @@ class Tier3ScrapingBeeFetcher:
             crawl_job: CrawlJob instance for cost tracking
             render_js: Whether to render JavaScript
             premium_proxy: Whether to use premium proxies
+            stealth_proxy: Whether to use stealth mode (avoids detection)
 
         Returns:
             FetchResponse with content from ScrapingBee
@@ -99,6 +101,7 @@ class Tier3ScrapingBeeFetcher:
             params = {
                 "render_js": render_js,
                 "premium_proxy": premium_proxy,
+                "stealth_proxy": stealth_proxy,
                 "timeout": self.timeout * 1000,  # ScrapingBee uses milliseconds
             }
 
@@ -163,15 +166,20 @@ class Tier3ScrapingBeeFetcher:
             crawl_job: Associated CrawlJob for cost attribution
         """
         try:
+            from asgiref.sync import sync_to_async
             from crawler.models import CrawlCost
 
-            CrawlCost.objects.create(
-                service="scrapingbee",
-                cost_cents=self.COST_PER_REQUEST_CENTS,
-                crawl_job=crawl_job,
-                request_count=1,
-                timestamp=timezone.now(),
-            )
+            @sync_to_async
+            def create_cost_record():
+                CrawlCost.objects.create(
+                    service="scrapingbee",
+                    cost_cents=self.COST_PER_REQUEST_CENTS,
+                    crawl_job=crawl_job,
+                    request_count=1,
+                    timestamp=timezone.now(),
+                )
+
+            await create_cost_record()
             logger.debug(
                 f"Tracked ScrapingBee cost: {self.COST_PER_REQUEST_CENTS} cents"
             )
