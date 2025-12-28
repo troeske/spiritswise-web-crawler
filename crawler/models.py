@@ -219,8 +219,13 @@ class CrawlerSource(models.Model):
 
     # Metadata
     created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(default=timezone.now)
     notes = models.TextField(blank=True, help_text="Internal notes")
+
+    def save(self, *args, **kwargs):
+        if not kwargs.pop("raw", False):
+            self.updated_at = timezone.now()
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = "crawler_sources"
@@ -287,8 +292,13 @@ class CrawlerKeyword(models.Model):
 
     # Metadata
     created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
+    updated_at = models.DateTimeField(default=timezone.now)
     notes = models.TextField(blank=True)
+
+    def save(self, *args, **kwargs):
+        if not kwargs.pop("raw", False):
+            self.updated_at = timezone.now()
+        super().save(*args, **kwargs)
 
     class Meta:
         db_table = "crawler_keywords"

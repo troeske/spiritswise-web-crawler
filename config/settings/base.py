@@ -247,19 +247,22 @@ SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "development")
 SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0"))
 SENTRY_PROFILE_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILE_SAMPLE_RATE", "1.0"))
 
-# Initialize Sentry
-import sentry_sdk
+# Initialize Sentry (optional - fails gracefully if not installed)
+try:
+    import sentry_sdk
 
-sentry_sdk.init(
-    dsn=SENTRY_DSN,
-    # Include request headers and IP for users
-    send_default_pii=True,
-    # Capture 100% of transactions for tracing
-    traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
-    # Profile sample rate (requires sentry-sdk[profiling])
-    profiles_sample_rate=SENTRY_PROFILE_SAMPLE_RATE,
-    environment=SENTRY_ENVIRONMENT,
-)
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        # Include request headers and IP for users
+        send_default_pii=True,
+        # Capture 100% of transactions for tracing
+        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+        # Profile sample rate (requires sentry-sdk[profiling])
+        profiles_sample_rate=SENTRY_PROFILE_SAMPLE_RATE,
+        environment=SENTRY_ENVIRONMENT,
+    )
+except ImportError:
+    pass  # Sentry not installed, skip initialization
 
 
 # Crawler Configuration
