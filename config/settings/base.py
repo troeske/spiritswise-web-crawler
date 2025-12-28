@@ -254,14 +254,10 @@ sentry_sdk.init(
     dsn=SENTRY_DSN,
     # Include request headers and IP for users
     send_default_pii=True,
-    # Enable sending logs to Sentry
-    _experiments={"enable_logs": True},
     # Capture 100% of transactions for tracing
     traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
-    # Profile 100% of profile sessions
-    profile_session_sample_rate=SENTRY_PROFILE_SAMPLE_RATE,
-    # Run profiler on active transactions
-    profile_lifecycle="trace",
+    # Profile sample rate (requires sentry-sdk[profiling])
+    profiles_sample_rate=SENTRY_PROFILE_SAMPLE_RATE,
     environment=SENTRY_ENVIRONMENT,
 )
 
