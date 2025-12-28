@@ -218,26 +218,18 @@ def crawl_source(self, source_id: str, job_id: str) -> Dict[str, Any]:
         # Process URLs from frontier
         router = SmartRouter()
 
+        # Run async fetch in event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
         try:
-            # Run async fetch in event loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-            try:
-                metrics = loop.run_until_complete(
-                    _process_source_urls(source, job, router, frontier, metrics)
-                )
-            finally:
-                loop.close()
-
+            metrics = loop.run_until_complete(
+                _process_source_urls(source, job, router, frontier, metrics)
+            )
         finally:
-            # Cleanup router resources
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(router.close())
-            finally:
-                loop.close()
+            # Cleanup router resources on the SAME event loop
+            loop.run_until_complete(router.close())
+            loop.close()
 
         # Update job metrics
         job.pages_crawled = metrics["pages_crawled"]
