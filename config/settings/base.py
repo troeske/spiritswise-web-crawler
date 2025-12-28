@@ -159,6 +159,8 @@ CELERY_TASK_ROUTES = {
     "crawler.tasks.search_*": {"queue": "search"},
     "crawler.tasks.process_source": {"queue": "crawl"},
     "crawler.tasks.keyword_search": {"queue": "search"},
+    "crawler.tasks.check_due_sources": {"queue": "crawl"},
+    "crawler.tasks.check_due_keywords": {"queue": "search"},
 }
 
 
