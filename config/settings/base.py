@@ -239,45 +239,31 @@ SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY", "")
 # Sentry Configuration
 # https://docs.sentry.io/platforms/python/guides/django/
 
-SENTRY_DSN = os.getenv("SENTRY_DSN", "")
+SENTRY_DSN = os.getenv(
+    "SENTRY_DSN",
+    "https://1790c5e0bd71082316ed75211b466a1b@o4510611012911104.ingest.de.sentry.io/4510611100467280"
+)
 SENTRY_ENVIRONMENT = os.getenv("SENTRY_ENVIRONMENT", "development")
-SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.1"))
+SENTRY_TRACES_SAMPLE_RATE = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0"))
+SENTRY_PROFILE_SAMPLE_RATE = float(os.getenv("SENTRY_PROFILE_SAMPLE_RATE", "1.0"))
 
-# Initialize Sentry if DSN is configured
-if SENTRY_DSN:
-    import sentry_sdk
-    from sentry_sdk.integrations.django import DjangoIntegration
-    from sentry_sdk.integrations.celery import CeleryIntegration
-    from sentry_sdk.integrations.redis import RedisIntegration
+# Initialize Sentry
+import sentry_sdk
 
-    sentry_sdk.init(
-        dsn=SENTRY_DSN,
-        integrations=[
-            DjangoIntegration(),
-            CeleryIntegration(),
-            RedisIntegration(),
-        ],
-        environment=SENTRY_ENVIRONMENT,
-        traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
-        send_default_pii=False,
-        # Filter sensitive data
-        before_send=lambda event, hint: _filter_sensitive_data(event),
-    )
-
-
-def _filter_sensitive_data(event):
-    """Filter sensitive data from Sentry events."""
-    # Remove cookies and API keys from event data
-    if "request" in event:
-        if "cookies" in event["request"]:
-            event["request"]["cookies"] = "[Filtered]"
-        if "headers" in event["request"]:
-            headers = event["request"]["headers"]
-            sensitive_headers = ["Authorization", "Cookie", "X-Api-Key"]
-            for header in sensitive_headers:
-                if header in headers:
-                    headers[header] = "[Filtered]"
-    return event
+sentry_sdk.init(
+    dsn=SENTRY_DSN,
+    # Include request headers and IP for users
+    send_default_pii=True,
+    # Enable sending logs to Sentry
+    _experiments={"enable_logs": True},
+    # Capture 100% of transactions for tracing
+    traces_sample_rate=SENTRY_TRACES_SAMPLE_RATE,
+    # Profile 100% of profile sessions
+    profile_session_sample_rate=SENTRY_PROFILE_SAMPLE_RATE,
+    # Run profiler on active transactions
+    profile_lifecycle="trace",
+    environment=SENTRY_ENVIRONMENT,
+)
 
 
 # Crawler Configuration
