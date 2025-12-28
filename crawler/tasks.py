@@ -28,9 +28,11 @@ from crawler.models import (
     CrawlJob,
     CrawlJobStatus,
     DiscoveredProduct,
+    DiscoveredProductStatus,
     ProductType,
     CrawlError,
     ErrorType,
+    SourceCategory,
 )
 
 logger = logging.getLogger(__name__)
@@ -167,7 +169,8 @@ def crawl_source(self, source_id: str, job_id: str) -> Dict[str, Any]:
     """
     Crawl worker task - fetches URLs from source via Smart Router.
 
-    Uses ContentProcessor for AI Enhancement Service integration.
+    Uses ContentProcessor for standard sources, CompetitionOrchestrator for
+    competition sources.
 
     Args:
         source_id: UUID of the CrawlerSource to process
@@ -193,6 +196,10 @@ def crawl_source(self, source_id: str, job_id: str) -> Dict[str, Any]:
 
     # Mark job as running
     job.start()
+
+    # Check if this is a competition source - use different processing
+    if source.category == SourceCategory.COMPETITION:
+        return _crawl_competition_source(source, job)
 
     metrics = {
         "pages_crawled": 0,
@@ -266,6 +273,121 @@ def crawl_source(self, source_id: str, job_id: str) -> Dict[str, Any]:
         "job_id": job_id,
         "status": job.status,
         "metrics": metrics,
+    }
+
+
+def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str, Any]:
+    """
+    Process a competition source using CompetitionOrchestrator.
+
+    Args:
+        source: Competition CrawlerSource to process
+        job: CrawlJob tracking this crawl
+
+    Returns:
+        Dict with crawl results and metrics
+    """
+    import asyncio
+    from crawler.fetchers.smart_router import SmartRouter
+    from crawler.services.competition_orchestrator import CompetitionOrchestrator
+
+    logger.info(f"Processing competition source: {source.name}")
+
+    metrics = {
+        "pages_crawled": 0,
+        "products_found": 0,
+        "products_new": 0,
+        "products_updated": 0,
+        "errors_count": 0,
+    }
+
+    try:
+        # Determine competition year from URL or use current year
+        from datetime import datetime
+        year = datetime.now().year
+
+        # Check if URL contains year pattern
+        import re
+        year_match = re.search(r'/(\d{4})(?:/|$)', source.base_url)
+        if year_match:
+            year = int(year_match.group(1))
+
+        # Determine competition key from slug
+        competition_key = source.slug.split('-')[0] if '-' in source.slug else source.slug
+
+        # Initialize router and orchestrator
+        router = SmartRouter()
+        orchestrator = CompetitionOrchestrator()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            # Fetch the competition page
+            fetch_result = loop.run_until_complete(
+                router.fetch(source.base_url, source=source, crawl_job=job)
+            )
+
+            if not fetch_result.success:
+                raise Exception(f"Failed to fetch competition page: {fetch_result.error}")
+
+            metrics["pages_crawled"] = 1
+
+            # Run competition discovery
+            result = loop.run_until_complete(
+                orchestrator.run_competition_discovery(
+                    competition_url=source.base_url,
+                    crawl_job=job,
+                    html_content=fetch_result.content,
+                    competition_key=competition_key,
+                    year=year,
+                )
+            )
+
+            metrics["products_found"] = result.awards_found
+            metrics["products_new"] = result.skeletons_created
+            metrics["products_updated"] = result.skeletons_updated
+            metrics["errors_count"] = len(result.errors)
+
+            logger.info(
+                f"Competition discovery complete for {source.name}: "
+                f"{result.awards_found} awards, {result.skeletons_created} skeletons"
+            )
+
+        finally:
+            loop.run_until_complete(router.close())
+            loop.close()
+
+        # Update job metrics
+        job.pages_crawled = metrics["pages_crawled"]
+        job.products_found = metrics["products_found"]
+        job.products_new = metrics["products_new"]
+        job.products_updated = metrics["products_updated"]
+        job.errors_count = metrics["errors_count"]
+        job.complete(success=True)
+
+    except Exception as e:
+        logger.error(f"Competition crawl failed for {source.name}: {e}")
+        logger.error(traceback.format_exc())
+
+        CrawlError.objects.create(
+            source=source,
+            url=source.base_url,
+            error_type=ErrorType.UNKNOWN,
+            message=str(e),
+            stack_trace=traceback.format_exc(),
+        )
+
+        job.errors_count = 1
+        job.complete(success=False, error_message=str(e))
+        metrics["errors_count"] = 1
+
+    return {
+        "source_id": str(source.id),
+        "job_id": str(job.id),
+        "status": job.status,
+        "metrics": metrics,
+        "competition": True,
     }
 
 
@@ -477,6 +599,195 @@ def trigger_manual_crawl(self, source_id: str) -> Dict[str, Any]:
         "job_id": str(job.id),
         "status": "dispatched",
     }
+
+
+# Competition enrichment tasks
+@shared_task(name="crawler.tasks.enrich_skeletons", bind=True)
+def enrich_skeletons(self, limit: int = 50) -> Dict[str, Any]:
+    """
+    Periodic task to run SerpAPI searches for skeleton products.
+
+    Finds skeleton products that haven't been enriched and searches for
+    articles, reviews, and official sites to gather more information.
+
+    Args:
+        limit: Maximum number of skeletons to process in this run
+
+    Returns:
+        Dict with enrichment results
+    """
+    logger.info(f"Starting skeleton enrichment, limit={limit}")
+
+    import asyncio
+    from crawler.services.competition_orchestrator import CompetitionOrchestrator
+
+    try:
+        orchestrator = CompetitionOrchestrator()
+
+        # Check pending count first
+        pending_count = orchestrator.get_pending_skeletons_count()
+
+        if pending_count == 0:
+            logger.info("No skeletons need enrichment")
+            return {
+                "status": "completed",
+                "skeletons_processed": 0,
+                "urls_discovered": 0,
+                "urls_queued": 0,
+                "message": "No skeletons pending enrichment",
+            }
+
+        # Run async enrichment
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            result = loop.run_until_complete(
+                orchestrator.process_skeletons_for_enrichment(limit=limit)
+            )
+        finally:
+            loop.close()
+
+        logger.info(
+            f"Skeleton enrichment complete: {result.skeletons_processed} processed, "
+            f"{result.urls_discovered} URLs discovered"
+        )
+
+        return {
+            "status": "completed",
+            "skeletons_processed": result.skeletons_processed,
+            "urls_discovered": result.urls_discovered,
+            "urls_queued": result.urls_queued,
+            "errors": len(result.errors) if result.errors else 0,
+        }
+
+    except Exception as e:
+        logger.error(f"Skeleton enrichment failed: {e}")
+        logger.error(traceback.format_exc())
+        return {
+            "status": "failed",
+            "error": str(e),
+            "skeletons_processed": 0,
+        }
+
+
+@shared_task(name="crawler.tasks.process_enrichment_queue", bind=True)
+def process_enrichment_queue(self, max_urls: int = 100) -> Dict[str, Any]:
+    """
+    Periodic task to process URLs from the enrichment queue.
+
+    Fetches and processes URLs discovered during skeleton enrichment
+    to extract detailed product information, tasting notes, etc.
+
+    Args:
+        max_urls: Maximum URLs to process in this run
+
+    Returns:
+        Dict with processing results
+    """
+    logger.info(f"Processing enrichment queue, max_urls={max_urls}")
+
+    import asyncio
+    from crawler.fetchers.smart_router import SmartRouter
+    from crawler.queue.url_frontier import get_url_frontier
+    from crawler.services.content_processor import ContentProcessor
+
+    frontier = get_url_frontier()
+    queue_size = frontier.get_queue_size("enrichment")
+
+    if queue_size == 0:
+        logger.info("Enrichment queue is empty")
+        return {
+            "status": "completed",
+            "urls_processed": 0,
+            "skeletons_enriched": 0,
+            "message": "Enrichment queue empty",
+        }
+
+    urls_processed = 0
+    skeletons_enriched = 0
+    errors = 0
+
+    try:
+        router = SmartRouter()
+        processor = ContentProcessor()
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            while urls_processed < max_urls:
+                # Get next URL from enrichment queue
+                url_entry = frontier.get_next_url("enrichment")
+
+                if url_entry is None:
+                    break
+
+                url = url_entry.get("url")
+                metadata = url_entry.get("metadata", {})
+                skeleton_id = metadata.get("skeleton_id")
+
+                try:
+                    # Fetch the URL
+                    fetch_result = loop.run_until_complete(
+                        router.fetch(url)
+                    )
+
+                    if fetch_result.success:
+                        urls_processed += 1
+
+                        # Process content to extract enrichment data
+                        process_result = loop.run_until_complete(
+                            processor.process(
+                                url=url,
+                                raw_content=fetch_result.content,
+                            )
+                        )
+
+                        if process_result.success and skeleton_id:
+                            # Update skeleton with enriched data
+                            try:
+                                skeleton = DiscoveredProduct.objects.get(id=skeleton_id)
+                                if process_result.enriched_data:
+                                    skeleton.enriched_data.update(process_result.enriched_data)
+                                    skeleton.status = DiscoveredProductStatus.ENRICHED
+                                    skeleton.save()
+                                    skeletons_enriched += 1
+                            except DiscoveredProduct.DoesNotExist:
+                                logger.warning(f"Skeleton {skeleton_id} not found for URL {url}")
+
+                    else:
+                        errors += 1
+                        logger.warning(f"Failed to fetch enrichment URL {url}: {fetch_result.error}")
+
+                except Exception as e:
+                    errors += 1
+                    logger.error(f"Error processing enrichment URL {url}: {e}")
+
+        finally:
+            loop.run_until_complete(router.close())
+            loop.close()
+
+        logger.info(
+            f"Enrichment queue processing complete: {urls_processed} URLs, "
+            f"{skeletons_enriched} skeletons enriched"
+        )
+
+        return {
+            "status": "completed",
+            "urls_processed": urls_processed,
+            "skeletons_enriched": skeletons_enriched,
+            "errors": errors,
+        }
+
+    except Exception as e:
+        logger.error(f"Enrichment queue processing failed: {e}")
+        logger.error(traceback.format_exc())
+        return {
+            "status": "failed",
+            "error": str(e),
+            "urls_processed": urls_processed,
+        }
 
 
 # Legacy placeholder tasks - kept for backward compatibility

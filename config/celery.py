@@ -33,6 +33,10 @@ app.conf.task_queues = {
         "exchange": "search",
         "routing_key": "search",
     },
+    "enrichment": {
+        "exchange": "enrichment",
+        "routing_key": "enrichment",
+    },
     "default": {
         "exchange": "default",
         "routing_key": "default",
@@ -50,6 +54,8 @@ app.conf.task_routes = {
     "crawler.tasks.search_*": {"queue": "search"},
     "crawler.tasks.process_source": {"queue": "crawl"},
     "crawler.tasks.keyword_search": {"queue": "search"},
+    "crawler.tasks.enrich_skeletons": {"queue": "enrichment"},
+    "crawler.tasks.process_enrichment_queue": {"queue": "enrichment"},
 }
 
 # Configure Celery Beat schedule for periodic tasks
@@ -61,6 +67,17 @@ app.conf.beat_schedule = {
     "check-due-keywords-every-15-minutes": {
         "task": "crawler.tasks.check_due_keywords",
         "schedule": crontab(minute="*/15"),  # Every 15 minutes
+    },
+    # Competition enrichment tasks
+    "enrich-skeletons-every-30-minutes": {
+        "task": "crawler.tasks.enrich_skeletons",
+        "schedule": crontab(minute="*/30"),  # Every 30 minutes
+        "kwargs": {"limit": 50},
+    },
+    "process-enrichment-queue-every-10-minutes": {
+        "task": "crawler.tasks.process_enrichment_queue",
+        "schedule": crontab(minute="*/10"),  # Every 10 minutes
+        "kwargs": {"max_urls": 100},
     },
 }
 
