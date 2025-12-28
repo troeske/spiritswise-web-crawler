@@ -67,3 +67,6 @@ Thumbs.db
 # Playwright
 playwright-report/
 test-results/
+test_db.sqlite3
+data/
+crawler/tasks_backup.py

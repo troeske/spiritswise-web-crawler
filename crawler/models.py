@@ -202,6 +202,20 @@ class CrawlerSource(models.Model):
     )
     sitemap_url = models.URLField(blank=True, help_text="Sitemap URL if available")
 
+    # Auto-Queue Configuration
+    auto_discover_links = models.BooleanField(
+        default=True,
+        help_text="Automatically discover and queue links from crawled pages",
+    )
+    max_crawl_depth = models.IntegerField(
+        default=3,
+        help_text="Maximum depth to follow links (0 = base URL only)",
+    )
+    max_pages = models.IntegerField(
+        default=100,
+        help_text="Maximum pages to crawl per job",
+    )
+
     # Compliance
     robots_txt_compliant = models.BooleanField(
         default=True, help_text="Checked robots.txt compliance"
@@ -349,6 +363,10 @@ class CrawlJob(models.Model):
     products_new = models.IntegerField(default=0)
     products_updated = models.IntegerField(default=0)
     errors_count = models.IntegerField(default=0)
+
+    # Auto-Queue Metrics
+    links_discovered = models.IntegerField(default=0)
+    links_queued = models.IntegerField(default=0)
 
     # Error Details
     error_message = models.TextField(blank=True)

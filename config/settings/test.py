@@ -12,11 +12,16 @@ DEBUG = False
 
 ALLOWED_HOSTS = ["localhost", "127.0.0.1", "testserver"]
 
-# Test database - in-memory SQLite for speed
+# Test database - file-based SQLite for async compatibility
+# Note: In-memory SQLite creates separate DBs per thread connection,
+# which breaks async tests using sync_to_async
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
-        "NAME": ":memory:",
+        "NAME": BASE_DIR / "test_db.sqlite3",
+        "TEST": {
+            "NAME": BASE_DIR / "test_db.sqlite3",
+        },
     }
 }
 
