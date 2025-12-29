@@ -271,7 +271,6 @@ class Command(BaseCommand):
                         source_url=url,
                         product_type="whisky",
                         status=DiscoveredProductStatus.SKELETON,
-                        enrichment_status="pending",
                         extracted_data={
                             "name": title,
                             "source": source,
@@ -316,8 +315,10 @@ class Command(BaseCommand):
                     product.price_history = prices
                     if prices:
                         best = min(prices, key=lambda p: p.get("price", float("inf")))
-                        product.best_price = best
-                    product.enrichment_status = "partial"
+                        product.best_price = best.get("price")
+                        product.best_price_currency = best.get("currency", "USD")
+                        product.best_price_retailer = best.get("retailer", "")
+                        product.best_price_url = best.get("url", "")
                     product.save()
                     enriched_count += 1
                 else:
@@ -376,24 +377,26 @@ class Command(BaseCommand):
             status=DiscoveredProductStatus.SKELETON
         ).count()
         pending = DiscoveredProduct.objects.filter(
-            enrichment_status="pending"
+            status=DiscoveredProductStatus.PENDING
         ).count()
-        enriched = DiscoveredProduct.objects.filter(
-            enrichment_status__in=["partial", "completed"]
+        # Count products that have price data
+        enriched = DiscoveredProduct.objects.exclude(
+            best_price__isnull=True
         ).count()
 
         self.stdout.write(f"Total products in database: {total}")
         self.stdout.write(f"  - Skeleton status: {skeleton}")
-        self.stdout.write(f"  - Pending enrichment: {pending}")
-        self.stdout.write(f"  - Enriched: {enriched}")
+        self.stdout.write(f"  - Pending status: {pending}")
+        self.stdout.write(f"  - With price data: {enriched}")
 
         # Show recent products
-        recent = DiscoveredProduct.objects.order_by("-created_at")[:5]
+        recent = DiscoveredProduct.objects.order_by("-discovered_at")[:5]
         if recent:
             self.stdout.write("\nRecent products:")
             for p in recent:
                 name = p.extracted_data.get("name", "Unknown")[:40]
-                self.stdout.write(f"  - {name} ({p.enrichment_status})")
+                price_info = f"${p.best_price}" if p.best_price else "no price"
+                self.stdout.write(f"  - {name} ({p.status}, {price_info})")
 
         self.stdout.write(self.style.SUCCESS("\nTest completed successfully!"))
         self.stdout.write("Check PostgreSQL database for full results.\n")
