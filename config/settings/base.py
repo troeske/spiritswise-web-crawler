@@ -233,6 +233,9 @@ AI_ENHANCEMENT_SERVICE_TOKEN = os.getenv("AI_ENHANCEMENT_SERVICE_TOKEN", "")
 
 # SerpAPI for search discovery
 SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")
+SERPAPI_KEY = SERPAPI_API_KEY  # Alias for consistency
+SERPAPI_MONTHLY_QUOTA = 5000
+SERPAPI_DAILY_LIMIT = 165
 
 # ScrapingBee for Tier 3 fetching
 SCRAPINGBEE_API_KEY = os.getenv("SCRAPINGBEE_API_KEY", "")

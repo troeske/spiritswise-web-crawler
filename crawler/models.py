@@ -11,6 +11,7 @@ as specified in specs/web-crawler-architecture.md
 import uuid
 import hashlib
 import json
+from decimal import Decimal
 from django.db import models
 from django.utils import timezone
 
@@ -482,6 +483,8 @@ class DiscoveredProduct(models.Model):
     Products discovered by the crawler, pending review.
 
     Temporary storage before integration with inventory management.
+    Supports comprehensive product data collection for the multi-pronged
+    product discovery system.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -517,7 +520,7 @@ class DiscoveredProduct(models.Model):
         default=DiscoveredProductStatus.PENDING,
     )
 
-    # Task 2.3: Discovery source tracking
+    # Task 2.3: Discovery source tracking (single source - legacy)
     discovery_source = models.CharField(
         max_length=20,
         choices=DiscoverySource.choices,
@@ -530,6 +533,80 @@ class DiscoveredProduct(models.Model):
         default=list,
         blank=True,
         help_text="Competition awards data: [{'competition': 'IWSC', 'year': 2024, 'medal': 'Gold'}]",
+    )
+
+    # Phase 1: Model Expansion - New fields for comprehensive product data
+
+    # Taste Profile (JSONField)
+    taste_profile = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Tasting notes: nose, palate, finish, flavor_tags, overall_notes",
+    )
+
+    # Product Images (JSONField)
+    images = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Product images: [{url, type, source, width, height}]",
+    )
+
+    # Ratings from various sources (JSONField)
+    ratings = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Ratings: [{source, score, max_score, reviewer, date, url}]",
+    )
+
+    # Press/Article Mentions (JSONField) - named press_mentions to avoid conflict with FK relation
+    press_mentions = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Article mentions: [{url, title, source, date, snippet, mention_type}]",
+    )
+
+    # Mention Count (IntegerField)
+    mention_count = models.IntegerField(
+        default=0,
+        help_text="Total number of press/article mentions",
+    )
+
+    # Discovery Sources (JSONField) - tracks multiple discovery methods
+    discovery_sources = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Sources that discovered this product: ['competition', 'serpapi', 'hub_crawl']",
+    )
+
+    # Price History (JSONField)
+    price_history = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Historical prices: [{price, currency, retailer, url, date}]",
+    )
+
+    # Current Best Price
+    best_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Current best price found",
+    )
+    best_price_currency = models.CharField(
+        max_length=3,
+        default="USD",
+        help_text="Currency of best price",
+    )
+    best_price_retailer = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Retailer with best price",
+    )
+    best_price_url = models.URLField(
+        max_length=2000,
+        blank=True,
+        help_text="URL to best price",
     )
 
     # Matching
@@ -551,6 +628,7 @@ class DiscoveredProduct(models.Model):
             models.Index(fields=["product_type", "status"]),
             models.Index(fields=["fingerprint"]),
             models.Index(fields=["discovery_source"]),
+            models.Index(fields=["mention_count"]),
         ]
 
     def __str__(self):
@@ -619,6 +697,78 @@ class DiscoveredProduct(models.Model):
         if matched_id:
             self.matched_product_id = matched_id
         self.save(update_fields=["status", "matched_product_id"])
+
+    # Phase 1: Helper Methods for new fields
+
+    def add_discovery_source(self, source: str) -> None:
+        """Add a discovery source if not already present."""
+        if self.discovery_sources is None:
+            self.discovery_sources = []
+        if source not in self.discovery_sources:
+            self.discovery_sources.append(source)
+            self.save(update_fields=["discovery_sources"])
+
+    def add_press_mention(self, mention: dict) -> None:
+        """Add an article/press mention and update count."""
+        if self.press_mentions is None:
+            self.press_mentions = []
+        # Check for duplicate by URL
+        existing_urls = [m.get("url") for m in self.press_mentions]
+        if mention.get("url") not in existing_urls:
+            self.press_mentions.append(mention)
+            self.mention_count = len(self.press_mentions)
+            self.save(update_fields=["press_mentions", "mention_count"])
+
+    def add_rating(self, rating: dict) -> None:
+        """Add a rating if not already present from same source."""
+        if self.ratings is None:
+            self.ratings = []
+        existing_sources = [r.get("source") for r in self.ratings]
+        if rating.get("source") not in existing_sources:
+            self.ratings.append(rating)
+            self.save(update_fields=["ratings"])
+
+    def update_best_price(self, price: float, currency: str, retailer: str, url: str) -> None:
+        """Update best price if this is lower than current."""
+        price_decimal = Decimal(str(price))
+        if self.best_price is None or price_decimal < self.best_price:
+            self.best_price = price_decimal
+            self.best_price_currency = currency
+            self.best_price_retailer = retailer
+            self.best_price_url = url
+            self.save(update_fields=[
+                "best_price",
+                "best_price_currency",
+                "best_price_retailer",
+                "best_price_url",
+            ])
+
+    def add_image(self, image: dict) -> None:
+        """Add an image if URL not already present."""
+        if self.images is None:
+            self.images = []
+        existing_urls = [i.get("url") for i in self.images]
+        if image.get("url") not in existing_urls:
+            self.images.append(image)
+            self.save(update_fields=["images"])
+
+    def update_taste_profile(self, profile: dict) -> None:
+        """Merge taste profile data."""
+        current = self.taste_profile or {}
+
+        # Merge array fields (nose, palate, finish, flavor_tags)
+        for key in ["nose", "palate", "finish", "flavor_tags"]:
+            if key in profile:
+                existing = set(current.get(key, []))
+                new = set(profile.get(key, []))
+                current[key] = list(existing | new)
+
+        # Set overall_notes only if not already set
+        if "overall_notes" in profile and not current.get("overall_notes"):
+            current["overall_notes"] = profile["overall_notes"]
+
+        self.taste_profile = current
+        self.save(update_fields=["taste_profile"])
 
 
 class CrawledArticle(models.Model):
@@ -716,7 +866,7 @@ class ArticleProductMention(models.Model):
     product = models.ForeignKey(
         DiscoveredProduct,
         on_delete=models.CASCADE,
-        related_name="article_mentions",
+        related_name="article_mentions_rel",  # Changed to avoid conflict with press_mentions field
     )
 
     # Mention Details

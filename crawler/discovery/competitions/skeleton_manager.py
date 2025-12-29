@@ -3,6 +3,9 @@ Skeleton Product Manager - Creates and manages skeleton products from competitio
 
 Skeleton products are created with status='skeleton' and minimal extracted_data,
 awaiting enrichment from web crawling. They track awards data in a JSONField.
+
+Phase 1 Update: Now uses new model fields (discovery_sources, images, taste_profile, etc.)
+for comprehensive product data collection.
 """
 
 import logging
@@ -74,7 +77,7 @@ class SkeletonProductManager:
             award_entry["award_category"] = award_data["award_category"]
         if award_data.get("score"):
             award_entry["score"] = award_data["score"]
-        
+
         # Add award image URL for display in shop
         # award_image_url is at top level of award_data (from parser's to_dict spread)
         if award_data.get("award_image_url"):
@@ -107,10 +110,10 @@ class SkeletonProductManager:
         ).first()
 
         if existing:
-            # Add award to existing skeleton
-            return self._add_award_to_skeleton(existing, award_entry)
+            # Add award to existing skeleton and merge discovery sources
+            return self._add_award_to_skeleton(existing, award_entry, award_data)
 
-        # Create new skeleton product
+        # Create new skeleton product with Phase 1 fields initialized
         with transaction.atomic():
             product = DiscoveredProduct.objects.create(
                 source=source,
@@ -125,6 +128,18 @@ class SkeletonProductManager:
                 status=DiscoveredProductStatus.SKELETON,
                 discovery_source=DiscoverySource.COMPETITION,
                 awards=[award_entry],
+                # Phase 1: Initialize new fields
+                discovery_sources=["competition"],  # Track that this was discovered via competition
+                taste_profile={},  # Empty until enriched
+                images=[],  # Empty until enriched
+                ratings=[],  # Empty until enriched
+                press_mentions=[],  # Empty until enriched
+                mention_count=0,
+                price_history=[],  # Empty until enriched
+                best_price=None,
+                best_price_currency="USD",
+                best_price_retailer="",
+                best_price_url="",
             )
 
         logger.info(
@@ -173,8 +188,13 @@ class SkeletonProductManager:
         self,
         skeleton: DiscoveredProduct,
         award_entry: Dict[str, Any],
+        award_data: Dict[str, Any] = None,
     ) -> DiscoveredProduct:
-        """Add another award to an existing skeleton product."""
+        """
+        Add another award to an existing skeleton product.
+
+        Also ensures 'competition' is in discovery_sources for existing skeletons.
+        """
         # Check if this award is already recorded
         existing_awards = skeleton.awards or []
         for existing in existing_awards:
@@ -190,7 +210,16 @@ class SkeletonProductManager:
 
         # Add new award
         skeleton.awards = existing_awards + [award_entry]
-        skeleton.save(update_fields=["awards"])
+
+        # Phase 1: Ensure 'competition' is in discovery_sources
+        # This handles existing skeletons that may not have discovery_sources populated
+        if skeleton.discovery_sources is None:
+            skeleton.discovery_sources = []
+        if "competition" not in skeleton.discovery_sources:
+            skeleton.discovery_sources.append("competition")
+            skeleton.save(update_fields=["awards", "discovery_sources"])
+        else:
+            skeleton.save(update_fields=["awards"])
 
         logger.info(
             f"Added award to existing skeleton: {skeleton.extracted_data.get('name')} "
@@ -300,14 +329,20 @@ class SkeletonProductManager:
         skeleton: DiscoveredProduct,
         enriched_data: Dict[str, Any],
         source_url: str = "",
+        discovery_method: str = None,
     ) -> DiscoveredProduct:
         """
         Mark a skeleton as enriched and change status to pending.
 
         Args:
             skeleton: The skeleton product to update
-            enriched_data: Data from web crawling
+            enriched_data: Data from web crawling, may include:
+                - name, brand, price, description, volume_ml, abv (basic fields)
+                - taste_profile: dict with nose, palate, finish, flavor_tags
+                - images: list of image dicts
+                - ratings: list of rating dicts
             source_url: URL where enriched data was found
+            discovery_method: Discovery method to add (e.g., 'serpapi', 'hub_crawl')
 
         Returns:
             Updated DiscoveredProduct
@@ -329,6 +364,74 @@ class SkeletonProductManager:
         # Recompute fingerprint with enriched data
         skeleton.fingerprint = DiscoveredProduct.compute_fingerprint(skeleton.extracted_data)
 
+        # Phase 1: Handle new fields from enriched_data
+
+        # Add discovery method if provided
+        if discovery_method:
+            if skeleton.discovery_sources is None:
+                skeleton.discovery_sources = []
+            if discovery_method not in skeleton.discovery_sources:
+                skeleton.discovery_sources.append(discovery_method)
+
+        # Merge taste profile if present
+        if "taste_profile" in enriched_data and enriched_data["taste_profile"]:
+            current_profile = skeleton.taste_profile or {}
+            new_profile = enriched_data["taste_profile"]
+            for key in ["nose", "palate", "finish", "flavor_tags"]:
+                if key in new_profile:
+                    existing = set(current_profile.get(key, []))
+                    new_values = set(new_profile.get(key, []))
+                    current_profile[key] = list(existing | new_values)
+            if "overall_notes" in new_profile and not current_profile.get("overall_notes"):
+                current_profile["overall_notes"] = new_profile["overall_notes"]
+            skeleton.taste_profile = current_profile
+
+        # Add images if present
+        if "images" in enriched_data and enriched_data["images"]:
+            current_images = skeleton.images or []
+            existing_urls = {img.get("url") for img in current_images}
+            for img in enriched_data["images"]:
+                if img.get("url") and img["url"] not in existing_urls:
+                    current_images.append(img)
+                    existing_urls.add(img["url"])
+            skeleton.images = current_images
+
+        # Add ratings if present
+        if "ratings" in enriched_data and enriched_data["ratings"]:
+            current_ratings = skeleton.ratings or []
+            existing_sources = {r.get("source") for r in current_ratings}
+            for rating in enriched_data["ratings"]:
+                if rating.get("source") and rating["source"] not in existing_sources:
+                    current_ratings.append(rating)
+                    existing_sources.add(rating["source"])
+            skeleton.ratings = current_ratings
+
+        # Handle price data if present
+        if "price" in enriched_data and enriched_data["price"]:
+            price_entry = {
+                "price": enriched_data["price"],
+                "currency": enriched_data.get("currency", "USD"),
+                "retailer": enriched_data.get("retailer", "Unknown"),
+                "url": source_url,
+                "date": timezone.now().isoformat()[:10],
+            }
+            # Add to price history
+            if skeleton.price_history is None:
+                skeleton.price_history = []
+            skeleton.price_history.append(price_entry)
+
+            # Update best price if applicable
+            try:
+                new_price = float(enriched_data["price"])
+                if skeleton.best_price is None or new_price < float(skeleton.best_price):
+                    from decimal import Decimal
+                    skeleton.best_price = Decimal(str(new_price))
+                    skeleton.best_price_currency = enriched_data.get("currency", "USD")
+                    skeleton.best_price_retailer = enriched_data.get("retailer", "Unknown")
+                    skeleton.best_price_url = source_url
+            except (ValueError, TypeError):
+                pass  # Skip if price is not a valid number
+
         skeleton.save()
 
         logger.info(
@@ -337,3 +440,38 @@ class SkeletonProductManager:
         )
 
         return skeleton
+
+    def merge_discovery_sources(
+        self,
+        product: DiscoveredProduct,
+        new_sources: List[str],
+    ) -> DiscoveredProduct:
+        """
+        Merge new discovery sources into an existing product.
+
+        Phase 1: Helper method for when a product is discovered via multiple methods.
+
+        Args:
+            product: The product to update
+            new_sources: List of new discovery source strings to add
+
+        Returns:
+            Updated DiscoveredProduct
+        """
+        if product.discovery_sources is None:
+            product.discovery_sources = []
+
+        sources_added = False
+        for source in new_sources:
+            if source not in product.discovery_sources:
+                product.discovery_sources.append(source)
+                sources_added = True
+
+        if sources_added:
+            product.save(update_fields=["discovery_sources"])
+            logger.debug(
+                f"Merged discovery sources for {product.extracted_data.get('name')}: "
+                f"{product.discovery_sources}"
+            )
+
+        return product
