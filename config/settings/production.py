@@ -28,14 +28,11 @@ DATABASES = {
     }
 }
 
-# Production Cache - Redis
+# Production Cache - Redis (using Django's built-in backend)
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": os.getenv("REDIS_URL", "redis://localhost:6379/2"),
-        "OPTIONS": {
-            "CLIENT_CLASS": "django_redis.client.DefaultClient",
-        },
     }
 }
 
