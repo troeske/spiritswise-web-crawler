@@ -134,27 +134,100 @@ class IWSCParser(BaseCompetitionParser):
         soup = BeautifulSoup(html, "lxml")
         results = []
 
-        # Try multiple selector patterns for IWSC results
-        selectors = [
-            ".result-item",
-            ".results-list .item",
-            ".award-item",
-            "tr.result-row",
-            "[data-result]",
-        ]
+        # Primary selector: .c-card--listing (IWSC site structure as of Dec 2025)
+        cards = soup.select(".c-card--listing")
 
-        for selector in selectors:
-            elements = soup.select(selector)
-            if elements:
-                for element in elements:
-                    result = self._parse_iwsc_item(element, year)
-                    if result:
-                        results.append(result)
-                break
+        if cards:
+            logger.info("Found %d IWSC cards with .c-card--listing" % len(cards))
+            for card in cards:
+                title_elem = card.select_one(".c-card--listing__title")
+                if not title_elem:
+                    continue
+                # Replace <br> tags with space to avoid concatenation issues
+                for br in title_elem.find_all("br"):
+                    br.replace_with(" ")
+                product_name = self._clean_text(title_elem.get_text())
+                if not product_name or len(product_name) < 3:
+                    continue
 
-        # Fallback: try to find any structured data
-        if not results:
-            results = self._parse_iwsc_fallback(soup, year)
+                meta_elem = card.select_one(".c-card--listing__meta")
+                location = ""
+                country = None
+                if meta_elem:
+                    location = self._clean_text(meta_elem.get_text())
+                    for c in ["Scotland", "Ireland", "USA", "Japan", "Taiwan", "Belgium",
+                              "France", "Germany", "Poland", "Australia", "Canada", "Mexico",
+                              "Puerto Rico", "South Africa", "Netherlands", "India", "England"]:
+                        if c.lower() in location.lower():
+                            country = c
+                            break
+
+                # Extract medal info from awards wrapper image
+                medal = "Award"
+                score = None
+                award_image_url = None
+                
+                awards_wrapper = card.select_one(".c-card--listing__awards-wrapper")
+                if awards_wrapper:
+                    award_img = awards_wrapper.select_one("img")
+                    if award_img:
+                        # Get image URL (try data-src first, then src)
+                        img_src = award_img.get("data-src") or award_img.get("src") or ""
+                        if img_src:
+                            # Make absolute URL
+                            if img_src.startswith("/"):
+                                award_image_url = f"https://www.iwsc.net{img_src}"
+                            else:
+                                award_image_url = img_src
+                            
+                            # Extract medal type and score from URL
+                            # URL pattern: iwsc2025-gold-95-medal or iwsc2025-silver-90-medal
+                            medal_match = re.search(r"(gold|silver|bronze)-?(\d+)?-?medal", img_src.lower())
+                            if medal_match:
+                                medal = medal_match.group(1).capitalize()
+                                if medal_match.group(2):
+                                    score = int(medal_match.group(2))
+                        
+                        # Also check alt attribute for medal info
+                        alt_text = award_img.get("alt", "").lower()
+                        if not medal or medal == "Award":
+                            if "gold" in alt_text:
+                                medal = "Gold"
+                            elif "silver" in alt_text:
+                                medal = "Silver"
+                            elif "bronze" in alt_text:
+                                medal = "Bronze"
+                
+                # Build additional_info with all award details
+                additional_info = {}
+                if location:
+                    additional_info["origin"] = location
+                if score:
+                    additional_info["score"] = score
+                if award_image_url:
+                    additional_info["award_image_url"] = award_image_url
+
+                results.append(CompetitionResult(
+                    product_name=product_name,
+                    competition=self.COMPETITION_NAME,
+                    year=year,
+                    medal=medal,
+                    score=score,
+                    country=country,
+                    additional_info=additional_info,
+                ).to_dict())
+        else:
+            # Fallback to legacy selectors
+            for selector in [".result-item", ".results-list .item", ".award-item"]:
+                elements = soup.select(selector)
+                if elements:
+                    for element in elements:
+                        result = self._parse_iwsc_item(element, year)
+                        if result:
+                            results.append(result)
+                    break
+            if not results:
+                results = self._parse_iwsc_fallback(soup, year)
 
         logger.info(f"IWSC parser found {len(results)} results for year {year}")
         return results

@@ -74,6 +74,11 @@ class SkeletonProductManager:
             award_entry["award_category"] = award_data["award_category"]
         if award_data.get("score"):
             award_entry["score"] = award_data["score"]
+        
+        # Add award image URL for display in shop
+        # award_image_url is at top level of award_data (from parser's to_dict spread)
+        if award_data.get("award_image_url"):
+            award_entry["image_url"] = award_data["award_image_url"]
 
         # Build minimal extracted_data
         extracted_data = {
