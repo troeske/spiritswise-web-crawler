@@ -37,6 +37,9 @@ from crawler.models import (
 
 logger = logging.getLogger(__name__)
 
+# Whiskey-related keywords for filtering competition results
+WHISKEY_KEYWORDS = ['whisky', 'whiskey', 'bourbon', 'scotch', 'malt', 'rye']
+
 
 @shared_task(name="crawler.tasks.check_due_sources")
 def check_due_sources() -> Dict[str, Any]:
@@ -280,6 +283,9 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
     """
     Process a competition source using CompetitionOrchestrator.
 
+    For IWSC and similar competitions, iterates through whiskey-related keywords
+    to filter results. Implements deduplication using product name + year as key.
+
     Args:
         source: Competition CrawlerSource to process
         job: CrawlJob tracking this crawl
@@ -288,6 +294,8 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
         Dict with crawl results and metrics
     """
     import asyncio
+    import re
+    from urllib.parse import urlparse, urlencode, urlunparse
     from crawler.fetchers.smart_router import SmartRouter
     from crawler.services.competition_orchestrator import CompetitionOrchestrator
 
@@ -299,21 +307,26 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
         "products_new": 0,
         "products_updated": 0,
         "errors_count": 0,
+        "keywords_searched": 0,
+        "duplicates_skipped": 0,
     }
+
+    # Track seen products for deduplication (key: product_name + year)
+    seen_products = set()
 
     try:
         # Determine competition year from URL or use current year
-        from datetime import datetime
         year = datetime.now().year
 
         # Check if URL contains year pattern
-        import re
         year_match = re.search(r'/(\d{4})(?:/|$)', source.base_url)
         if year_match:
             year = int(year_match.group(1))
 
         # Determine competition key from slug
-        competition_key = source.slug.split('-')[0] if '-' in source.slug else source.slug
+        # For "international-wine-spirit-competition-iwsc", extract "iwsc" (last segment)
+        # This matches the parser registration key
+        competition_key = source.slug.split('-')[-1] if '-' in source.slug else source.slug
 
         # Initialize router and orchestrator
         router = SmartRouter()
@@ -323,35 +336,137 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
         asyncio.set_event_loop(loop)
 
         try:
-            # Fetch the competition page
-            fetch_result = loop.run_until_complete(
-                router.fetch(source.base_url, source=source, crawl_job=job)
-            )
+            # Check if this is an IWSC-style source that supports keyword filtering
+            is_iwsc = 'iwsc' in source.base_url.lower() or 'iwsc' in source.slug.lower()
 
-            if not fetch_result.success:
-                raise Exception(f"Failed to fetch competition page: {fetch_result.error}")
+            if is_iwsc:
+                # Process each keyword
+                for keyword in WHISKEY_KEYWORDS:
+                    logger.info(f"Searching IWSC for keyword: {keyword}")
+                    metrics["keywords_searched"] += 1
 
-            metrics["pages_crawled"] = 1
+                    # Build keyword URL
+                    # URL pattern: https://www.iwsc.net/results/search/{year}/{page}?type=3&q={keyword}
+                    parsed = urlparse(source.base_url)
 
-            # Run competition discovery
-            result = loop.run_until_complete(
-                orchestrator.run_competition_discovery(
-                    competition_url=source.base_url,
-                    crawl_job=job,
-                    html_content=fetch_result.content,
-                    competition_key=competition_key,
-                    year=year,
+                    # Start with page 1
+                    page = 1
+                    has_more_pages = True
+
+                    while has_more_pages:
+                        # Build URL with keyword and page
+                        # IWSC URL pattern: /results/search/{year}/{page}?type=3&q={keyword}
+                        # Keep the year in the path, only append page number
+                        base_path = parsed.path.rstrip('/')
+
+                        # For IWSC: /results/search/2025 → /results/search/2025/1
+                        # Don't remove the year! Only add page number
+                        page_path = f"{base_path}/{page}"
+
+                        # Build query string with type=3 and q=keyword
+                        query_params = {'type': '3', 'q': keyword}
+                        query_string = urlencode(query_params)
+
+                        keyword_url = urlunparse((
+                            parsed.scheme,
+                            parsed.netloc,
+                            page_path,
+                            '',
+                            query_string,
+                            ''
+                        ))
+
+                        logger.info(f"Fetching: {keyword_url}")
+
+                        # Fetch the competition page
+                        fetch_result = loop.run_until_complete(
+                            router.fetch(keyword_url, source=source, crawl_job=job)
+                        )
+
+                        if not fetch_result.success:
+                            logger.warning(f"Failed to fetch {keyword_url}: {fetch_result.error}")
+                            metrics["errors_count"] += 1
+                            break
+
+                        metrics["pages_crawled"] += 1
+
+                        # Run competition discovery with deduplication callback
+                        result = loop.run_until_complete(
+                            orchestrator.run_competition_discovery(
+                                competition_url=keyword_url,
+                                crawl_job=job,
+                                html_content=fetch_result.content,
+                                competition_key=competition_key,
+                                year=year,
+                            )
+                        )
+
+                        # Process results with deduplication
+                        new_products = 0
+
+                        # Get awards data from result if available
+                        if hasattr(result, 'awards_data') and result.awards_data:
+                            for award in result.awards_data:
+                                # Create deduplication key
+                                product_name = award.get('product_name', '').strip().lower()
+                                dedup_key = f"{product_name}|{year}"
+
+                                if dedup_key not in seen_products:
+                                    seen_products.add(dedup_key)
+                                    new_products += 1
+                                else:
+                                    metrics["duplicates_skipped"] += 1
+                        else:
+                            # Fallback: count all as new if no detailed data
+                            new_products = result.awards_found
+
+                        metrics["products_found"] += new_products
+                        metrics["products_new"] += result.skeletons_created
+                        metrics["products_updated"] += result.skeletons_updated
+                        metrics["errors_count"] += len(result.errors) if result.errors else 0
+
+                        # Check if there are more pages
+                        # If no results found or very few, stop pagination
+                        if result.awards_found == 0 or page >= 50:  # Safety limit
+                            has_more_pages = False
+                        else:
+                            page += 1
+
+                        logger.info(
+                            f"Keyword '{keyword}' page {page-1}: {result.awards_found} awards found, "
+                            f"{new_products} new (after dedup)"
+                        )
+            else:
+                # Non-IWSC competition: use original single-URL logic
+                fetch_result = loop.run_until_complete(
+                    router.fetch(source.base_url, source=source, crawl_job=job)
                 )
-            )
 
-            metrics["products_found"] = result.awards_found
-            metrics["products_new"] = result.skeletons_created
-            metrics["products_updated"] = result.skeletons_updated
-            metrics["errors_count"] = len(result.errors)
+                if not fetch_result.success:
+                    raise Exception(f"Failed to fetch competition page: {fetch_result.error}")
+
+                metrics["pages_crawled"] = 1
+
+                # Run competition discovery
+                result = loop.run_until_complete(
+                    orchestrator.run_competition_discovery(
+                        competition_url=source.base_url,
+                        crawl_job=job,
+                        html_content=fetch_result.content,
+                        competition_key=competition_key,
+                        year=year,
+                    )
+                )
+
+                metrics["products_found"] = result.awards_found
+                metrics["products_new"] = result.skeletons_created
+                metrics["products_updated"] = result.skeletons_updated
+                metrics["errors_count"] = len(result.errors) if result.errors else 0
 
             logger.info(
                 f"Competition discovery complete for {source.name}: "
-                f"{result.awards_found} awards, {result.skeletons_created} skeletons"
+                f"{metrics['products_found']} products, {metrics['keywords_searched']} keywords searched, "
+                f"{metrics['duplicates_skipped']} duplicates skipped"
             )
 
         finally:
@@ -388,6 +503,8 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
         "status": job.status,
         "metrics": metrics,
         "competition": True,
+        "keywords_searched": metrics.get("keywords_searched", 0),
+        "duplicates_skipped": metrics.get("duplicates_skipped", 0),
     }
 
 
