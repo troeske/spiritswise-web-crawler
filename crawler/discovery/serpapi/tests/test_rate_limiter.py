@@ -15,7 +15,7 @@ class TestRateLimiterCanMakeRequest:
     """Tests for can_make_request method."""
 
     def test_can_make_request_under_limit(self):
-        """Should return True when under daily limit."""
+        """Should return True when under hourly limit."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
             mock_cache.get.return_value = 10  # Low count
 
@@ -25,21 +25,21 @@ class TestRateLimiterCanMakeRequest:
             assert result is True
 
     def test_cannot_make_request_at_limit(self):
-        """Should return False when at daily limit."""
+        """Should return False when at hourly limit."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            mock_cache.get.return_value = RateLimiter.DAILY_LIMIT
-
             limiter = RateLimiter()
+            mock_cache.get.return_value = limiter.hourly_limit
+
             result = limiter.can_make_request()
 
             assert result is False
 
     def test_cannot_make_request_over_limit(self):
-        """Should return False when over daily limit."""
+        """Should return False when over hourly limit."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            mock_cache.get.return_value = RateLimiter.DAILY_LIMIT + 10
-
             limiter = RateLimiter()
+            mock_cache.get.return_value = limiter.hourly_limit + 10
+
             result = limiter.can_make_request()
 
             assert result is False
@@ -59,7 +59,7 @@ class TestRateLimiterRecordRequest:
     """Tests for record_request method."""
 
     def test_record_request_increments_count(self):
-        """Should increment daily count in cache."""
+        """Should increment hourly count in cache."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
             mock_cache.get.return_value = 5
 
@@ -68,9 +68,9 @@ class TestRateLimiterRecordRequest:
 
             # Should set count + 1
             calls = mock_cache.set.call_args_list
-            # First call is daily, second is monthly
-            daily_call = calls[0]
-            assert daily_call[0][1] == 6  # 5 + 1
+            # First call is hourly, second is monthly
+            hourly_call = calls[0]
+            assert hourly_call[0][1] == 6  # 5 + 1
 
     def test_record_request_increments_monthly_count(self):
         """Should increment monthly count in cache."""
@@ -80,7 +80,7 @@ class TestRateLimiterRecordRequest:
             limiter = RateLimiter()
             limiter.record_request()
 
-            # Should have two set calls - daily and monthly
+            # Should have two set calls - hourly and monthly
             assert mock_cache.set.call_count == 2
 
     def test_record_request_sets_cache_expiry(self):
@@ -92,43 +92,43 @@ class TestRateLimiterRecordRequest:
             limiter.record_request()
 
             calls = mock_cache.set.call_args_list
-            # Daily cache: 24 hours = 86400 seconds
-            daily_expiry = calls[0][0][2]
-            assert daily_expiry == 86400
+            # Hourly cache: 1 hour = 3600 seconds
+            hourly_expiry = calls[0][0][2]
+            assert hourly_expiry == 3600
 
             # Monthly cache: 30 days = 2592000 seconds
             monthly_expiry = calls[1][0][2]
             assert monthly_expiry == 2592000
 
 
-class TestRateLimiterDailyKey:
-    """Tests for daily key generation."""
+class TestRateLimiterHourlyKey:
+    """Tests for hourly key generation."""
 
-    def test_daily_key_includes_date(self):
-        """Daily key should include today's date."""
+    def test_hourly_key_includes_hour(self):
+        """Hourly key should include current hour."""
         limiter = RateLimiter()
-        key = limiter._daily_key()
+        key = limiter._hourly_key()
 
-        today = datetime.now().strftime("%Y-%m-%d")
-        assert today in key
+        hour = datetime.now().strftime("%Y-%m-%d-%H")
+        assert hour in key
 
-    def test_daily_key_includes_prefix(self):
-        """Daily key should include cache prefix."""
+    def test_hourly_key_includes_prefix(self):
+        """Hourly key should include cache prefix."""
         limiter = RateLimiter(cache_prefix="test_prefix")
-        key = limiter._daily_key()
+        key = limiter._hourly_key()
 
         assert "test_prefix" in key
 
-    def test_daily_key_changes_each_day(self):
-        """Daily key should change with different dates."""
+    def test_hourly_key_changes_each_hour(self):
+        """Hourly key should change with different hours."""
         limiter = RateLimiter()
 
         with patch("crawler.discovery.serpapi.rate_limiter.datetime") as mock_dt:
-            mock_dt.now.return_value.strftime.return_value = "2025-01-15"
-            key1 = limiter._daily_key()
+            mock_dt.now.return_value.strftime.return_value = "2025-01-15-14"
+            key1 = limiter._hourly_key()
 
-            mock_dt.now.return_value.strftime.return_value = "2025-01-16"
-            key2 = limiter._daily_key()
+            mock_dt.now.return_value.strftime.return_value = "2025-01-15-15"
+            key2 = limiter._hourly_key()
 
         assert key1 != key2
 
@@ -159,25 +159,25 @@ class TestRateLimiterMonthlyKey:
 
 
 class TestRateLimiterGetRemaining:
-    """Tests for get_remaining_daily and get_remaining_monthly."""
+    """Tests for get_remaining_hourly and get_remaining_monthly."""
 
-    def test_get_remaining_daily(self):
-        """Should return remaining daily requests."""
+    def test_get_remaining_hourly(self):
+        """Should return remaining hourly requests."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
             mock_cache.get.return_value = 50
 
             limiter = RateLimiter()
-            remaining = limiter.get_remaining_daily()
+            remaining = limiter.get_remaining_hourly()
 
-            assert remaining == RateLimiter.DAILY_LIMIT - 50
+            assert remaining == limiter.hourly_limit - 50
 
-    def test_get_remaining_daily_never_negative(self):
+    def test_get_remaining_hourly_never_negative(self):
         """Should never return negative remaining."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            mock_cache.get.return_value = RateLimiter.DAILY_LIMIT + 100
-
             limiter = RateLimiter()
-            remaining = limiter.get_remaining_daily()
+            mock_cache.get.return_value = limiter.hourly_limit + 100
+
+            remaining = limiter.get_remaining_hourly()
 
             assert remaining == 0
 
@@ -189,14 +189,14 @@ class TestRateLimiterGetRemaining:
             limiter = RateLimiter()
             remaining = limiter.get_remaining_monthly()
 
-            assert remaining == RateLimiter.MONTHLY_QUOTA - 1000
+            assert remaining == limiter.monthly_quota - 1000
 
     def test_get_remaining_monthly_never_negative(self):
         """Should never return negative remaining."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            mock_cache.get.return_value = RateLimiter.MONTHLY_QUOTA + 100
-
             limiter = RateLimiter()
+            mock_cache.get.return_value = limiter.monthly_quota + 100
+
             remaining = limiter.get_remaining_monthly()
 
             assert remaining == 0
@@ -215,8 +215,8 @@ class TestQuotaTrackerGetUsageStats:
             stats = tracker.get_usage_stats()
 
             assert isinstance(stats, dict)
-            assert "daily_remaining" in stats
-            assert "daily_limit" in stats
+            assert "hourly_remaining" in stats
+            assert "hourly_limit" in stats
             assert "monthly_remaining" in stats
             assert "monthly_limit" in stats
 
@@ -229,8 +229,8 @@ class TestQuotaTrackerGetUsageStats:
             tracker = QuotaTracker(limiter)
             stats = tracker.get_usage_stats()
 
-            assert stats["daily_limit"] == RateLimiter.DAILY_LIMIT
-            assert stats["monthly_limit"] == RateLimiter.MONTHLY_QUOTA
+            assert stats["hourly_limit"] == limiter.hourly_limit
+            assert stats["monthly_limit"] == limiter.monthly_quota
 
 
 class TestQuotaTrackerIsQuotaLow:
@@ -239,10 +239,10 @@ class TestQuotaTrackerIsQuotaLow:
     def test_is_quota_low_under_threshold(self):
         """Should return True when quota is under threshold."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            # Set monthly count high (4900 out of 5000 = 100 remaining = 2%)
-            mock_cache.get.return_value = 4900
-
             limiter = RateLimiter()
+            # Set monthly count high (98% used)
+            mock_cache.get.return_value = int(limiter.monthly_quota * 0.98)
+
             tracker = QuotaTracker(limiter)
 
             assert tracker.is_quota_low(threshold=0.1) is True
@@ -250,10 +250,10 @@ class TestQuotaTrackerIsQuotaLow:
     def test_is_quota_low_above_threshold(self):
         """Should return False when quota is above threshold."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            # Set monthly count low (1000 out of 5000 = 4000 remaining = 80%)
-            mock_cache.get.return_value = 1000
-
             limiter = RateLimiter()
+            # Set monthly count low (20% used = 80% remaining)
+            mock_cache.get.return_value = int(limiter.monthly_quota * 0.2)
+
             tracker = QuotaTracker(limiter)
 
             assert tracker.is_quota_low(threshold=0.1) is False
@@ -261,10 +261,10 @@ class TestQuotaTrackerIsQuotaLow:
     def test_is_quota_low_default_threshold(self):
         """Should use default 10% threshold."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            # 4600 used = 400 remaining = 8% (under 10% threshold)
-            mock_cache.get.return_value = 4600
-
             limiter = RateLimiter()
+            # 92% used = 8% remaining (under 10% threshold)
+            mock_cache.get.return_value = int(limiter.monthly_quota * 0.92)
+
             tracker = QuotaTracker(limiter)
 
             assert tracker.is_quota_low() is True
@@ -272,10 +272,10 @@ class TestQuotaTrackerIsQuotaLow:
     def test_is_quota_low_custom_threshold(self):
         """Should respect custom threshold."""
         with patch("crawler.discovery.serpapi.rate_limiter.cache") as mock_cache:
-            # 4000 used = 1000 remaining = 20%
-            mock_cache.get.return_value = 4000
-
             limiter = RateLimiter()
+            # 80% used = 20% remaining
+            mock_cache.get.return_value = int(limiter.monthly_quota * 0.8)
+
             tracker = QuotaTracker(limiter)
 
             # 20% remaining is low for 25% threshold
@@ -284,26 +284,29 @@ class TestQuotaTrackerIsQuotaLow:
             assert tracker.is_quota_low(threshold=0.1) is False
 
 
-class TestRateLimiterConstants:
-    """Tests for RateLimiter constants."""
+class TestRateLimiterSettings:
+    """Tests for RateLimiter loading settings."""
 
-    def test_monthly_quota_constant(self):
-        """Should have correct monthly quota."""
-        assert RateLimiter.MONTHLY_QUOTA == 5000
+    def test_default_monthly_quota(self):
+        """Should have default monthly quota of 5000."""
+        with patch("crawler.discovery.serpapi.rate_limiter.cache"):
+            limiter = RateLimiter()
+            assert limiter.monthly_quota == 5000
 
-    def test_daily_limit_constant(self):
-        """Should have correct daily limit."""
-        # ~5000 / 30 days = ~165
-        assert RateLimiter.DAILY_LIMIT == 165
+    def test_default_hourly_limit(self):
+        """Should have default hourly limit of 1000."""
+        with patch("crawler.discovery.serpapi.rate_limiter.cache"):
+            limiter = RateLimiter()
+            assert limiter.hourly_limit == 1000
 
 
 class TestRateLimiterCachePrefix:
     """Tests for custom cache prefix."""
 
-    def test_custom_prefix_in_daily_key(self):
-        """Should use custom prefix in daily key."""
+    def test_custom_prefix_in_hourly_key(self):
+        """Should use custom prefix in hourly key."""
         limiter = RateLimiter(cache_prefix="custom")
-        key = limiter._daily_key()
+        key = limiter._hourly_key()
 
         assert key.startswith("custom:")
 
@@ -317,6 +320,6 @@ class TestRateLimiterCachePrefix:
     def test_default_prefix(self):
         """Should use 'serpapi' as default prefix."""
         limiter = RateLimiter()
-        key = limiter._daily_key()
+        key = limiter._hourly_key()
 
         assert key.startswith("serpapi:")

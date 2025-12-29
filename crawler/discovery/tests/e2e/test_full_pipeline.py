@@ -70,8 +70,10 @@ class TestCompleteDiscoveryToEnrichmentPipeline:
         mock_discovered_product,
     ):
         """Test pipeline respects rate limits across phases."""
-        # Simulate rate limit reached
-        mock_cache._data["serpapi:daily:2025-12-29"] = 165
+        # Simulate hourly rate limit reached
+        from datetime import datetime
+        hour_key = f"serpapi:hourly:{datetime.now().strftime('%Y-%m-%d-%H')}"
+        mock_cache._data[hour_key] = 1000
 
         with patch("crawler.discovery.serpapi.rate_limiter.cache", mock_cache):
             limiter = RateLimiter()
@@ -87,7 +89,7 @@ class TestCompleteDiscoveryToEnrichmentPipeline:
 
             # Check stats are available
             stats = tracker.get_usage_stats()
-            assert "daily_remaining" in stats
+            assert "hourly_remaining" in stats
             assert "monthly_remaining" in stats
 
 

@@ -184,9 +184,11 @@ class TestRateLimiterIntegration:
             assert limiter.can_make_request() is True
 
     def test_rate_limiter_blocks_when_exhausted(self, mock_cache):
-        """Test that rate limiter blocks when daily limit reached."""
-        # Set daily count to limit
-        mock_cache._data["serpapi:daily:2025-12-29"] = 165
+        """Test that rate limiter blocks when hourly limit reached."""
+        # Set hourly count to limit (1000 default)
+        from datetime import datetime
+        hour_key = f"serpapi:hourly:{datetime.now().strftime('%Y-%m-%d-%H')}"
+        mock_cache._data[hour_key] = 1000
 
         with patch("crawler.discovery.serpapi.rate_limiter.cache", mock_cache):
             limiter = RateLimiter()
@@ -201,9 +203,9 @@ class TestRateLimiterIntegration:
             # Get usage stats
             stats = tracker.get_usage_stats()
 
-            assert "daily_remaining" in stats
+            assert "hourly_remaining" in stats
             assert "monthly_remaining" in stats
-            assert "daily_limit" in stats
+            assert "hourly_limit" in stats
             assert "monthly_limit" in stats
 
     @responses.activate

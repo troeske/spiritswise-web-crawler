@@ -4,7 +4,7 @@ Rate Limiter and Quota Tracker - Manage SerpAPI request limits.
 Phase 2: SerpAPI Integration
 
 Provides:
-- Daily request limiting (stay within budget)
+- Hourly request limiting (plan-based rate limit)
 - Monthly quota tracking
 - Usage statistics
 - Low quota alerts
@@ -13,6 +13,7 @@ Provides:
 import logging
 from datetime import datetime
 
+from django.conf import settings
 from django.core.cache import cache
 
 logger = logging.getLogger(__name__)
@@ -24,9 +25,9 @@ class RateLimiter:
 
     Uses Django cache for distributed tracking across workers.
 
-    Limits:
-    - MONTHLY_QUOTA: 5000 searches per month (SerpAPI plan)
-    - DAILY_LIMIT: ~165 searches per day (5000 / 30)
+    Limits are configurable via settings:
+    - SERPAPI_MONTHLY_QUOTA: Monthly search quota (default 5000)
+    - SERPAPI_HOURLY_LIMIT: Hourly rate limit (default 1000)
 
     Usage:
         limiter = RateLimiter()
@@ -34,9 +35,6 @@ class RateLimiter:
             # Make API call
             limiter.record_request()
     """
-
-    MONTHLY_QUOTA = 5000
-    DAILY_LIMIT = 165  # ~5000 / 30 days
 
     def __init__(self, cache_prefix: str = "serpapi"):
         """
@@ -46,27 +44,31 @@ class RateLimiter:
             cache_prefix: Prefix for cache keys (allows multiple instances)
         """
         self.cache_prefix = cache_prefix
+        # Load limits from settings (configurable per plan)
+        self.monthly_quota = getattr(settings, "SERPAPI_MONTHLY_QUOTA", 5000)
+        self.hourly_limit = getattr(settings, "SERPAPI_HOURLY_LIMIT", 1000)
 
     def can_make_request(self) -> bool:
         """
-        Check if we can make another request today.
+        Check if we can make another request this hour.
 
         Returns:
-            True if under daily limit, False otherwise
+            True if under hourly limit and monthly quota, False otherwise
         """
-        daily_count = self._get_daily_count()
-        return daily_count < self.DAILY_LIMIT
+        hourly_count = self._get_hourly_count()
+        monthly_count = cache.get(self._monthly_key(), 0)
+        return hourly_count < self.hourly_limit and monthly_count < self.monthly_quota
 
     def record_request(self) -> None:
         """
         Record that a request was made.
 
-        Increments both daily and monthly counters in cache.
+        Increments both hourly and monthly counters in cache.
         """
-        # Update daily count
-        daily_key = self._daily_key()
-        daily_count = cache.get(daily_key, 0)
-        cache.set(daily_key, daily_count + 1, 86400)  # 24 hours
+        # Update hourly count
+        hourly_key = self._hourly_key()
+        hourly_count = cache.get(hourly_key, 0)
+        cache.set(hourly_key, hourly_count + 1, 3600)  # 1 hour
 
         # Update monthly count
         monthly_key = self._monthly_key()
@@ -74,18 +76,18 @@ class RateLimiter:
         cache.set(monthly_key, monthly_count + 1, 2592000)  # 30 days
 
         logger.debug(
-            f"SerpAPI request recorded. Daily: {daily_count + 1}/{self.DAILY_LIMIT}, "
-            f"Monthly: {monthly_count + 1}/{self.MONTHLY_QUOTA}"
+            f"SerpAPI request recorded. Hourly: {hourly_count + 1}/{self.hourly_limit}, "
+            f"Monthly: {monthly_count + 1}/{self.monthly_quota}"
         )
 
-    def get_remaining_daily(self) -> int:
+    def get_remaining_hourly(self) -> int:
         """
-        Get remaining requests for today.
+        Get remaining requests for this hour.
 
         Returns:
             Number of requests remaining (never negative)
         """
-        return max(0, self.DAILY_LIMIT - self._get_daily_count())
+        return max(0, self.hourly_limit - self._get_hourly_count())
 
     def get_remaining_monthly(self) -> int:
         """
@@ -95,21 +97,21 @@ class RateLimiter:
             Number of requests remaining (never negative)
         """
         monthly_count = cache.get(self._monthly_key(), 0)
-        return max(0, self.MONTHLY_QUOTA - monthly_count)
+        return max(0, self.monthly_quota - monthly_count)
 
-    def _get_daily_count(self) -> int:
-        """Get count of requests made today."""
-        return cache.get(self._daily_key(), 0)
+    def _get_hourly_count(self) -> int:
+        """Get count of requests made this hour."""
+        return cache.get(self._hourly_key(), 0)
 
-    def _daily_key(self) -> str:
+    def _hourly_key(self) -> str:
         """
-        Generate cache key for daily count.
+        Generate cache key for hourly count.
 
         Returns:
-            Cache key string like "serpapi:daily:2025-01-15"
+            Cache key string like "serpapi:hourly:2025-01-15-14"
         """
-        today = datetime.now().strftime("%Y-%m-%d")
-        return f"{self.cache_prefix}:daily:{today}"
+        hour = datetime.now().strftime("%Y-%m-%d-%H")
+        return f"{self.cache_prefix}:hourly:{hour}"
 
     def _monthly_key(self) -> str:
         """
@@ -151,13 +153,13 @@ class QuotaTracker:
         Get current usage statistics.
 
         Returns:
-            Dict with daily_remaining, daily_limit, monthly_remaining, monthly_limit
+            Dict with hourly_remaining, hourly_limit, monthly_remaining, monthly_limit
         """
         return {
-            "daily_remaining": self.rate_limiter.get_remaining_daily(),
-            "daily_limit": RateLimiter.DAILY_LIMIT,
+            "hourly_remaining": self.rate_limiter.get_remaining_hourly(),
+            "hourly_limit": self.rate_limiter.hourly_limit,
             "monthly_remaining": self.rate_limiter.get_remaining_monthly(),
-            "monthly_limit": RateLimiter.MONTHLY_QUOTA,
+            "monthly_limit": self.rate_limiter.monthly_quota,
         }
 
     def is_quota_low(self, threshold: float = 0.1) -> bool:
@@ -171,5 +173,5 @@ class QuotaTracker:
             True if remaining monthly quota is below threshold
         """
         monthly_remaining = self.rate_limiter.get_remaining_monthly()
-        low_threshold = RateLimiter.MONTHLY_QUOTA * threshold
+        low_threshold = self.rate_limiter.monthly_quota * threshold
         return monthly_remaining < low_threshold
