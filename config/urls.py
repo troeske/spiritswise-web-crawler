@@ -13,6 +13,8 @@ from drf_spectacular.views import (
     SpectacularSwaggerView,
 )
 
+from crawler.views import health_check
+
 urlpatterns = [
     # Django Admin
     path("admin/", admin.site.urls),
@@ -29,6 +31,10 @@ urlpatterns = [
         SpectacularRedocView.as_view(url_name="schema"),
         name="redoc",
     ),
+
+    # Health Check Endpoint (no auth required for load balancer checks)
+    # Task Group 29: Maps /api/health/ to health check view
+    path("api/health/", health_check, name="health-check"),
 
     # Crawler API (to be implemented in later task groups)
     path("api/v1/", include("crawler.urls")),

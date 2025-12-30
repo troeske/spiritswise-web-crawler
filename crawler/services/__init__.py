@@ -7,6 +7,9 @@ Contains:
 - sitemap_parser: Sitemap parsing and URL discovery
 - link_extractor: Link extraction, filtering, and categorization
 - auto_queue_service: Auto-queue integration for link discovery
+- strategy_detection: Crawl strategy auto-detection and escalation
+- scrapingbee_client: ScrapingBee API client wrapper
+- wayback: Wayback Machine integration service
 """
 
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult
@@ -28,6 +31,24 @@ from crawler.services.auto_queue_service import (
     AutoQueueResult,
     get_auto_queue_service,
 )
+from crawler.services.strategy_detection import (
+    ObstacleType,
+    DetectedObstacle,
+    detect_obstacles,
+    StrategyEscalationService,
+    EscalationResult,
+)
+from crawler.services.scrapingbee_client import (
+    ScrapingBeeClient,
+    ScrapingBeeMode,
+    ScrapingBeeResponse,
+)
+from crawler.services.wayback import (
+    save_to_wayback,
+    mark_wayback_failed,
+    cleanup_raw_content,
+    get_pending_wayback_sources,
+)
 
 __all__ = [
     "AIEnhancementClient",
@@ -44,4 +65,19 @@ __all__ = [
     "AutoQueueService",
     "AutoQueueResult",
     "get_auto_queue_service",
+    # Strategy detection
+    "ObstacleType",
+    "DetectedObstacle",
+    "detect_obstacles",
+    "StrategyEscalationService",
+    "EscalationResult",
+    # ScrapingBee client
+    "ScrapingBeeClient",
+    "ScrapingBeeMode",
+    "ScrapingBeeResponse",
+    # Wayback Machine integration
+    "save_to_wayback",
+    "mark_wayback_failed",
+    "cleanup_raw_content",
+    "get_pending_wayback_sources",
 ]

@@ -10,6 +10,10 @@ Task Group 6 Implementation:
 Task Group 7 Integration:
 - Uses ContentProcessor for AI Enhancement Service integration
 - Tracks costs via CrawlCost model
+
+Task Group 31 Implementation:
+- archive_to_wayback: Archive CrawledSource to Wayback Machine
+- process_pending_wayback: Batch process pending archives
 """
 
 import logging
@@ -936,3 +940,197 @@ def debug_task(self) -> Dict[str, Any]:
     """Debug task for testing Celery configuration."""
     logger.info(f"Debug task executed. Request: {self.request!r}")
     return {"status": "success", "message": "Debug task completed"}
+
+
+# ============================================================
+# Task Group 31: Wayback Machine Integration Tasks
+# ============================================================
+
+
+@shared_task(
+    name="crawler.tasks.archive_to_wayback",
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,  # 1 minute delay, will use exponential backoff
+)
+def archive_to_wayback(self, crawled_source_id: str) -> Dict[str, Any]:
+    """
+    Archive a CrawledSource URL to the Wayback Machine.
+
+    Task Group 31: Async Celery task for Wayback Machine archiving.
+    Triggers after successful crawl. Implements exponential backoff retry
+    with maximum 3 retries before marking as failed.
+
+    Args:
+        crawled_source_id: UUID of the CrawledSource to archive
+
+    Returns:
+        Dict with archive result status
+    """
+    from crawler.models import CrawledSource, WaybackStatusChoices
+    from crawler.services.wayback import save_to_wayback, mark_wayback_failed
+
+    logger.info(f"Archiving CrawledSource {crawled_source_id} to Wayback Machine")
+
+    try:
+        crawled_source = CrawledSource.objects.get(id=crawled_source_id)
+    except CrawledSource.DoesNotExist:
+        logger.error(f"CrawledSource {crawled_source_id} not found")
+        return {
+            "crawled_source_id": crawled_source_id,
+            "status": "failed",
+            "error": "CrawledSource not found",
+        }
+
+    # Skip if already saved or marked as not applicable
+    if crawled_source.wayback_status in [
+        WaybackStatusChoices.SAVED,
+        WaybackStatusChoices.NOT_APPLICABLE,
+    ]:
+        logger.info(
+            f"Skipping Wayback archive for {crawled_source.url}: "
+            f"status is '{crawled_source.wayback_status}'"
+        )
+        return {
+            "crawled_source_id": crawled_source_id,
+            "status": "skipped",
+            "wayback_status": crawled_source.wayback_status,
+        }
+
+    # Attempt to save to Wayback Machine
+    result = save_to_wayback(crawled_source)
+
+    if result["success"]:
+        logger.info(
+            f"Successfully archived {crawled_source.url} to Wayback Machine: "
+            f"{result['wayback_url']}"
+        )
+        return {
+            "crawled_source_id": crawled_source_id,
+            "url": crawled_source.url,
+            "status": "success",
+            "wayback_url": result["wayback_url"],
+        }
+    else:
+        # Retry with exponential backoff
+        retry_count = self.request.retries
+        logger.warning(
+            f"Wayback archive failed for {crawled_source.url}, "
+            f"retry {retry_count + 1}/{self.max_retries}: {result.get('error')}"
+        )
+
+        if retry_count < self.max_retries:
+            # Exponential backoff: 60s, 120s, 240s
+            countdown = self.default_retry_delay * (2 ** retry_count)
+            raise self.retry(countdown=countdown)
+        else:
+            # Max retries exceeded - mark as failed
+            mark_wayback_failed(crawled_source)
+            logger.error(
+                f"Wayback archive failed permanently for {crawled_source.url} "
+                f"after {self.max_retries} retries"
+            )
+            return {
+                "crawled_source_id": crawled_source_id,
+                "url": crawled_source.url,
+                "status": "failed",
+                "error": result.get("error"),
+                "retries_exhausted": True,
+            }
+
+
+@shared_task(name="crawler.tasks.process_pending_wayback")
+def process_pending_wayback(limit: int = 50) -> Dict[str, Any]:
+    """
+    Process pending Wayback Machine archives in batch.
+
+    Task Group 31: Periodic task to find CrawledSource records with
+    wayback_status='pending' and extraction_status='processed', then
+    trigger archive_to_wayback for each.
+
+    Args:
+        limit: Maximum number of sources to process in this batch
+
+    Returns:
+        Dict with batch processing results
+    """
+    from crawler.services.wayback import get_pending_wayback_sources
+
+    logger.info(f"Processing pending Wayback archives, limit={limit}")
+
+    pending_sources = get_pending_wayback_sources(limit=limit)
+    dispatched = 0
+
+    for source in pending_sources:
+        try:
+            # Dispatch archive task
+            archive_to_wayback.apply_async(
+                args=[str(source.id)],
+                queue="wayback",
+            )
+            dispatched += 1
+            logger.debug(f"Dispatched Wayback archive for: {source.url}")
+
+        except Exception as e:
+            logger.error(f"Failed to dispatch Wayback archive for {source.url}: {e}")
+
+    logger.info(f"Wayback batch processing: {dispatched}/{len(pending_sources)} dispatched")
+
+    return {
+        "status": "completed",
+        "pending_found": len(pending_sources),
+        "dispatched": dispatched,
+        "timestamp": timezone.now().isoformat(),
+    }
+
+
+@shared_task(name="crawler.tasks.cleanup_raw_content_batch")
+def cleanup_raw_content_batch(limit: int = 100) -> Dict[str, Any]:
+    """
+    Batch cleanup of raw_content for successfully archived sources.
+
+    Task Group 31: Periodic task to find CrawledSource records with
+    wayback_status='saved' and raw_content_cleared=False, then clear
+    raw_content to save storage.
+
+    Args:
+        limit: Maximum number of sources to clean up in this batch
+
+    Returns:
+        Dict with cleanup results
+    """
+    from crawler.models import CrawledSource, WaybackStatusChoices
+    from crawler.services.wayback import cleanup_raw_content
+
+    logger.info(f"Starting raw_content batch cleanup, limit={limit}")
+
+    # Find sources ready for cleanup
+    sources_to_cleanup = CrawledSource.objects.filter(
+        wayback_status=WaybackStatusChoices.SAVED,
+        raw_content_cleared=False,
+    ).exclude(
+        raw_content__isnull=True,
+    ).exclude(
+        raw_content="",
+    )[:limit]
+
+    cleaned = 0
+    errors = 0
+
+    for source in sources_to_cleanup:
+        try:
+            if cleanup_raw_content(source):
+                cleaned += 1
+        except Exception as e:
+            errors += 1
+            logger.error(f"Failed to cleanup raw_content for {source.url}: {e}")
+
+    logger.info(f"Raw content cleanup: {cleaned} cleaned, {errors} errors")
+
+    return {
+        "status": "completed",
+        "sources_found": len(sources_to_cleanup),
+        "cleaned": cleaned,
+        "errors": errors,
+        "timestamp": timezone.now().isoformat(),
+    }

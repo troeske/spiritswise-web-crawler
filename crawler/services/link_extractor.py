@@ -7,12 +7,37 @@ Extracts and classifies links from HTML content for URL discovery.
 import logging
 import re
 from dataclasses import dataclass
+from enum import Enum
 from typing import List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+
+class LinkType(Enum):
+    """Type of link based on its purpose."""
+    PRODUCT = "product"
+    CATEGORY = "category"
+    PAGINATION = "pagination"
+    ARTICLE = "article"
+    NAVIGATION = "navigation"
+    EXTERNAL = "external"
+    UNKNOWN = "unknown"
+
+
+class LinkCategory(Enum):
+    """Category of link based on content type."""
+    SPIRITS = "spirits"
+    WHISKEY = "whiskey"
+    WINE = "wine"
+    BEER = "beer"
+    NEWS = "news"
+    REVIEW = "review"
+    AWARD = "award"
+    PRICING = "pricing"
+    OTHER = "other"
 
 
 @dataclass

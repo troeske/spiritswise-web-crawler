@@ -2,6 +2,11 @@
 Django admin configuration for Web Crawler models.
 
 Task Group 8: Admin Dashboard & Source Management
+Task Group 21: ProductAvailability Admin
+Task Group 22: CategoryInsight Admin
+Task Group 23: PurchaseRecommendation Admin
+Task Group 24: ShopInventory Admin
+Task Group 26: CrawlerMetrics Admin
 
 Provides user-friendly interfaces for managing crawler sources,
 keywords, jobs, costs, errors, and discovered products.
@@ -31,6 +36,28 @@ from crawler.models import (
     CrawledArticle,
     CrawlCost,
     CrawlError,
+    ProductAvailability,
+    CategoryInsight,
+    PurchaseRecommendation,
+    ShopInventory,
+    CrawlerMetrics,
+    # New models
+    DiscoveredBrand,
+    WhiskeyDetails,
+    PortWineDetails,
+    ProductAward,
+    BrandAward,
+    ProductPrice,
+    ProductRating,
+    ProductImage,
+    ProductSource,
+    BrandSource,
+    ProductFieldSource,
+    ProductCandidate,
+    CrawlSchedule,
+    PriceHistory,
+    PriceAlert,
+    NewRelease,
 )
 
 # Import task for trigger_crawl action
@@ -961,3 +988,634 @@ class CrawledArticleAdmin(admin.ModelAdmin):
             return title[:60] + "..."
         return title
     title_truncated.short_description = "Title"
+
+
+# ============================================================
+# Task Group 21: ProductAvailability Admin
+# ============================================================
+
+
+@admin.register(ProductAvailability)
+class ProductAvailabilityAdmin(admin.ModelAdmin):
+    """
+    Task Group 21: Admin interface for product availability records.
+
+    Displays availability across retailers with stock status badges,
+    price information, and filtering by stock level.
+    """
+
+    list_display = [
+        "product_name",
+        "retailer",
+        "retailer_country",
+        "stock_level_badge",
+        "price_display",
+        "price_usd_display",
+        "price_changed_badge",
+        "last_checked",
+    ]
+    list_filter = [
+        "stock_level",
+        "in_stock",
+        "price_changed",
+        "retailer_country",
+        ("last_checked", admin.DateFieldListFilter),
+    ]
+    search_fields = [
+        "retailer",
+        "retailer_url",
+        "product__extracted_data",
+    ]
+    readonly_fields = [
+        "id",
+        "product",
+        "retailer",
+        "retailer_url",
+        "retailer_country",
+        "in_stock",
+        "stock_level",
+        "price",
+        "currency",
+        "price_usd",
+        "price_eur",
+        "last_checked",
+        "price_changed",
+        "previous_price",
+    ]
+    ordering = ["-last_checked"]
+
+    fieldsets = (
+        ("Product", {
+            "fields": ("id", "product"),
+        }),
+        ("Retailer Information", {
+            "fields": ("retailer", "retailer_url", "retailer_country"),
+        }),
+        ("Stock Status", {
+            "fields": ("in_stock", "stock_level"),
+        }),
+        ("Pricing", {
+            "fields": (
+                "price",
+                "currency",
+                "price_usd",
+                "price_eur",
+            ),
+        }),
+        ("Price Change Tracking", {
+            "fields": ("price_changed", "previous_price"),
+        }),
+        ("Tracking", {
+            "fields": ("last_checked",),
+        }),
+    )
+
+    def product_name(self, obj):
+        """Display product name from extracted data."""
+        if obj.product:
+            name = obj.product.extracted_data.get("name", "Unknown")
+            if len(name) > 40:
+                return name[:40] + "..."
+            return name
+        return "-"
+    product_name.short_description = "Product"
+
+    def stock_level_badge(self, obj):
+        """Display stock level as colored badge."""
+        colors = {
+            "in_stock": "#28a745",
+            "low_stock": "#ffc107",
+            "out_of_stock": "#dc3545",
+            "pre_order": "#17a2b8",
+            "discontinued": "#6c757d",
+        }
+        color = colors.get(obj.stock_level, "#6c757d")
+        label = obj.stock_level.replace("_", " ").title()
+        return format_html(
+            '<span style="background-color: {}; color: white; '
+            'padding: 2px 8px; border-radius: 4px;">{}</span>',
+            color, label
+        )
+    stock_level_badge.short_description = "Stock"
+    stock_level_badge.admin_order_field = "stock_level"
+
+    def price_display(self, obj):
+        """Display price with currency."""
+        return f"{obj.currency} {obj.price:,.2f}"
+    price_display.short_description = "Price"
+    price_display.admin_order_field = "price"
+
+    def price_usd_display(self, obj):
+        """Display USD normalized price."""
+        if obj.price_usd:
+            return f"${obj.price_usd:,.2f}"
+        return "-"
+    price_usd_display.short_description = "Price (USD)"
+    price_usd_display.admin_order_field = "price_usd"
+
+    def price_changed_badge(self, obj):
+        """Display price changed status as badge."""
+        if obj.price_changed:
+            return format_html(
+                '<span style="background-color: #fd7e14; color: white; '
+                'padding: 2px 8px; border-radius: 4px;">Changed</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; '
+            'padding: 2px 8px; border-radius: 4px;">No Change</span>'
+        )
+    price_changed_badge.short_description = "Price Change"
+    price_changed_badge.admin_order_field = "price_changed"
+
+    def has_add_permission(self, request):
+        """Disable manual availability creation (populated by crawler)."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Disable editing availability (read-only from crawler)."""
+        return False
+
+
+# ============================================================
+# Task Group 22: CategoryInsight Admin
+# ============================================================
+
+
+@admin.register(CategoryInsight)
+class CategoryInsightAdmin(admin.ModelAdmin):
+    """
+    Task Group 22: Admin interface for category market insights.
+    """
+
+    list_display = [
+        "category_display",
+        "product_type",
+        "sub_category",
+        "trending_direction_badge",
+        "total_products",
+        "products_with_awards",
+        "avg_price_usd_display",
+        "avg_rating_display",
+        "updated_at",
+    ]
+    list_filter = [
+        "product_type",
+        "sub_category",
+        "trending_direction",
+        "country",
+    ]
+    search_fields = [
+        "product_type",
+        "sub_category",
+        "region",
+        "country",
+    ]
+    readonly_fields = [
+        "id",
+        "updated_at",
+    ]
+    ordering = ["-updated_at"]
+
+    def category_display(self, obj):
+        """Display full category path."""
+        parts = [obj.product_type, obj.sub_category]
+        if obj.region:
+            parts.append(obj.region)
+        if obj.country:
+            parts.append(obj.country)
+        return " / ".join(parts)
+    category_display.short_description = "Category"
+
+    def trending_direction_badge(self, obj):
+        """Display trending direction as colored badge."""
+        colors = {
+            "hot": "#dc3545",
+            "rising": "#28a745",
+            "stable": "#6c757d",
+            "declining": "#ffc107",
+            "cold": "#17a2b8",
+        }
+        color = colors.get(obj.trending_direction, "#6c757d")
+        label = obj.trending_direction.title()
+        return format_html(
+            '<span style="background-color: {}; color: white; '
+            'padding: 2px 8px; border-radius: 4px;">{}</span>',
+            color, label
+        )
+    trending_direction_badge.short_description = "Trend"
+    trending_direction_badge.admin_order_field = "trending_direction"
+
+    def avg_price_usd_display(self, obj):
+        """Display average USD price formatted."""
+        return f"${obj.avg_price_usd:,.2f}"
+    avg_price_usd_display.short_description = "Avg Price (USD)"
+    avg_price_usd_display.admin_order_field = "avg_price_usd"
+
+    def avg_rating_display(self, obj):
+        """Display average rating."""
+        if obj.avg_rating:
+            return f"{obj.avg_rating:.1f}"
+        return "-"
+    avg_rating_display.short_description = "Avg Rating"
+    avg_rating_display.admin_order_field = "avg_rating"
+
+
+# ============================================================
+# Task Group 23: PurchaseRecommendation Admin
+# ============================================================
+
+
+@admin.register(PurchaseRecommendation)
+class PurchaseRecommendationAdmin(admin.ModelAdmin):
+    """
+    Task Group 23: Admin interface for purchase recommendations.
+    """
+
+    list_display = [
+        "product_name",
+        "recommendation_tier",
+        "recommendation_score",
+        "is_active",
+        "created_at",
+    ]
+    list_filter = [
+        "recommendation_tier",
+        "is_active",
+        ("created_at", admin.DateFieldListFilter),
+    ]
+    ordering = ["-recommendation_score", "-created_at"]
+
+    def product_name(self, obj):
+        """Display product name from extracted data."""
+        if obj.product:
+            name = obj.product.extracted_data.get("name", "Unknown")
+            if len(name) > 40:
+                return name[:40] + "..."
+            return name
+        return "-"
+    product_name.short_description = "Product"
+
+
+# ============================================================
+# Task Group 24: ShopInventory Admin
+# ============================================================
+
+
+@admin.register(ShopInventory)
+class ShopInventoryAdmin(admin.ModelAdmin):
+    """
+    Task Group 24: Admin interface for shop inventory management.
+    """
+
+    list_display = [
+        "product_name",
+        "product_type",
+        "current_stock",
+        "reorder_point",
+        "is_active",
+    ]
+    list_filter = [
+        "product_type",
+        "is_active",
+    ]
+    search_fields = ["product_name"]
+    ordering = ["product_name"]
+
+
+# ============================================================
+# Task Group 26: CrawlerMetrics Admin
+# ============================================================
+
+
+@admin.register(CrawlerMetrics)
+class CrawlerMetricsAdmin(admin.ModelAdmin):
+    """
+    Task Group 26: Admin interface for crawler metrics.
+    """
+
+    list_display = [
+        "date",
+        "pages_crawled",
+        "products_extracted",
+        "queue_depth",
+    ]
+    list_filter = [
+        ("date", admin.DateFieldListFilter),
+    ]
+    ordering = ["-date"]
+
+    def has_add_permission(self, request):
+        """Disable manual metrics creation (populated by system)."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Disable editing metrics (read-only from system)."""
+        return False
+
+
+# ============================================================
+# New Models Admin Registration
+# ============================================================
+
+
+@admin.register(DiscoveredBrand)
+class DiscoveredBrandAdmin(admin.ModelAdmin):
+    """Admin interface for discovered brands."""
+
+    list_display = [
+        "name",
+        "country",
+        "region",
+        "product_count",
+        "award_count",
+        "created_at",
+    ]
+    list_filter = [
+        "country",
+    ]
+    search_fields = ["name", "country", "region"]
+    prepopulated_fields = {"slug": ("name",)}
+    ordering = ["name"]
+
+
+@admin.register(WhiskeyDetails)
+class WhiskeyDetailsAdmin(admin.ModelAdmin):
+    """Admin interface for whiskey details."""
+
+    list_display = [
+        "product",
+        "whiskey_type",
+        "whiskey_country",
+        "whiskey_region",
+        "distillery",
+    ]
+    list_filter = [
+        "whiskey_type",
+        "whiskey_country",
+    ]
+    search_fields = ["distillery", "whiskey_region"]
+
+
+@admin.register(PortWineDetails)
+class PortWineDetailsAdmin(admin.ModelAdmin):
+    """Admin interface for port wine details."""
+
+    list_display = [
+        "product",
+        "style",
+        "producer_house",
+        "harvest_year",
+    ]
+    list_filter = [
+        "style",
+    ]
+    search_fields = ["producer_house", "quinta"]
+
+
+@admin.register(ProductAward)
+class ProductAwardAdmin(admin.ModelAdmin):
+    """Admin interface for product awards."""
+
+    list_display = [
+        "product",
+        "competition",
+        "year",
+        "medal",
+        "award_category",
+    ]
+    list_filter = [
+        "medal",
+        "year",
+        "competition",
+    ]
+    search_fields = ["competition", "award_category"]
+    ordering = ["-year"]
+
+
+@admin.register(BrandAward)
+class BrandAwardAdmin(admin.ModelAdmin):
+    """Admin interface for brand awards."""
+
+    list_display = [
+        "brand",
+        "competition",
+        "year",
+        "medal",
+        "award_category",
+    ]
+    list_filter = [
+        "medal",
+        "year",
+        "competition",
+    ]
+    search_fields = ["competition", "award_category"]
+    ordering = ["-year"]
+
+
+@admin.register(ProductPrice)
+class ProductPriceAdmin(admin.ModelAdmin):
+    """Admin interface for product prices."""
+
+    list_display = [
+        "product",
+        "retailer",
+        "price",
+        "currency",
+        "in_stock",
+        "date_observed",
+    ]
+    list_filter = [
+        "currency",
+        "in_stock",
+        "retailer_country",
+    ]
+    search_fields = ["retailer"]
+    ordering = ["-date_observed"]
+
+
+@admin.register(ProductRating)
+class ProductRatingAdmin(admin.ModelAdmin):
+    """Admin interface for product ratings."""
+
+    list_display = [
+        "product",
+        "source",
+        "score",
+        "max_score",
+        "updated_at",
+    ]
+    list_filter = [
+        "source",
+    ]
+    search_fields = ["source", "reviewer"]
+    ordering = ["-updated_at"]
+
+
+@admin.register(ProductImage)
+class ProductImageAdmin(admin.ModelAdmin):
+    """Admin interface for product images."""
+
+    list_display = [
+        "product",
+        "image_type",
+        "source",
+        "is_primary",
+    ]
+    list_filter = [
+        "image_type",
+        "is_primary",
+    ]
+    search_fields = ["source"]
+
+
+@admin.register(ProductSource)
+class ProductSourceAdmin(admin.ModelAdmin):
+    """Admin interface for product sources junction table."""
+
+    list_display = [
+        "product",
+        "source",
+        "extraction_confidence",
+        "mention_count",
+        "extracted_at",
+    ]
+    list_filter = [
+        "extraction_confidence",
+    ]
+    ordering = ["-extracted_at"]
+
+
+@admin.register(BrandSource)
+class BrandSourceAdmin(admin.ModelAdmin):
+    """Admin interface for brand sources junction table."""
+
+    list_display = [
+        "brand",
+        "source",
+        "extraction_confidence",
+        "mention_count",
+        "extracted_at",
+    ]
+    list_filter = [
+        "extraction_confidence",
+    ]
+    ordering = ["-extracted_at"]
+
+
+@admin.register(ProductFieldSource)
+class ProductFieldSourceAdmin(admin.ModelAdmin):
+    """Admin interface for product field sources."""
+
+    list_display = [
+        "product",
+        "field_name",
+        "source",
+        "confidence",
+        "extracted_at",
+    ]
+    list_filter = [
+        "field_name",
+        "confidence",
+    ]
+    search_fields = ["field_name"]
+    ordering = ["-extracted_at"]
+
+
+@admin.register(ProductCandidate)
+class ProductCandidateAdmin(admin.ModelAdmin):
+    """Admin interface for product candidates."""
+
+    list_display = [
+        "raw_name",
+        "match_status",
+        "match_confidence",
+        "match_method",
+        "matched_product",
+        "created_at",
+    ]
+    list_filter = [
+        "match_status",
+        "match_method",
+    ]
+    search_fields = ["raw_name", "normalized_name"]
+    ordering = ["-created_at"]
+
+
+@admin.register(CrawlSchedule)
+class CrawlScheduleAdmin(admin.ModelAdmin):
+    """Admin interface for crawl schedules."""
+
+    list_display = [
+        "source",
+        "next_run",
+        "last_run",
+        "last_status",
+        "consecutive_errors",
+        "is_active",
+    ]
+    list_filter = [
+        "is_active",
+        "last_status",
+    ]
+    ordering = ["next_run"]
+
+
+@admin.register(PriceHistory)
+class PriceHistoryAdmin(admin.ModelAdmin):
+    """Admin interface for price history."""
+
+    list_display = [
+        "product",
+        "retailer",
+        "price",
+        "currency",
+        "observed_at",
+    ]
+    list_filter = [
+        "currency",
+        "retailer_country",
+    ]
+    search_fields = ["retailer"]
+    ordering = ["-observed_at"]
+
+
+@admin.register(PriceAlert)
+class PriceAlertAdmin(admin.ModelAdmin):
+    """Admin interface for price alerts."""
+
+    list_display = [
+        "product",
+        "alert_type",
+        "triggered_value",
+        "retailer",
+        "acknowledged",
+        "created_at",
+    ]
+    list_filter = [
+        "alert_type",
+        "acknowledged",
+    ]
+    ordering = ["-created_at"]
+
+
+@admin.register(NewRelease)
+class NewReleaseAdmin(admin.ModelAdmin):
+    """Admin interface for new releases."""
+
+    list_display = [
+        "name",
+        "brand",
+        "product_type",
+        "release_status",
+        "expected_release_date",
+        "limited_edition",
+        "is_tracked",
+    ]
+    list_filter = [
+        "release_status",
+        "product_type",
+        "limited_edition",
+        "is_tracked",
+    ]
+    search_fields = ["name"]
+    ordering = ["-expected_release_date"]
