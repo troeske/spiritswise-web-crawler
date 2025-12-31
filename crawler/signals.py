@@ -2,24 +2,22 @@
 Django signals for the crawler application.
 
 Task Group 21: ProductAvailability - Availability Aggregation Updates
+RECT-004: ProductAward - Award count updates
+RECT-005: ProductSource junction table signal handlers
 
 This module contains signal handlers that update denormalized counters
-on DiscoveredProduct when ProductAvailability records are created/deleted.
-
-NOTE: Signal handlers for other task groups (4, 7, 19) are defined but commented out
-because the models they reference (ProductAward, BrandAward, ProductSource, etc.)
-don't exist yet. Those signals will be uncommented when the models are created.
+on DiscoveredProduct when related records are created/deleted.
 
 Active Signals:
 - ProductAvailability save/delete -> DiscoveredProduct aggregates (Task Group 21)
+- ProductAward save/delete -> DiscoveredProduct.award_count (RECT-004)
+- BrandAward save/delete -> DiscoveredBrand.award_count (RECT-004)
+- ProductPrice save/delete -> DiscoveredProduct.price_count (Task Group 4)
+- ProductRating save/delete -> DiscoveredProduct.rating_count (Task Group 4)
+- ProductSource save/delete -> DiscoveredProduct.mention_count (RECT-005)
+- BrandSource save/delete -> DiscoveredBrand.mention_count (RECT-005)
 
 Planned Signals (uncomment when models exist):
-- ProductAward save/delete -> DiscoveredProduct.award_count
-- BrandAward save/delete -> DiscoveredBrand.award_count
-- ProductPrice save/delete -> DiscoveredProduct.price_count
-- ProductRating save/delete -> DiscoveredProduct.rating_count
-- ProductSource save/delete -> DiscoveredProduct.mention_count (Task Group 7)
-- BrandSource save/delete -> DiscoveredBrand.mention_count (Task Group 7)
 - DiscoveredProduct save -> completeness_score recalculation (Task Group 19)
 """
 
@@ -130,143 +128,217 @@ def update_product_availability_aggregates_on_delete(sender, instance, **kwargs)
 
 
 # ============================================================
-# Task Group 4: Related Data Tables - Counter Updates
-# NOTE: These handlers reference models from Task Group 4 (ProductAward, BrandAward, etc.)
-# which don't exist yet. Uncomment when those models are created.
+# RECT-004: ProductAward Counter Updates
+# Updates DiscoveredProduct.award_count when ProductAward records change.
 # ============================================================
 
-# @receiver(post_save, sender="crawler.ProductAward")
-# def update_product_award_count_on_save(sender, instance, created, **kwargs):
-#     """Update DiscoveredProduct.award_count when a ProductAward is created."""
-#     if created and instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         DiscoveredProduct.objects.filter(pk=instance.product_id).update(
-#             award_count=instance.product.awards_rel.count()
-#         )
+@receiver(post_save, sender="crawler.ProductAward")
+def update_product_award_count_on_save(sender, instance, created, **kwargs):
+    """
+    RECT-004: Update DiscoveredProduct.award_count when a ProductAward is created.
 
-# @receiver(post_delete, sender="crawler.ProductAward")
-# def update_product_award_count_on_delete(sender, instance, **kwargs):
-#     """Update DiscoveredProduct.award_count when a ProductAward is deleted."""
-#     if instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         try:
-#             product = DiscoveredProduct.objects.get(pk=instance.product_id)
-#             product.award_count = product.awards_rel.count()
-#             product.save(update_fields=["award_count"])
-#         except DiscoveredProduct.DoesNotExist:
-#             pass
+    Args:
+        sender: The ProductAward model class
+        instance: The saved ProductAward instance
+        created: True if this is a new record
+        kwargs: Additional signal arguments
+    """
+    if created and instance.product_id:
+        from crawler.models import DiscoveredProduct
+        DiscoveredProduct.objects.filter(pk=instance.product_id).update(
+            award_count=instance.product.awards_rel.count()
+        )
 
-# @receiver(post_save, sender="crawler.BrandAward")
-# def update_brand_award_count_on_save(sender, instance, created, **kwargs):
-#     """Update DiscoveredBrand.award_count when a BrandAward is created."""
-#     if created and instance.brand_id:
-#         from crawler.models import DiscoveredBrand
-#         DiscoveredBrand.objects.filter(pk=instance.brand_id).update(
-#             award_count=instance.brand.awards.count()
-#         )
 
-# @receiver(post_delete, sender="crawler.BrandAward")
-# def update_brand_award_count_on_delete(sender, instance, **kwargs):
-#     """Update DiscoveredBrand.award_count when a BrandAward is deleted."""
-#     if instance.brand_id:
-#         from crawler.models import DiscoveredBrand
-#         try:
-#             brand = DiscoveredBrand.objects.get(pk=instance.brand_id)
-#             brand.award_count = brand.awards.count()
-#             brand.save(update_fields=["award_count"])
-#         except DiscoveredBrand.DoesNotExist:
-#             pass
+@receiver(post_delete, sender="crawler.ProductAward")
+def update_product_award_count_on_delete(sender, instance, **kwargs):
+    """
+    RECT-004: Update DiscoveredProduct.award_count when a ProductAward is deleted.
 
-# @receiver(post_save, sender="crawler.ProductPrice")
-# def update_product_price_count_on_save(sender, instance, created, **kwargs):
-#     """Update DiscoveredProduct.price_count when a ProductPrice is created."""
-#     if created and instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         DiscoveredProduct.objects.filter(pk=instance.product_id).update(
-#             price_count=instance.product.prices.count()
-#         )
+    Args:
+        sender: The ProductAward model class
+        instance: The deleted ProductAward instance
+        kwargs: Additional signal arguments
+    """
+    if instance.product_id:
+        from crawler.models import DiscoveredProduct
+        try:
+            product = DiscoveredProduct.objects.get(pk=instance.product_id)
+            product.award_count = product.awards_rel.count()
+            product.save(update_fields=["award_count"])
+        except DiscoveredProduct.DoesNotExist:
+            pass
 
-# @receiver(post_delete, sender="crawler.ProductPrice")
-# def update_product_price_count_on_delete(sender, instance, **kwargs):
-#     """Update DiscoveredProduct.price_count when a ProductPrice is deleted."""
-#     if instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         try:
-#             product = DiscoveredProduct.objects.get(pk=instance.product_id)
-#             product.price_count = product.prices.count()
-#             product.save(update_fields=["price_count"])
-#         except DiscoveredProduct.DoesNotExist:
-#             pass
 
-# @receiver(post_save, sender="crawler.ProductRating")
-# def update_product_rating_count_on_save(sender, instance, created, **kwargs):
-#     """Update DiscoveredProduct.rating_count when a ProductRating is created."""
-#     if created and instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         DiscoveredProduct.objects.filter(pk=instance.product_id).update(
-#             rating_count=instance.product.ratings_rel.count()
-#         )
+@receiver(post_save, sender="crawler.BrandAward")
+def update_brand_award_count_on_save(sender, instance, created, **kwargs):
+    """Update DiscoveredBrand.award_count when a BrandAward is created."""
+    if created and instance.brand_id:
+        from crawler.models import DiscoveredBrand
+        DiscoveredBrand.objects.filter(pk=instance.brand_id).update(
+            award_count=instance.brand.awards.count()
+        )
 
-# @receiver(post_delete, sender="crawler.ProductRating")
-# def update_product_rating_count_on_delete(sender, instance, **kwargs):
-#     """Update DiscoveredProduct.rating_count when a ProductRating is deleted."""
-#     if instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         try:
-#             product = DiscoveredProduct.objects.get(pk=instance.product_id)
-#             product.rating_count = product.ratings_rel.count()
-#             product.save(update_fields=["rating_count"])
-#         except DiscoveredProduct.DoesNotExist:
-#             pass
+
+@receiver(post_delete, sender="crawler.BrandAward")
+def update_brand_award_count_on_delete(sender, instance, **kwargs):
+    """Update DiscoveredBrand.award_count when a BrandAward is deleted."""
+    if instance.brand_id:
+        from crawler.models import DiscoveredBrand
+        try:
+            brand = DiscoveredBrand.objects.get(pk=instance.brand_id)
+            brand.award_count = brand.awards.count()
+            brand.save(update_fields=["award_count"])
+        except DiscoveredBrand.DoesNotExist:
+            pass
 
 
 # ============================================================
-# Task Group 7: Junction Table Signal Handlers
-# NOTE: These handlers reference models from Task Group 7 (ProductSource, BrandSource)
-# which don't exist yet. Uncomment when those models are created.
+# Task Group 4: ProductPrice and ProductRating Counter Updates
 # ============================================================
 
-# @receiver(post_save, sender="crawler.ProductSource")
-# def update_product_mention_count_on_save(sender, instance, created, **kwargs):
-#     """Task Group 7: Update DiscoveredProduct.mention_count when ProductSource is created."""
-#     if created and instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         DiscoveredProduct.objects.filter(pk=instance.product_id).update(
-#             mention_count=instance.product.product_sources.count()
-#         )
+@receiver(post_save, sender="crawler.ProductPrice")
+def update_product_price_count_on_save(sender, instance, created, **kwargs):
+    """Update DiscoveredProduct.price_count when a ProductPrice is created."""
+    if created and instance.product_id:
+        from crawler.models import DiscoveredProduct
+        DiscoveredProduct.objects.filter(pk=instance.product_id).update(
+            price_count=instance.product.prices.count()
+        )
 
-# @receiver(post_delete, sender="crawler.ProductSource")
-# def update_product_mention_count_on_delete(sender, instance, **kwargs):
-#     """Task Group 7: Update DiscoveredProduct.mention_count when ProductSource is deleted."""
-#     if instance.product_id:
-#         from crawler.models import DiscoveredProduct
-#         try:
-#             product = DiscoveredProduct.objects.get(pk=instance.product_id)
-#             product.mention_count = product.product_sources.count()
-#             product.save(update_fields=["mention_count"])
-#         except DiscoveredProduct.DoesNotExist:
-#             pass
 
-# @receiver(post_save, sender="crawler.BrandSource")
-# def update_brand_mention_count_on_save(sender, instance, created, **kwargs):
-#     """Task Group 7: Update DiscoveredBrand.mention_count when BrandSource is created."""
-#     if created and instance.brand_id:
-#         from crawler.models import DiscoveredBrand
-#         DiscoveredBrand.objects.filter(pk=instance.brand_id).update(
-#             mention_count=instance.brand.sources.count()
-#         )
+@receiver(post_delete, sender="crawler.ProductPrice")
+def update_product_price_count_on_delete(sender, instance, **kwargs):
+    """Update DiscoveredProduct.price_count when a ProductPrice is deleted."""
+    if instance.product_id:
+        from crawler.models import DiscoveredProduct
+        try:
+            product = DiscoveredProduct.objects.get(pk=instance.product_id)
+            product.price_count = product.prices.count()
+            product.save(update_fields=["price_count"])
+        except DiscoveredProduct.DoesNotExist:
+            pass
 
-# @receiver(post_delete, sender="crawler.BrandSource")
-# def update_brand_mention_count_on_delete(sender, instance, **kwargs):
-#     """Task Group 7: Update DiscoveredBrand.mention_count when BrandSource is deleted."""
-#     if instance.brand_id:
-#         from crawler.models import DiscoveredBrand
-#         try:
-#             brand = DiscoveredBrand.objects.get(pk=instance.brand_id)
-#             brand.mention_count = brand.sources.count()
-#             brand.save(update_fields=["mention_count"])
-#         except DiscoveredBrand.DoesNotExist:
-#             pass
+
+@receiver(post_save, sender="crawler.ProductRating")
+def update_product_rating_count_on_save(sender, instance, created, **kwargs):
+    """Update DiscoveredProduct.rating_count when a ProductRating is created."""
+    if created and instance.product_id:
+        from crawler.models import DiscoveredProduct
+        DiscoveredProduct.objects.filter(pk=instance.product_id).update(
+            rating_count=instance.product.ratings_rel.count()
+        )
+
+
+@receiver(post_delete, sender="crawler.ProductRating")
+def update_product_rating_count_on_delete(sender, instance, **kwargs):
+    """Update DiscoveredProduct.rating_count when a ProductRating is deleted."""
+    if instance.product_id:
+        from crawler.models import DiscoveredProduct
+        try:
+            product = DiscoveredProduct.objects.get(pk=instance.product_id)
+            product.rating_count = product.ratings_rel.count()
+            product.save(update_fields=["rating_count"])
+        except DiscoveredProduct.DoesNotExist:
+            pass
+
+
+# ============================================================
+# RECT-005: ProductSource Junction Table Signal Handlers
+# Updates DiscoveredProduct.mention_count when ProductSource records change.
+# ============================================================
+
+@receiver(post_save, sender="crawler.ProductSource")
+def update_product_mention_count_on_save(sender, instance, created, **kwargs):
+    """
+    RECT-005: Update DiscoveredProduct.mention_count when ProductSource is created.
+
+    When a new ProductSource junction record is created linking a product
+    to a crawled source, increment the product's mention_count.
+
+    Args:
+        sender: The ProductSource model class
+        instance: The saved ProductSource instance
+        created: True if this is a new record
+        kwargs: Additional signal arguments
+    """
+    if created and instance.product_id:
+        from crawler.models import DiscoveredProduct
+        DiscoveredProduct.objects.filter(pk=instance.product_id).update(
+            mention_count=instance.product.product_sources.count()
+        )
+
+
+@receiver(post_delete, sender="crawler.ProductSource")
+def update_product_mention_count_on_delete(sender, instance, **kwargs):
+    """
+    RECT-005: Update DiscoveredProduct.mention_count when ProductSource is deleted.
+
+    When a ProductSource junction record is deleted, decrement the
+    product's mention_count.
+
+    Args:
+        sender: The ProductSource model class
+        instance: The deleted ProductSource instance
+        kwargs: Additional signal arguments
+    """
+    if instance.product_id:
+        from crawler.models import DiscoveredProduct
+        try:
+            product = DiscoveredProduct.objects.get(pk=instance.product_id)
+            product.mention_count = product.product_sources.count()
+            product.save(update_fields=["mention_count"])
+        except DiscoveredProduct.DoesNotExist:
+            pass
+
+
+# ============================================================
+# RECT-005: BrandSource Junction Table Signal Handlers
+# Updates DiscoveredBrand.mention_count when BrandSource records change.
+# ============================================================
+
+@receiver(post_save, sender="crawler.BrandSource")
+def update_brand_mention_count_on_save(sender, instance, created, **kwargs):
+    """
+    RECT-005: Update DiscoveredBrand.mention_count when BrandSource is created.
+
+    When a new BrandSource junction record is created linking a brand
+    to a crawled source, increment the brand's mention_count.
+
+    Args:
+        sender: The BrandSource model class
+        instance: The saved BrandSource instance
+        created: True if this is a new record
+        kwargs: Additional signal arguments
+    """
+    if created and instance.brand_id:
+        from crawler.models import DiscoveredBrand
+        DiscoveredBrand.objects.filter(pk=instance.brand_id).update(
+            mention_count=instance.brand.sources.count()
+        )
+
+
+@receiver(post_delete, sender="crawler.BrandSource")
+def update_brand_mention_count_on_delete(sender, instance, **kwargs):
+    """
+    RECT-005: Update DiscoveredBrand.mention_count when BrandSource is deleted.
+
+    When a BrandSource junction record is deleted, decrement the
+    brand's mention_count.
+
+    Args:
+        sender: The BrandSource model class
+        instance: The deleted BrandSource instance
+        kwargs: Additional signal arguments
+    """
+    if instance.brand_id:
+        from crawler.models import DiscoveredBrand
+        try:
+            brand = DiscoveredBrand.objects.get(pk=instance.brand_id)
+            brand.mention_count = brand.sources.count()
+            brand.save(update_fields=["mention_count"])
+        except DiscoveredBrand.DoesNotExist:
+            pass
 
 
 # ============================================================

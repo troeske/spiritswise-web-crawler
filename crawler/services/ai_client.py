@@ -2,6 +2,7 @@
 AI Enhancement Service API Client.
 
 Task 7.2: Implements async httpx client for /api/v1/enhance/from-crawler/ endpoint.
+RECT-006: Added field_confidences to EnhancementResult for per-field provenance.
 
 Features:
 - Async httpx client with configurable timeout
@@ -32,6 +33,8 @@ class EnhancementResult:
     processing_time_ms: float = 0.0
     error: Optional[str] = None
     token_usage: Optional[Dict[str, int]] = None
+    # RECT-006: Per-field confidence scores for provenance tracking
+    field_confidences: Optional[Dict[str, float]] = None
 
 
 class AIEnhancementClient:
@@ -196,6 +199,8 @@ class AIEnhancementClient:
         extracted_data = data.get("extracted_data", {})
         enrichment = data.get("enrichment", {})
         processing_time_ms = data.get("processing_time_ms", 0.0)
+        # RECT-006: Extract field-level confidences if provided by AI service
+        field_confidences = data.get("field_confidences", None)
 
         # Check for error in response body
         if "error" in data:
@@ -217,6 +222,7 @@ class AIEnhancementClient:
             extracted_data=extracted_data,
             enrichment=enrichment,
             processing_time_ms=processing_time_ms,
+            field_confidences=field_confidences,
         )
 
     async def health_check(self) -> bool:
