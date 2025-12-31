@@ -56,6 +56,7 @@ from crawler.models import (
     PortWineDetails,
     PortStyleChoices,
     DouroSubregionChoices,
+    DiscoveredBrand,
 )
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult, get_ai_client
 
@@ -1209,6 +1210,130 @@ def extract_individual_fields(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
             fields[model_field] = []
 
     return fields
+
+
+# =============================================================================
+# RECT-010: Brand Creation Functions
+# =============================================================================
+
+# Brand field mapping: AI response key -> (model field name, type converter)
+BRAND_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
+    "name": ("name", _safe_str),
+    "country": ("country", _safe_str),
+    "region": ("region", _safe_str),
+    "official_website": ("official_website", _safe_str),
+    "founded_year": ("founded_year", _safe_int),
+}
+
+
+def get_or_create_brand(
+    extracted_data: Dict[str, Any],
+) -> Tuple[Optional["DiscoveredBrand"], bool]:
+    """
+    Get or create a DiscoveredBrand from extracted data.
+
+    RECT-010: Creates brand records from AI extraction and links to products.
+
+    Looks for brand name in these fields (in order):
+    1. brand
+    2. distillery
+    3. producer
+    4. producer_house
+
+    Args:
+        extracted_data: Dict from AI Enhancement Service
+
+    Returns:
+        Tuple of (DiscoveredBrand or None, was_created bool)
+    """
+    from crawler.models import DiscoveredBrand
+
+    # Try to get brand name from multiple fields
+    brand_name = None
+    brand_country = None
+    brand_region = None
+
+    # Check "brand" field first
+    brand_name = _safe_str(extracted_data.get("brand"))
+    brand_country = _safe_str(extracted_data.get("brand_country"))
+    brand_region = _safe_str(extracted_data.get("brand_region"))
+
+    # Fallback to distillery
+    if not brand_name:
+        distillery = _safe_str(extracted_data.get("distillery"))
+        if distillery:
+            # Clean up distillery name (remove " Distillery" suffix if present)
+            brand_name = distillery.replace(" Distillery", "").strip()
+            brand_country = _safe_str(extracted_data.get("distillery_country"))
+            brand_region = _safe_str(extracted_data.get("distillery_region"))
+
+    # Fallback to producer
+    if not brand_name:
+        brand_name = _safe_str(extracted_data.get("producer"))
+        brand_country = _safe_str(extracted_data.get("producer_country"))
+        brand_region = _safe_str(extracted_data.get("producer_region"))
+
+    # Fallback to producer_house
+    if not brand_name:
+        brand_name = _safe_str(extracted_data.get("producer_house"))
+
+    # If no brand name found, return None
+    if not brand_name:
+        return None, False
+
+    # Generate slug
+    from django.utils.text import slugify
+    brand_slug = slugify(brand_name)
+
+    # Try to find existing brand (case insensitive)
+    try:
+        existing = DiscoveredBrand.objects.filter(
+            name__iexact=brand_name
+        ).first()
+
+        if existing:
+            return existing, False
+
+        # Also try to match by slug
+        existing_by_slug = DiscoveredBrand.objects.filter(
+            slug=brand_slug
+        ).first()
+
+        if existing_by_slug:
+            return existing_by_slug, False
+
+    except Exception as e:
+        logger.warning(f"Error looking up brand {brand_name}: {e}")
+
+    # Create new brand
+    try:
+        # Handle slug uniqueness
+        base_slug = brand_slug
+        counter = 1
+        while DiscoveredBrand.objects.filter(slug=brand_slug).exists():
+            brand_slug = f"{base_slug}-{counter}"
+            counter += 1
+
+        brand = DiscoveredBrand.objects.create(
+            name=brand_name,
+            slug=brand_slug,
+            country=brand_country,
+            region=brand_region,
+        )
+
+        logger.info(f"Created new brand: {brand_name} ({brand.id})")
+        return brand, True
+
+    except IntegrityError as e:
+        # Race condition - brand was created between check and create
+        logger.warning(f"IntegrityError creating brand {brand_name}, trying to fetch: {e}")
+        existing = DiscoveredBrand.objects.filter(name__iexact=brand_name).first()
+        if existing:
+            return existing, False
+        return None, False
+    except Exception as e:
+        logger.error(f"Failed to create brand {brand_name}: {e}")
+        return None, False
 
 
 @dataclass

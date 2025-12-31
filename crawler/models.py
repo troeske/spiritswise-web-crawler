@@ -1211,8 +1211,13 @@ class DiscoveredProduct(models.Model):
         related_name='products',
         help_text="Brand this product belongs to",
     )
-
-
+    # RECT-011: Bottler field for independent bottlings
+    bottler = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Independent bottler name (e.g., Gordon & MacPhail)",
+    )
 
     # Price History (JSONField)
     price_history = models.JSONField(

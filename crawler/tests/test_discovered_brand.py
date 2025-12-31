@@ -182,3 +182,186 @@ class TestDiscoveredBrandStringRepresentation:
         brand = DiscoveredBrand.objects.create(name="Dalmore")
 
         assert str(brand) == "Dalmore"
+
+
+# =============================================================================
+# RECT-010: DiscoveredBrand Creation and Linking Tests
+# =============================================================================
+
+class TestBrandFieldMappingCoverage:
+    """Tests for BRAND_FIELD_MAPPING coverage."""
+
+    def test_mapping_includes_name(self):
+        """Mapping should include name field."""
+        from crawler.services.content_processor import BRAND_FIELD_MAPPING
+        assert "name" in BRAND_FIELD_MAPPING
+
+    def test_mapping_includes_country(self):
+        """Mapping should include country field."""
+        from crawler.services.content_processor import BRAND_FIELD_MAPPING
+        assert "country" in BRAND_FIELD_MAPPING
+
+    def test_mapping_includes_region(self):
+        """Mapping should include region field."""
+        from crawler.services.content_processor import BRAND_FIELD_MAPPING
+        assert "region" in BRAND_FIELD_MAPPING
+
+
+class TestGetOrCreateBrand:
+    """Integration tests for get_or_create_brand function."""
+
+    def test_brand_created_from_extraction(self, db):
+        """Brand name in AI response -> DiscoveredBrand record."""
+        from crawler.models import DiscoveredBrand
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {
+            "brand": "Macallan",
+            "brand_country": "Scotland",
+            "brand_region": "Speyside",
+        }
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand is not None
+        assert created is True
+        assert brand.name == "Macallan"
+        assert DiscoveredBrand.objects.filter(name="Macallan").exists()
+
+    def test_existing_brand_reused(self, db):
+        """Same brand name -> reuse existing DiscoveredBrand."""
+        from crawler.models import DiscoveredBrand
+        from crawler.services.content_processor import get_or_create_brand
+
+        # Create brand first
+        existing_brand = DiscoveredBrand.objects.create(
+            name="Glenfiddich",
+            slug="glenfiddich",
+        )
+
+        extracted_data = {"brand": "Glenfiddich"}
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand is not None
+        assert created is False
+        assert brand.id == existing_brand.id
+        # Should still only be 1 brand
+        assert DiscoveredBrand.objects.filter(name="Glenfiddich").count() == 1
+
+    def test_brand_slug_generated(self, db):
+        """Unique slug generated from brand name."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {"brand": "The Balvenie"}
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand.slug == slugify("The Balvenie")
+        assert brand.slug == "the-balvenie"
+
+    def test_brand_country_populated(self, db):
+        """Brand country extracted from AI response."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {
+            "brand": "Yamazaki",
+            "brand_country": "Japan",
+        }
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand.country == "Japan"
+
+    def test_brand_region_populated(self, db):
+        """Brand region extracted from AI response."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {
+            "brand": "Highland Park",
+            "brand_country": "Scotland",
+            "brand_region": "Islands",
+        }
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand.region == "Islands"
+
+    def test_no_brand_returns_none(self, db):
+        """No brand in AI response -> returns None."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {"name": "Mystery Whiskey"}
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand is None
+        assert created is False
+
+    def test_empty_brand_returns_none(self, db):
+        """Empty brand string -> returns None."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {"brand": ""}
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand is None
+
+    def test_whitespace_brand_returns_none(self, db):
+        """Whitespace-only brand string -> returns None."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {"brand": "   "}
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand is None
+
+    def test_brand_name_case_insensitive_match(self, db):
+        """Brand matching should be case insensitive."""
+        from crawler.models import DiscoveredBrand
+        from crawler.services.content_processor import get_or_create_brand
+
+        # Create brand with uppercase
+        DiscoveredBrand.objects.create(
+            name="MACALLAN",
+            slug="macallan",
+        )
+
+        extracted_data = {"brand": "Macallan"}
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        # Should match existing (case insensitive)
+        assert created is False
+        assert DiscoveredBrand.objects.count() == 1
+
+    def test_fallback_to_distillery_as_brand(self, db):
+        """If no brand but distillery present, use distillery."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {
+            "distillery": "Springbank Distillery",
+            "distillery_country": "Scotland",
+        }
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        # Should create brand from distillery name
+        assert brand is not None
+        assert "Springbank" in brand.name
+
+    def test_fallback_to_producer_as_brand(self, db):
+        """If no brand but producer present, use producer."""
+        from crawler.services.content_processor import get_or_create_brand
+
+        extracted_data = {
+            "producer": "Fonseca",
+            "producer_country": "Portugal",
+        }
+
+        brand, created = get_or_create_brand(extracted_data)
+
+        assert brand is not None
+        assert brand.name == "Fonseca"
