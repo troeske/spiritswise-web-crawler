@@ -57,6 +57,8 @@ from crawler.models import (
     PortStyleChoices,
     DouroSubregionChoices,
     DiscoveredBrand,
+    BrandSource,
+    BrandAward,
 )
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult, get_ai_client
 
@@ -1226,13 +1228,150 @@ BRAND_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
 }
 
 
+def create_brand_source(
+    brand: Optional["DiscoveredBrand"],
+    crawled_source: Optional["CrawledSource"],
+    confidence: float = 0.8,
+    mention_type: Optional[str] = None,
+) -> Optional["BrandSource"]:
+    """
+    Create or update a BrandSource junction record.
+
+    RECT-013: Links a DiscoveredBrand to a CrawledSource that mentioned it.
+
+    Args:
+        brand: The DiscoveredBrand that was mentioned
+        crawled_source: The CrawledSource that mentioned the brand
+        confidence: Confidence score for the extraction (0.0-1.0)
+        mention_type: Optional type of mention (e.g., "award_winner", "review")
+
+    Returns:
+        BrandSource record or None if brand or source is None
+    """
+    if not brand or not crawled_source:
+        return None
+
+    try:
+        # Convert confidence to Decimal for storage
+        from decimal import Decimal
+        confidence_decimal = Decimal(str(confidence))
+
+        # Use get_or_create to handle unique constraint
+        brand_source, created = BrandSource.objects.get_or_create(
+            brand=brand,
+            source=crawled_source,
+            defaults={
+                "extraction_confidence": confidence_decimal,
+                "mention_type": mention_type,
+                "mention_count": 1,
+            },
+        )
+
+        if created:
+            # Update brand mention_count
+            brand.mention_count = (brand.mention_count or 0) + 1
+            brand.save(update_fields=["mention_count"])
+            logger.info(f"Created BrandSource: {brand.name} <- {crawled_source.url}")
+        else:
+            # Update confidence if higher
+            if confidence_decimal > brand_source.extraction_confidence:
+                brand_source.extraction_confidence = confidence_decimal
+                brand_source.save(update_fields=["extraction_confidence"])
+                logger.debug(f"Updated BrandSource confidence for {brand.name}")
+
+        return brand_source
+
+    except Exception as e:
+        logger.error(f"Failed to create BrandSource for {brand.name}: {e}")
+        return None
+
+
+def create_brand_award(
+    brand: Optional["DiscoveredBrand"],
+    competition: Optional[str],
+    competition_country: str,
+    year: int,
+    medal: str,
+    award_category: str,
+    score: Optional[int] = None,
+    award_url: Optional[str] = None,
+) -> Optional["BrandAward"]:
+    """
+    Create a BrandAward record for brand-level awards.
+
+    RECT-013: Creates BrandAward records for awards given to brands
+    (as opposed to product-level awards stored in ProductAward).
+
+    Args:
+        brand: The DiscoveredBrand that won the award
+        competition: Competition name
+        competition_country: Country where competition is held
+        year: Year the award was given
+        medal: Medal/award level (must be valid MedalChoices)
+        award_category: Category within the competition
+        score: Optional score given
+        award_url: Optional URL to award page
+
+    Returns:
+        BrandAward record or None if required fields missing
+    """
+    if not brand or not competition:
+        return None
+
+    # Validate medal choice
+    valid_medals = [choice.value for choice in MedalChoices]
+    if medal not in valid_medals:
+        logger.warning(f"Invalid medal type '{medal}' for brand award, skipping")
+        return None
+
+    try:
+        # Check for duplicate (same brand + competition + year + medal + category)
+        existing = BrandAward.objects.filter(
+            brand=brand,
+            competition=competition,
+            year=year,
+            medal=medal,
+            award_category=award_category,
+        ).first()
+
+        if existing:
+            logger.debug(f"BrandAward already exists: {brand.name} - {competition} {year}")
+            return existing
+
+        # Create new award
+        award = BrandAward.objects.create(
+            brand=brand,
+            competition=competition,
+            competition_country=competition_country,
+            year=year,
+            medal=medal,
+            award_category=award_category,
+            score=score,
+            award_url=award_url,
+        )
+
+        # Update brand award_count
+        brand.award_count = (brand.award_count or 0) + 1
+        brand.save(update_fields=["award_count"])
+
+        logger.info(f"Created BrandAward: {brand.name} - {competition} {year} ({medal})")
+        return award
+
+    except Exception as e:
+        logger.error(f"Failed to create BrandAward for {brand.name}: {e}")
+        return None
+
+
 def get_or_create_brand(
     extracted_data: Dict[str, Any],
+    crawled_source: Optional["CrawledSource"] = None,
+    confidence: float = 0.8,
 ) -> Tuple[Optional["DiscoveredBrand"], bool]:
     """
     Get or create a DiscoveredBrand from extracted data.
 
     RECT-010: Creates brand records from AI extraction and links to products.
+    RECT-013: Now also creates BrandSource junction record when crawled_source provided.
 
     Looks for brand name in these fields (in order):
     1. brand
@@ -1242,6 +1381,8 @@ def get_or_create_brand(
 
     Args:
         extracted_data: Dict from AI Enhancement Service
+        crawled_source: Optional CrawledSource to create BrandSource junction
+        confidence: Confidence score for brand extraction (0.0-1.0)
 
     Returns:
         Tuple of (DiscoveredBrand or None, was_created bool)
@@ -1292,6 +1433,9 @@ def get_or_create_brand(
         ).first()
 
         if existing:
+            # Create BrandSource junction if crawled_source provided
+            if crawled_source:
+                create_brand_source(existing, crawled_source, confidence)
             return existing, False
 
         # Also try to match by slug
@@ -1300,6 +1444,9 @@ def get_or_create_brand(
         ).first()
 
         if existing_by_slug:
+            # Create BrandSource junction if crawled_source provided
+            if crawled_source:
+                create_brand_source(existing_by_slug, crawled_source, confidence)
             return existing_by_slug, False
 
     except Exception as e:
@@ -1322,6 +1469,11 @@ def get_or_create_brand(
         )
 
         logger.info(f"Created new brand: {brand_name} ({brand.id})")
+
+        # Create BrandSource junction if crawled_source provided
+        if crawled_source:
+            create_brand_source(brand, crawled_source, confidence)
+
         return brand, True
 
     except IntegrityError as e:
@@ -1329,6 +1481,9 @@ def get_or_create_brand(
         logger.warning(f"IntegrityError creating brand {brand_name}, trying to fetch: {e}")
         existing = DiscoveredBrand.objects.filter(name__iexact=brand_name).first()
         if existing:
+            # Create BrandSource junction if crawled_source provided
+            if crawled_source:
+                create_brand_source(existing, crawled_source, confidence)
             return existing, False
         return None, False
     except Exception as e:

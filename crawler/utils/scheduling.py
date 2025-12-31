@@ -142,7 +142,7 @@ def get_due_schedules():
     return CrawlSchedule.objects.filter(
         is_active=True,
         next_run__lte=now,
-    ).select_related("discovery_source").order_by(
+    ).select_related("source").order_by(
         "-priority_boost",  # Higher priority first
         "next_run",  # Then by when they were due
     )
