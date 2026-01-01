@@ -58,6 +58,11 @@ from crawler.models import (
     PriceHistory,
     PriceAlert,
     NewRelease,
+    # Discovery models
+    SearchTerm,
+    DiscoverySchedule,
+    DiscoveryJob,
+    DiscoveryResult,
 )
 
 # Import task for trigger_crawl action
@@ -1619,3 +1624,672 @@ class NewReleaseAdmin(admin.ModelAdmin):
     ]
     search_fields = ["name"]
     ordering = ["-expected_release_date"]
+
+
+# =============================================================================
+# Discovery System Admin
+# Task Group: Generic Search Discovery Flow
+# =============================================================================
+
+
+class DiscoveryResultInline(admin.TabularInline):
+    """Inline display of discovery results within a job."""
+
+    model = DiscoveryResult
+    extra = 0
+    readonly_fields = [
+        "search_term",
+        "source_url",
+        "source_type",
+        "name_match_score",
+        "status",
+        "product_link",
+        "created_at",
+    ]
+    fields = [
+        "search_term",
+        "source_url",
+        "source_type",
+        "name_match_score",
+        "status",
+        "product_link",
+    ]
+    can_delete = False
+    max_num = 0
+
+    def product_link(self, obj):
+        """Link to the discovered product if any."""
+        if obj.product:
+            url = f"/admin/crawler/discoveredproduct/{obj.product.id}/change/"
+            return format_html('<a href="{}">{}</a>', url, obj.product.name[:50])
+        return "-"
+
+    product_link.short_description = "Product"
+
+
+@admin.register(SearchTerm)
+class SearchTermAdmin(admin.ModelAdmin):
+    """
+    Admin interface for search terms.
+
+    Allows configuration of search terms used for product discovery.
+    Supports inline editing for quick priority adjustments.
+    """
+
+    list_display = [
+        "term_template",
+        "category",
+        "product_type",
+        "priority",
+        "is_active_badge",
+        "seasonal_display",
+        "search_count",
+        "products_discovered",
+        "success_rate",
+        "last_searched",
+    ]
+    list_filter = [
+        "is_active",
+        "category",
+        "product_type",
+        ("last_searched", admin.EmptyFieldListFilter),
+    ]
+    list_editable = [
+        "priority",
+    ]
+    search_fields = ["term_template"]
+    ordering = ["-priority", "category", "term_template"]
+    readonly_fields = [
+        "search_count",
+        "products_discovered",
+        "last_searched",
+        "created_at",
+        "updated_at",
+    ]
+
+    fieldsets = (
+        (
+            "Search Term Configuration",
+            {
+                "fields": (
+                    "term_template",
+                    "category",
+                    "product_type",
+                    "priority",
+                    "is_active",
+                ),
+            },
+        ),
+        (
+            "Seasonal Settings",
+            {
+                "fields": (
+                    "seasonal_start_month",
+                    "seasonal_end_month",
+                ),
+                "classes": ("collapse",),
+                "description": "Leave blank for year-round terms. For wrapping ranges (e.g., Nov-Feb), the system handles it automatically.",
+            },
+        ),
+        (
+            "Statistics (Read-Only)",
+            {
+                "fields": (
+                    "search_count",
+                    "products_discovered",
+                    "last_searched",
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    actions = ["activate_terms", "deactivate_terms", "reset_statistics"]
+
+    def is_active_badge(self, obj):
+        """Display active status as colored badge."""
+        if obj.is_active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 3px 8px; '
+                'border-radius: 3px; font-size: 11px;">Active</span>'
+            )
+        return format_html(
+            '<span style="background-color: #dc3545; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">Inactive</span>'
+        )
+
+    is_active_badge.short_description = "Status"
+
+    def seasonal_display(self, obj):
+        """Display seasonal range if set."""
+        if obj.seasonal_start_month and obj.seasonal_end_month:
+            months = [
+                "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+            ]
+            start = months[obj.seasonal_start_month - 1]
+            end = months[obj.seasonal_end_month - 1]
+            in_season = obj.is_in_season()
+            color = "#28a745" if in_season else "#6c757d"
+            return format_html(
+                '<span style="color: {};">{} - {}</span>',
+                color, start, end
+            )
+        return "-"
+
+    seasonal_display.short_description = "Season"
+
+    def success_rate(self, obj):
+        """Calculate and display success rate."""
+        if obj.search_count > 0:
+            rate = (obj.products_discovered / obj.search_count) * 100
+            color = "#28a745" if rate >= 50 else "#ffc107" if rate >= 20 else "#dc3545"
+            return format_html(
+                '<span style="color: {};">{:.1f}%</span>',
+                color, rate
+            )
+        return "-"
+
+    success_rate.short_description = "Success Rate"
+
+    @admin.action(description="Activate selected search terms")
+    def activate_terms(self, request, queryset):
+        count = queryset.update(is_active=True)
+        self.message_user(request, f"Activated {count} search term(s).")
+
+    @admin.action(description="Deactivate selected search terms")
+    def deactivate_terms(self, request, queryset):
+        count = queryset.update(is_active=False)
+        self.message_user(request, f"Deactivated {count} search term(s).")
+
+    @admin.action(description="Reset statistics for selected terms")
+    def reset_statistics(self, request, queryset):
+        count = queryset.update(search_count=0, products_discovered=0, last_searched=None)
+        self.message_user(request, f"Reset statistics for {count} search term(s).")
+
+
+@admin.register(DiscoverySchedule)
+class DiscoveryScheduleAdmin(admin.ModelAdmin):
+    """
+    Admin interface for discovery schedules.
+
+    Allows configuration of automated discovery job schedules with
+    a "Run Now" action for manual triggering.
+    """
+
+    list_display = [
+        "name",
+        "frequency",
+        "run_at_hour_display",
+        "is_active_badge",
+        "max_search_terms",
+        "max_results_per_term",
+        "filter_summary",
+        "last_run",
+        "next_run",
+    ]
+    list_filter = [
+        "is_active",
+        "frequency",
+    ]
+    search_fields = ["name"]
+    ordering = ["-is_active", "name"]
+    readonly_fields = [
+        "last_run",
+        "next_run",
+        "created_at",
+        "updated_at",
+    ]
+
+    fieldsets = (
+        (
+            "Schedule Configuration",
+            {
+                "fields": (
+                    "name",
+                    "frequency",
+                    "run_at_hour",
+                    "is_active",
+                ),
+            },
+        ),
+        (
+            "Job Limits",
+            {
+                "fields": (
+                    "max_search_terms",
+                    "max_results_per_term",
+                ),
+            },
+        ),
+        (
+            "Filters",
+            {
+                "fields": (
+                    "search_categories",
+                    "product_types",
+                ),
+                "description": "Leave empty to include all categories/product types.",
+            },
+        ),
+        (
+            "Run History",
+            {
+                "fields": (
+                    "last_run",
+                    "next_run",
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    actions = ["run_schedule_now", "activate_schedules", "deactivate_schedules"]
+
+    def is_active_badge(self, obj):
+        """Display active status as colored badge."""
+        if obj.is_active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; padding: 3px 8px; '
+                'border-radius: 3px; font-size: 11px;">Active</span>'
+            )
+        return format_html(
+            '<span style="background-color: #dc3545; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">Inactive</span>'
+        )
+
+    is_active_badge.short_description = "Status"
+
+    def run_at_hour_display(self, obj):
+        """Display run hour in 12-hour format."""
+        hour = obj.run_at_hour
+        if hour == 0:
+            return "12:00 AM"
+        elif hour < 12:
+            return f"{hour}:00 AM"
+        elif hour == 12:
+            return "12:00 PM"
+        else:
+            return f"{hour - 12}:00 PM"
+
+    run_at_hour_display.short_description = "Run At"
+
+    def filter_summary(self, obj):
+        """Display summary of filters."""
+        parts = []
+        if obj.search_categories:
+            parts.append(f"{len(obj.search_categories)} categories")
+        if obj.product_types:
+            parts.append(f"{len(obj.product_types)} types")
+        return ", ".join(parts) if parts else "All"
+
+    filter_summary.short_description = "Filters"
+
+    @admin.action(description="Run selected schedules now")
+    def run_schedule_now(self, request, queryset):
+        """Create and queue discovery jobs for selected schedules."""
+        jobs_created = 0
+        for schedule in queryset:
+            # Create a new job for this schedule
+            job = DiscoveryJob.objects.create(
+                schedule=schedule,
+                status="pending",
+                search_categories=schedule.search_categories,
+                product_types=schedule.product_types,
+                max_results_per_term=schedule.max_results_per_term,
+            )
+            jobs_created += 1
+            # TODO: Trigger Celery task when implemented
+            # trigger_discovery_job.delay(str(job.id))
+
+        self.message_user(
+            request,
+            f"Created {jobs_created} discovery job(s). Jobs will be processed by the discovery orchestrator."
+        )
+
+    @admin.action(description="Activate selected schedules")
+    def activate_schedules(self, request, queryset):
+        count = queryset.update(is_active=True)
+        self.message_user(request, f"Activated {count} schedule(s).")
+
+    @admin.action(description="Deactivate selected schedules")
+    def deactivate_schedules(self, request, queryset):
+        count = queryset.update(is_active=False)
+        self.message_user(request, f"Deactivated {count} schedule(s).")
+
+
+@admin.register(DiscoveryJob)
+class DiscoveryJobAdmin(admin.ModelAdmin):
+    """
+    Admin interface for discovery jobs.
+
+    Provides read-only view of job progress with metrics display.
+    """
+
+    list_display = [
+        "id_short",
+        "schedule_name",
+        "status_badge",
+        "progress_display",
+        "urls_discovered",
+        "products_discovered",
+        "api_calls_display",
+        "duration_display",
+        "started_at",
+    ]
+    list_filter = [
+        "status",
+        ("schedule", admin.RelatedOnlyFieldListFilter),
+    ]
+    ordering = ["-created_at"]
+    readonly_fields = [
+        "id",
+        "schedule",
+        "status",
+        "started_at",
+        "completed_at",
+        "terms_processed",
+        "terms_total",
+        "urls_discovered",
+        "products_discovered",
+        "products_merged",
+        "serpapi_calls_used",
+        "scrapingbee_calls_used",
+        "ai_calls_used",
+        "error_log",
+        "search_categories",
+        "product_types",
+        "max_results_per_term",
+        "created_at",
+        "updated_at",
+    ]
+    inlines = [DiscoveryResultInline]
+
+    fieldsets = (
+        (
+            "Job Info",
+            {
+                "fields": (
+                    "id",
+                    "schedule",
+                    "status",
+                    "started_at",
+                    "completed_at",
+                ),
+            },
+        ),
+        (
+            "Progress",
+            {
+                "fields": (
+                    "terms_processed",
+                    "terms_total",
+                    "urls_discovered",
+                    "products_discovered",
+                    "products_merged",
+                ),
+            },
+        ),
+        (
+            "API Usage",
+            {
+                "fields": (
+                    "serpapi_calls_used",
+                    "scrapingbee_calls_used",
+                    "ai_calls_used",
+                ),
+            },
+        ),
+        (
+            "Configuration",
+            {
+                "fields": (
+                    "search_categories",
+                    "product_types",
+                    "max_results_per_term",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "Error Log",
+            {
+                "fields": ("error_log",),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    def has_add_permission(self, request):
+        """Disable manual job creation - use schedules."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Jobs are read-only."""
+        return False
+
+    def id_short(self, obj):
+        """Display shortened UUID."""
+        return str(obj.id)[:8]
+
+    id_short.short_description = "ID"
+
+    def schedule_name(self, obj):
+        """Display schedule name or 'Manual'."""
+        return obj.schedule.name if obj.schedule else "Manual"
+
+    schedule_name.short_description = "Schedule"
+
+    def status_badge(self, obj):
+        """Display status as colored badge."""
+        colors = {
+            "pending": "#6c757d",
+            "running": "#007bff",
+            "completed": "#28a745",
+            "failed": "#dc3545",
+            "cancelled": "#ffc107",
+        }
+        color = colors.get(obj.status, "#6c757d")
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">{}</span>',
+            color, obj.status.title()
+        )
+
+    status_badge.short_description = "Status"
+
+    def progress_display(self, obj):
+        """Display progress as fraction."""
+        if obj.terms_total > 0:
+            pct = (obj.terms_processed / obj.terms_total) * 100
+            return f"{obj.terms_processed}/{obj.terms_total} ({pct:.0f}%)"
+        return "-"
+
+    progress_display.short_description = "Progress"
+
+    def api_calls_display(self, obj):
+        """Display API call summary."""
+        return f"S:{obj.serpapi_calls_used} B:{obj.scrapingbee_calls_used} A:{obj.ai_calls_used}"
+
+    api_calls_display.short_description = "API Calls (Serp/Bee/AI)"
+
+    def duration_display(self, obj):
+        """Display job duration."""
+        if obj.started_at and obj.completed_at:
+            duration = obj.completed_at - obj.started_at
+            total_seconds = int(duration.total_seconds())
+            minutes, seconds = divmod(total_seconds, 60)
+            if minutes > 0:
+                return f"{minutes}m {seconds}s"
+            return f"{seconds}s"
+        elif obj.started_at:
+            return "Running..."
+        return "-"
+
+    duration_display.short_description = "Duration"
+
+
+@admin.register(DiscoveryResult)
+class DiscoveryResultAdmin(admin.ModelAdmin):
+    """
+    Admin interface for individual discovery results.
+
+    Provides detailed view of each URL discovered and processed.
+    """
+
+    list_display = [
+        "id_short",
+        "job_id_short",
+        "search_term_display",
+        "source_url_truncated",
+        "source_type",
+        "name_match_score_display",
+        "status_badge",
+        "product_link",
+        "created_at",
+    ]
+    list_filter = [
+        "status",
+        "source_type",
+        ("product", admin.EmptyFieldListFilter),
+    ]
+    search_fields = ["source_url", "search_term__term_template"]
+    ordering = ["-created_at"]
+    readonly_fields = [
+        "id",
+        "job",
+        "search_term",
+        "source_url",
+        "source_type",
+        "name_match_score",
+        "status",
+        "product",
+        "extracted_data",
+        "error_message",
+        "created_at",
+    ]
+
+    fieldsets = (
+        (
+            "Result Info",
+            {
+                "fields": (
+                    "id",
+                    "job",
+                    "search_term",
+                    "status",
+                ),
+            },
+        ),
+        (
+            "Source",
+            {
+                "fields": (
+                    "source_url",
+                    "source_type",
+                    "name_match_score",
+                ),
+            },
+        ),
+        (
+            "Product",
+            {
+                "fields": ("product",),
+            },
+        ),
+        (
+            "Extracted Data",
+            {
+                "fields": ("extracted_data",),
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "Error",
+            {
+                "fields": ("error_message",),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    def has_add_permission(self, request):
+        """Disable manual result creation."""
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        """Results are read-only."""
+        return False
+
+    def id_short(self, obj):
+        """Display shortened UUID."""
+        return str(obj.id)[:8]
+
+    id_short.short_description = "ID"
+
+    def job_id_short(self, obj):
+        """Display shortened job UUID."""
+        return str(obj.job_id)[:8] if obj.job_id else "-"
+
+    job_id_short.short_description = "Job"
+
+    def search_term_display(self, obj):
+        """Display search term template."""
+        if obj.search_term:
+            return obj.search_term.term_template[:30]
+        return "-"
+
+    search_term_display.short_description = "Search Term"
+
+    def source_url_truncated(self, obj):
+        """Display truncated URL with link."""
+        if obj.source_url:
+            truncated = obj.source_url[:50] + "..." if len(obj.source_url) > 50 else obj.source_url
+            return format_html('<a href="{}" target="_blank">{}</a>', obj.source_url, truncated)
+        return "-"
+
+    source_url_truncated.short_description = "Source URL"
+
+    def name_match_score_display(self, obj):
+        """Display score with color coding."""
+        score = obj.name_match_score
+        if score >= 0.8:
+            color = "#28a745"
+        elif score >= 0.6:
+            color = "#ffc107"
+        else:
+            color = "#dc3545"
+        return format_html('<span style="color: {};">{:.2f}</span>', color, score)
+
+    name_match_score_display.short_description = "Match Score"
+
+    def status_badge(self, obj):
+        """Display status as colored badge."""
+        colors = {
+            "pending": "#6c757d",
+            "processing": "#007bff",
+            "success": "#28a745",
+            "failed": "#dc3545",
+            "skipped": "#ffc107",
+        }
+        color = colors.get(obj.status, "#6c757d")
+        return format_html(
+            '<span style="background-color: {}; color: white; padding: 3px 8px; '
+            'border-radius: 3px; font-size: 11px;">{}</span>',
+            color, obj.status.title()
+        )
+
+    status_badge.short_description = "Status"
+
+    def product_link(self, obj):
+        """Link to the discovered product if any."""
+        if obj.product:
+            url = f"/admin/crawler/discoveredproduct/{obj.product.id}/change/"
+            return format_html('<a href="{}">{}</a>', url, obj.product.name[:30])
+        return "-"
+
+    product_link.short_description = "Product"
