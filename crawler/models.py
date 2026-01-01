@@ -4694,6 +4694,17 @@ class ScheduleFrequency(models.TextChoices):
     MONTHLY = "monthly", "Monthly"
 
 
+class DiscoveryResultStatus(models.TextChoices):
+    """Status of a discovery result."""
+
+    PENDING = "pending", "Pending"
+    PROCESSING = "processing", "Processing"
+    SUCCESS = "success", "Success"
+    FAILED = "failed", "Failed"
+    SKIPPED = "skipped", "Skipped"
+    DUPLICATE = "duplicate", "Duplicate"
+
+
 class SearchTerm(models.Model):
     """
     Configurable search term for product discovery.
@@ -5167,7 +5178,15 @@ class DiscoveryResult(models.Model):
         help_text="Whether this was a new product.",
     )
 
-    # Status Flags
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=DiscoveryResultStatus.choices,
+        default=DiscoveryResultStatus.PENDING,
+        help_text="Current status of this result.",
+    )
+
+    # Status Flags (legacy, kept for detailed tracking)
     crawl_success = models.BooleanField(
         default=False,
         help_text="Whether the URL was successfully crawled.",
@@ -5189,6 +5208,13 @@ class DiscoveryResult(models.Model):
     error_message = models.TextField(
         blank=True,
         help_text="Error message if crawl/extraction failed.",
+    )
+
+    # Extracted Data (from SmartCrawler)
+    extracted_data = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Raw extracted product data from SmartCrawler.",
     )
 
     # SmartCrawler Details

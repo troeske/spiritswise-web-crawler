@@ -1975,8 +1975,8 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
         "schedule_name",
         "status_badge",
         "progress_display",
-        "urls_discovered",
-        "products_discovered",
+        "urls_found",
+        "products_new",
         "api_calls_display",
         "duration_display",
         "started_at",
@@ -1985,27 +1985,29 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
         "status",
         ("schedule", admin.RelatedOnlyFieldListFilter),
     ]
-    ordering = ["-created_at"]
+    ordering = ["-started_at"]
     readonly_fields = [
         "id",
         "schedule",
         "status",
         "started_at",
         "completed_at",
-        "terms_processed",
-        "terms_total",
-        "urls_discovered",
-        "products_discovered",
-        "products_merged",
+        "search_terms_processed",
+        "search_terms_total",
+        "urls_found",
+        "urls_crawled",
+        "urls_skipped",
+        "products_found",
+        "products_new",
+        "products_updated",
+        "products_duplicates",
+        "products_failed",
+        "products_needs_review",
         "serpapi_calls_used",
         "scrapingbee_calls_used",
         "ai_calls_used",
+        "error_count",
         "error_log",
-        "search_categories",
-        "product_types",
-        "max_results_per_term",
-        "created_at",
-        "updated_at",
     ]
     inlines = [DiscoveryResultInline]
 
@@ -2023,14 +2025,34 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Progress",
+            "Search Terms Progress",
             {
                 "fields": (
-                    "terms_processed",
-                    "terms_total",
-                    "urls_discovered",
-                    "products_discovered",
-                    "products_merged",
+                    "search_terms_processed",
+                    "search_terms_total",
+                ),
+            },
+        ),
+        (
+            "URLs Progress",
+            {
+                "fields": (
+                    "urls_found",
+                    "urls_crawled",
+                    "urls_skipped",
+                ),
+            },
+        ),
+        (
+            "Products Progress",
+            {
+                "fields": (
+                    "products_found",
+                    "products_new",
+                    "products_updated",
+                    "products_duplicates",
+                    "products_failed",
+                    "products_needs_review",
                 ),
             },
         ),
@@ -2045,20 +2067,12 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
             },
         ),
         (
-            "Configuration",
+            "Errors",
             {
                 "fields": (
-                    "search_categories",
-                    "product_types",
-                    "max_results_per_term",
+                    "error_count",
+                    "error_log",
                 ),
-                "classes": ("collapse",),
-            },
-        ),
-        (
-            "Error Log",
-            {
-                "fields": ("error_log",),
                 "classes": ("collapse",),
             },
         ),
@@ -2104,9 +2118,9 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
 
     def progress_display(self, obj):
         """Display progress as fraction."""
-        if obj.terms_total > 0:
-            pct = (obj.terms_processed / obj.terms_total) * 100
-            return f"{obj.terms_processed}/{obj.terms_total} ({pct:.0f}%)"
+        if obj.search_terms_total > 0:
+            pct = (obj.search_terms_processed / obj.search_terms_total) * 100
+            return f"{obj.search_terms_processed}/{obj.search_terms_total} ({pct:.0f}%)"
         return "-"
 
     progress_display.short_description = "Progress"
