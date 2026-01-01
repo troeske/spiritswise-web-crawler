@@ -4644,3 +4644,583 @@ class NewRelease(models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.release_status})"
+
+
+# =============================================================================
+# GENERIC SEARCH DISCOVERY MODELS
+# =============================================================================
+# These models support the automated product discovery system via SerpAPI
+# searches with configurable terms managed through Django Admin.
+# See: specs/GENERIC_SEARCH_DISCOVERY_FLOW.md
+# =============================================================================
+
+
+class SearchTermCategory(models.TextChoices):
+    """Categories of search terms."""
+
+    BEST_LISTS = "best_lists", "Best Lists"
+    AWARDS = "awards", "Awards & Recognition"
+    NEW_RELEASES = "new_releases", "New Releases"
+    STYLE = "style", "Style & Flavor"
+    VALUE = "value", "Value & Price"
+    REGIONAL = "regional", "Regional/Type"
+    SEASONAL = "seasonal", "Seasonal"
+
+
+class SearchTermProductType(models.TextChoices):
+    """Product types for search terms."""
+
+    WHISKEY = "whiskey", "Whiskey"
+    PORT_WINE = "port_wine", "Port Wine"
+    BOTH = "both", "Both"
+
+
+class DiscoveryJobStatus(models.TextChoices):
+    """Status of a discovery job."""
+
+    PENDING = "pending", "Pending"
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+    FAILED = "failed", "Failed"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class ScheduleFrequency(models.TextChoices):
+    """Frequency options for discovery schedules."""
+
+    HOURLY = "hourly", "Hourly"
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+    MONTHLY = "monthly", "Monthly"
+
+
+class SearchTerm(models.Model):
+    """
+    Configurable search term for product discovery.
+
+    Search terms are templates that can include {year} for dynamic substitution.
+    Examples:
+    - "best whisky {year}" -> "best whisky 2026"
+    - "top 10 bourbon {year}" -> "top 10 bourbon 2026"
+
+    Managed via Django Admin for easy configuration without code changes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Core fields
+    term_template = models.CharField(
+        max_length=200,
+        help_text="Search term template. Use {year} for current year substitution.",
+    )
+    category = models.CharField(
+        max_length=50,
+        choices=SearchTermCategory.choices,
+        help_text="Category of the search term for organization and filtering.",
+    )
+    product_type = models.CharField(
+        max_length=20,
+        choices=SearchTermProductType.choices,
+        help_text="Product type this search term targets.",
+    )
+
+    # Priority and status
+    priority = models.IntegerField(
+        default=100,
+        help_text="Lower number = higher priority. Terms are processed in priority order.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only active terms are used in discovery jobs.",
+    )
+
+    # Seasonality (optional)
+    seasonal_start_month = models.IntegerField(
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
+        help_text="Start month for seasonal terms (1-12). Leave blank for year-round.",
+    )
+    seasonal_end_month = models.IntegerField(
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
+        help_text="End month for seasonal terms (1-12). Leave blank for year-round.",
+    )
+
+    # Statistics (read-only, updated by discovery jobs)
+    search_count = models.IntegerField(
+        default=0,
+        help_text="Number of times this term has been searched.",
+    )
+    products_discovered = models.IntegerField(
+        default=0,
+        help_text="Number of new products discovered using this term.",
+    )
+    last_searched = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When this term was last used in a search.",
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "discovery_search_term"
+        ordering = ["priority", "-products_discovered"]
+        indexes = [
+            models.Index(fields=["is_active", "priority"]),
+            models.Index(fields=["category"]),
+            models.Index(fields=["product_type"]),
+        ]
+        verbose_name = "Search Term"
+        verbose_name_plural = "Search Terms"
+
+    def __str__(self):
+        return f"{self.term_template} ({self.category})"
+
+    def get_search_query(self) -> str:
+        """
+        Get the actual search query with year substitution.
+
+        Returns:
+            str: The search query with {year} replaced by current year.
+        """
+        from datetime import datetime
+        return self.term_template.format(year=datetime.now().year)
+
+    def is_in_season(self) -> bool:
+        """
+        Check if this term is currently in season.
+
+        Returns:
+            bool: True if in season or not seasonal.
+        """
+        if self.seasonal_start_month is None or self.seasonal_end_month is None:
+            return True
+
+        from datetime import date
+        current_month = date.today().month
+
+        if self.seasonal_start_month <= self.seasonal_end_month:
+            # Normal range (e.g., March-June)
+            return self.seasonal_start_month <= current_month <= self.seasonal_end_month
+        else:
+            # Wrapping range (e.g., November-February)
+            return current_month >= self.seasonal_start_month or current_month <= self.seasonal_end_month
+
+
+class DiscoverySchedule(models.Model):
+    """
+    Configurable schedule for discovery jobs.
+
+    Schedules define when and how discovery jobs run, including:
+    - Frequency (hourly, daily, weekly, monthly)
+    - Limits on terms and results per run
+    - Filters for which search terms to use
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Identity
+    name = models.CharField(
+        max_length=100,
+        help_text="Descriptive name for this schedule.",
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description of this schedule's purpose.",
+    )
+
+    # Timing
+    frequency = models.CharField(
+        max_length=20,
+        choices=ScheduleFrequency.choices,
+        help_text="How often to run this schedule.",
+    )
+    run_at_hour = models.IntegerField(
+        default=3,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text="Hour (0-23) to run daily/weekly/monthly jobs. Ignored for hourly.",
+    )
+    run_on_day = models.IntegerField(
+        blank=True,
+        null=True,
+        validators=[MinValueValidator(0), MaxValueValidator(31)],
+        help_text="Day to run. For weekly: 0=Monday. For monthly: 1-31.",
+    )
+
+    # Limits
+    max_search_terms = models.IntegerField(
+        default=20,
+        validators=[MinValueValidator(1), MaxValueValidator(100)],
+        help_text="Maximum number of search terms to process per run.",
+    )
+    max_results_per_term = models.IntegerField(
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(50)],
+        help_text="Maximum number of search results to crawl per term.",
+    )
+
+    # Filters (JSON arrays)
+    search_categories = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of search term categories to include. Empty = all categories.",
+    )
+    product_types = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of product types to include. Empty = all types.",
+    )
+
+    # Status
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Only active schedules will run.",
+    )
+    last_run = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When this schedule last ran.",
+    )
+    next_run = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When this schedule will next run.",
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "discovery_schedule"
+        ordering = ["name"]
+        indexes = [
+            models.Index(fields=["is_active", "next_run"]),
+        ]
+        verbose_name = "Discovery Schedule"
+        verbose_name_plural = "Discovery Schedules"
+
+    def __str__(self):
+        return f"{self.name} ({self.frequency})"
+
+    def calculate_next_run(self):
+        """
+        Calculate the next run time based on frequency.
+
+        Returns:
+            datetime: The next scheduled run time.
+        """
+        from datetime import timedelta
+
+        now = timezone.now()
+
+        if self.frequency == ScheduleFrequency.HOURLY:
+            # Next hour
+            return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+        elif self.frequency == ScheduleFrequency.DAILY:
+            # Tomorrow at run_at_hour
+            next_run = now.replace(hour=self.run_at_hour, minute=0, second=0, microsecond=0)
+            if next_run <= now:
+                next_run += timedelta(days=1)
+            return next_run
+
+        elif self.frequency == ScheduleFrequency.WEEKLY:
+            # Next occurrence of run_on_day at run_at_hour
+            days_ahead = (self.run_on_day or 0) - now.weekday()
+            if days_ahead < 0:
+                days_ahead += 7
+            next_run = now.replace(hour=self.run_at_hour, minute=0, second=0, microsecond=0)
+            next_run += timedelta(days=days_ahead)
+            if next_run <= now:
+                next_run += timedelta(weeks=1)
+            return next_run
+
+        elif self.frequency == ScheduleFrequency.MONTHLY:
+            # Next occurrence of run_on_day at run_at_hour
+            day = min(self.run_on_day or 1, 28)  # Cap at 28 to avoid month overflow
+            next_run = now.replace(day=day, hour=self.run_at_hour, minute=0, second=0, microsecond=0)
+            if next_run <= now:
+                # Move to next month
+                if now.month == 12:
+                    next_run = next_run.replace(year=now.year + 1, month=1)
+                else:
+                    next_run = next_run.replace(month=now.month + 1)
+            return next_run
+
+        return now
+
+
+class DiscoveryJob(models.Model):
+    """
+    Tracks execution of a discovery job.
+
+    A job represents a single run of the discovery process, which:
+    1. Processes multiple search terms
+    2. Crawls search results
+    3. Extracts and saves products
+    4. Tracks metrics and errors
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Relationship to schedule (optional - can be manual)
+    schedule = models.ForeignKey(
+        DiscoverySchedule,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="jobs",
+        help_text="The schedule that triggered this job, if any.",
+    )
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=DiscoveryJobStatus.choices,
+        default=DiscoveryJobStatus.PENDING,
+    )
+
+    # Timing
+    started_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    # Metrics - Search Terms
+    search_terms_total = models.IntegerField(
+        default=0,
+        help_text="Total search terms to process.",
+    )
+    search_terms_processed = models.IntegerField(
+        default=0,
+        help_text="Search terms processed so far.",
+    )
+
+    # Metrics - URLs
+    urls_found = models.IntegerField(
+        default=0,
+        help_text="Total URLs found in search results.",
+    )
+    urls_crawled = models.IntegerField(
+        default=0,
+        help_text="URLs successfully crawled.",
+    )
+    urls_skipped = models.IntegerField(
+        default=0,
+        help_text="URLs skipped (duplicates, blocked domains, etc.).",
+    )
+
+    # Metrics - Products
+    products_found = models.IntegerField(
+        default=0,
+        help_text="Total products identified.",
+    )
+    products_new = models.IntegerField(
+        default=0,
+        help_text="New products added to database.",
+    )
+    products_updated = models.IntegerField(
+        default=0,
+        help_text="Existing products updated.",
+    )
+    products_duplicates = models.IntegerField(
+        default=0,
+        help_text="Products skipped as duplicates.",
+    )
+    products_failed = models.IntegerField(
+        default=0,
+        help_text="Products that failed extraction.",
+    )
+
+    # Metrics - Review
+    products_needs_review = models.IntegerField(
+        default=0,
+        help_text="Products flagged for human review.",
+    )
+
+    # Quota Tracking
+    serpapi_calls_used = models.IntegerField(
+        default=0,
+        help_text="Number of SerpAPI calls made.",
+    )
+    scrapingbee_calls_used = models.IntegerField(
+        default=0,
+        help_text="Number of ScrapingBee calls made.",
+    )
+    ai_calls_used = models.IntegerField(
+        default=0,
+        help_text="Number of AI Enhancement calls made.",
+    )
+
+    # Error Tracking
+    error_count = models.IntegerField(
+        default=0,
+        help_text="Number of errors encountered.",
+    )
+    error_log = models.TextField(
+        blank=True,
+        help_text="Detailed error log.",
+    )
+
+    class Meta:
+        db_table = "discovery_job"
+        ordering = ["-started_at"]
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["started_at"]),
+            models.Index(fields=["schedule", "started_at"]),
+        ]
+        verbose_name = "Discovery Job"
+        verbose_name_plural = "Discovery Jobs"
+
+    def __str__(self):
+        return f"Job {self.id} ({self.status}) - {self.products_new} new products"
+
+    @property
+    def duration_seconds(self) -> int:
+        """Get job duration in seconds."""
+        if self.completed_at:
+            return int((self.completed_at - self.started_at).total_seconds())
+        return int((timezone.now() - self.started_at).total_seconds())
+
+    @property
+    def success_rate(self) -> float:
+        """Get product extraction success rate."""
+        total = self.products_new + self.products_failed
+        if total == 0:
+            return 0.0
+        return self.products_new / total
+
+    def log_error(self, error: str):
+        """Append an error to the error log."""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if self.error_log:
+            self.error_log += f"\n[{timestamp}] {error}"
+        else:
+            self.error_log = f"[{timestamp}] {error}"
+        self.error_count += 1
+
+
+class DiscoveryResult(models.Model):
+    """
+    Individual result from a discovery job.
+
+    Each result represents one URL that was found and processed,
+    tracking whether it led to a new product, duplicate, or failure.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Relationships
+    job = models.ForeignKey(
+        DiscoveryJob,
+        on_delete=models.CASCADE,
+        related_name="results",
+        help_text="The job this result belongs to.",
+    )
+    search_term = models.ForeignKey(
+        SearchTerm,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="results",
+        help_text="The search term that found this result.",
+    )
+    product = models.ForeignKey(
+        DiscoveredProduct,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="discovery_results",
+        help_text="The product discovered, if any.",
+    )
+
+    # Source Information
+    source_url = models.URLField(
+        help_text="URL that was crawled.",
+    )
+    source_domain = models.CharField(
+        max_length=100,
+        help_text="Domain of the source URL.",
+    )
+    source_title = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="Title from search results.",
+    )
+    search_rank = models.IntegerField(
+        help_text="Position in search results (1 = first).",
+    )
+
+    # Product Information
+    product_name = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Name of product found, if any.",
+    )
+    is_new_product = models.BooleanField(
+        default=False,
+        help_text="Whether this was a new product.",
+    )
+
+    # Status Flags
+    crawl_success = models.BooleanField(
+        default=False,
+        help_text="Whether the URL was successfully crawled.",
+    )
+    extraction_success = models.BooleanField(
+        default=False,
+        help_text="Whether product extraction succeeded.",
+    )
+    is_duplicate = models.BooleanField(
+        default=False,
+        help_text="Whether this was identified as a duplicate.",
+    )
+    needs_review = models.BooleanField(
+        default=False,
+        help_text="Whether this needs human review.",
+    )
+
+    # Error Information
+    error_message = models.TextField(
+        blank=True,
+        help_text="Error message if crawl/extraction failed.",
+    )
+
+    # SmartCrawler Details
+    final_source_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Final URL used after SmartCrawler fallback.",
+    )
+    source_type = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Source type: primary, official_brand, trusted_retailer, other.",
+    )
+    name_match_score = models.FloatField(
+        default=0.0,
+        help_text="Name similarity score from SmartCrawler.",
+    )
+
+    # Timestamp
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "discovery_result"
+        ordering = ["job", "search_rank"]
+        indexes = [
+            models.Index(fields=["job", "is_new_product"]),
+            models.Index(fields=["source_domain"]),
+            models.Index(fields=["needs_review"]),
+        ]
+        verbose_name = "Discovery Result"
+        verbose_name_plural = "Discovery Results"
+
+    def __str__(self):
+        status = "NEW" if self.is_new_product else ("DUP" if self.is_duplicate else "FAIL")
+        return f"[{status}] {self.product_name or self.source_url[:50]}"
