@@ -37,6 +37,10 @@ app.conf.task_queues = {
         "exchange": "enrichment",
         "routing_key": "enrichment",
     },
+    "discovery": {
+        "exchange": "discovery",
+        "routing_key": "discovery",
+    },
     "default": {
         "exchange": "default",
         "routing_key": "default",
@@ -56,6 +60,9 @@ app.conf.task_routes = {
     "crawler.tasks.keyword_search": {"queue": "search"},
     "crawler.tasks.enrich_skeletons": {"queue": "enrichment"},
     "crawler.tasks.process_enrichment_queue": {"queue": "enrichment"},
+    "crawler.tasks.run_discovery_job": {"queue": "discovery"},
+    "crawler.tasks.check_and_run_schedules": {"queue": "discovery"},
+    "crawler.tasks.trigger_discovery_job_manual": {"queue": "discovery"},
 }
 
 # Configure Celery Beat schedule for periodic tasks
@@ -78,6 +85,11 @@ app.conf.beat_schedule = {
         "task": "crawler.tasks.process_enrichment_queue",
         "schedule": crontab(minute="*/10"),  # Every 10 minutes
         "kwargs": {"max_urls": 100},
+    },
+    # Discovery scheduling tasks (Phase 5)
+    "check-discovery-schedules-every-15-minutes": {
+        "task": "crawler.tasks.check_and_run_schedules",
+        "schedule": crontab(minute="*/15"),  # Every 15 minutes
     },
 }
 

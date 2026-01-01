@@ -1084,6 +1084,156 @@ def process_pending_wayback(limit: int = 50) -> Dict[str, Any]:
     }
 
 
+# ============================================================
+# Discovery Scheduling Tasks (Phase 5)
+# ============================================================
+
+
+@shared_task(name="crawler.tasks.run_discovery_job", bind=True)
+def run_discovery_job(self, schedule_id: str) -> Dict[str, Any]:
+    """
+    Execute a discovery job for a given schedule.
+
+    Args:
+        schedule_id: UUID of the DiscoverySchedule to run
+
+    Returns:
+        Dict with job results
+    """
+    from crawler.models import DiscoverySchedule, DiscoveryJobStatus
+    from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+    logger.info(f"Running discovery job for schedule {schedule_id}")
+
+    try:
+        schedule = DiscoverySchedule.objects.get(id=schedule_id)
+    except DiscoverySchedule.DoesNotExist:
+        logger.error(f"Schedule {schedule_id} not found")
+        return {
+            "status": "failed",
+            "error": f"Schedule {schedule_id} not found",
+        }
+
+    try:
+        # Create and run orchestrator
+        orchestrator = DiscoveryOrchestrator(schedule=schedule)
+        job = orchestrator.run()
+
+        # Update schedule's next run time
+        schedule.update_next_run()
+
+        logger.info(f"Discovery job completed: {job.id}")
+
+        return {
+            "status": "completed",
+            "job_id": str(job.id),
+            "schedule_id": schedule_id,
+            "products_new": job.products_new,
+            "products_updated": job.products_updated,
+            "serpapi_calls": job.serpapi_calls_used,
+        }
+
+    except Exception as e:
+        logger.error(f"Discovery job failed for schedule {schedule_id}: {e}")
+        logger.error(traceback.format_exc())
+        return {
+            "status": "failed",
+            "error": str(e),
+            "schedule_id": schedule_id,
+        }
+
+
+@shared_task(name="crawler.tasks.check_and_run_schedules")
+def check_and_run_schedules() -> Dict[str, Any]:
+    """
+    Check for due discovery schedules and trigger jobs.
+
+    Runs periodically via Celery Beat (every 15 minutes).
+    Finds schedules where is_active=True and next_run_at <= now.
+
+    Returns:
+        Dict with check results
+    """
+    from crawler.models import DiscoverySchedule
+    from django.db.models import Q
+
+    logger.info("Checking for due discovery schedules...")
+
+    now = timezone.now()
+    schedules_checked = 0
+    jobs_dispatched = 0
+
+    # Find due schedules
+    due_schedules = DiscoverySchedule.objects.filter(
+        is_active=True,
+    ).filter(
+        Q(next_run__isnull=True) | Q(next_run__lte=now)
+    )
+
+    for schedule in due_schedules:
+        schedules_checked += 1
+
+        try:
+            # Dispatch discovery job
+            run_discovery_job.apply_async(
+                args=[str(schedule.id)],
+                queue="discovery",
+            )
+            jobs_dispatched += 1
+            logger.info(f"Dispatched discovery job for schedule: {schedule.name}")
+
+        except Exception as e:
+            logger.error(f"Failed to dispatch job for schedule {schedule.name}: {e}")
+
+    logger.info(f"Discovery schedule check complete: {jobs_dispatched} jobs dispatched")
+
+    return {
+        "status": "completed",
+        "schedules_checked": schedules_checked,
+        "jobs_dispatched": jobs_dispatched,
+        "timestamp": now.isoformat(),
+    }
+
+
+@shared_task(name="crawler.tasks.trigger_discovery_job_manual", bind=True)
+def trigger_discovery_job_manual(self, schedule_id: str) -> Dict[str, Any]:
+    """
+    Manually trigger a discovery job immediately.
+
+    Args:
+        schedule_id: UUID of the DiscoverySchedule to run
+
+    Returns:
+        Dict with dispatch status
+    """
+    from crawler.models import DiscoverySchedule
+
+    logger.info(f"Manual trigger for discovery schedule {schedule_id}")
+
+    try:
+        schedule = DiscoverySchedule.objects.get(id=schedule_id)
+    except DiscoverySchedule.DoesNotExist:
+        logger.error(f"Schedule {schedule_id} not found")
+        return {
+            "status": "failed",
+            "error": f"Schedule {schedule_id} not found",
+        }
+
+    # Dispatch immediately
+    run_discovery_job.apply_async(
+        args=[str(schedule.id)],
+        queue="discovery",
+    )
+
+    logger.info(f"Manual discovery job dispatched for: {schedule.name}")
+
+    return {
+        "status": "dispatched",
+        "schedule_id": schedule_id,
+        "schedule_name": schedule.name,
+    }
+
+
 @shared_task(name="crawler.tasks.cleanup_raw_content_batch")
 def cleanup_raw_content_batch(limit: int = 100) -> Dict[str, Any]:
     """

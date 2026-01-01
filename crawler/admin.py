@@ -63,6 +63,7 @@ from crawler.models import (
     DiscoverySchedule,
     DiscoveryJob,
     DiscoveryResult,
+    QuotaUsage,
 )
 
 # Import task for trigger_crawl action
@@ -1888,7 +1889,7 @@ class DiscoveryScheduleAdmin(admin.ModelAdmin):
         ),
     )
 
-    actions = ["run_schedule_now", "activate_schedules", "deactivate_schedules"]
+    actions = ["run_schedule_now", "run_discovery_now", "activate_schedules", "deactivate_schedules"]
 
     def is_active_badge(self, obj):
         """Display active status as colored badge."""
@@ -1932,24 +1933,33 @@ class DiscoveryScheduleAdmin(admin.ModelAdmin):
     @admin.action(description="Run selected schedules now")
     def run_schedule_now(self, request, queryset):
         """Create and queue discovery jobs for selected schedules."""
-        jobs_created = 0
+        from crawler.tasks import trigger_discovery_job_manual
+
+        jobs_dispatched = 0
         for schedule in queryset:
-            # Create a new job for this schedule
-            job = DiscoveryJob.objects.create(
-                schedule=schedule,
-                status="pending",
-                search_categories=schedule.search_categories,
-                product_types=schedule.product_types,
-                max_results_per_term=schedule.max_results_per_term,
-            )
-            jobs_created += 1
-            # TODO: Trigger Celery task when implemented
-            # trigger_discovery_job.delay(str(job.id))
+            try:
+                # Dispatch Celery task
+                trigger_discovery_job_manual.apply_async(
+                    args=[str(schedule.id)],
+                    queue="discovery",
+                )
+                jobs_dispatched += 1
+            except Exception as e:
+                self.message_user(
+                    request,
+                    f"Failed to dispatch job for {schedule.name}: {e}",
+                    level="ERROR"
+                )
 
         self.message_user(
             request,
-            f"Created {jobs_created} discovery job(s). Jobs will be processed by the discovery orchestrator."
+            f"Dispatched {jobs_dispatched} discovery job(s)."
         )
+
+    @admin.action(description="Run discovery now")
+    def run_discovery_now(self, request, queryset):
+        """Alias for run_schedule_now for backward compatibility."""
+        return self.run_schedule_now(request, queryset)
 
     @admin.action(description="Activate selected schedules")
     def activate_schedules(self, request, queryset):
@@ -2307,3 +2317,92 @@ class DiscoveryResultAdmin(admin.ModelAdmin):
         return "-"
 
     product_link.short_description = "Product"
+
+
+@admin.register(QuotaUsage)
+class QuotaUsageAdmin(admin.ModelAdmin):
+    """
+    Admin interface for API quota tracking.
+
+    Phase 6: Displays current usage, limits, and remaining quota.
+    """
+
+    list_display = [
+        "api_name",
+        "month",
+        "current_usage",
+        "monthly_limit",
+        "remaining_display",
+        "usage_bar",
+        "last_used",
+    ]
+    list_filter = [
+        "api_name",
+        "month",
+    ]
+    search_fields = ["api_name"]
+    ordering = ["-month", "api_name"]
+    readonly_fields = [
+        "current_usage",
+        "last_used",
+        "created_at",
+        "updated_at",
+    ]
+
+    fieldsets = (
+        (
+            "API Information",
+            {
+                "fields": (
+                    "api_name",
+                    "month",
+                ),
+            },
+        ),
+        (
+            "Usage",
+            {
+                "fields": (
+                    "current_usage",
+                    "monthly_limit",
+                    "last_used",
+                ),
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+    )
+
+    def remaining_display(self, obj):
+        """Display remaining quota."""
+        return obj.remaining
+
+    remaining_display.short_description = "Remaining"
+
+    def usage_bar(self, obj):
+        """Display usage as a progress bar."""
+        percentage = obj.usage_percentage
+        if percentage >= 90:
+            color = "#dc3545"  # Red
+        elif percentage >= 70:
+            color = "#ffc107"  # Yellow
+        else:
+            color = "#28a745"  # Green
+
+        return format_html(
+            '<div style="width: 100px; background-color: #e9ecef; border-radius: 3px;">'
+            '<div style="width: {}%; height: 20px; background-color: {}; border-radius: 3px;"></div>'
+            '</div>'
+            '<span style="margin-left: 5px;">{:.1f}%</span>',
+            min(percentage, 100), color, percentage
+        )
+
+    usage_bar.short_description = "Usage %"

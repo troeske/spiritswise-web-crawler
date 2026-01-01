@@ -4966,6 +4966,25 @@ class DiscoverySchedule(models.Model):
 
         return now
 
+    def update_next_run(self):
+        """
+        Update next_run based on frequency and save.
+
+        Called after a job completes to schedule the next run.
+        """
+        self.last_run = timezone.now()
+        self.next_run = self.calculate_next_run()
+        self.save(update_fields=["last_run", "next_run"])
+
+    # Alias for tests that use next_run_at
+    @property
+    def next_run_at(self):
+        return self.next_run
+
+    @next_run_at.setter
+    def next_run_at(self, value):
+        self.next_run = value
+
 
 class DiscoveryJob(models.Model):
     """
@@ -5250,3 +5269,65 @@ class DiscoveryResult(models.Model):
     def __str__(self):
         status = "NEW" if self.is_new_product else ("DUP" if self.is_duplicate else "FAIL")
         return f"[{status}] {self.product_name or self.source_url[:50]}"
+
+
+class QuotaUsage(models.Model):
+    """
+    Tracks API quota usage per month.
+
+    Phase 6: Quota Management
+    Records usage for SerpAPI, ScrapingBee, and AI services.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # API identification
+    api_name = models.CharField(
+        max_length=50,
+        help_text="Name of the API (serpapi, scrapingbee, ai_service).",
+    )
+    month = models.CharField(
+        max_length=7,
+        help_text="Month key in YYYY-MM format.",
+    )
+
+    # Usage tracking
+    current_usage = models.IntegerField(
+        default=0,
+        help_text="Number of API calls used this month.",
+    )
+    monthly_limit = models.IntegerField(
+        default=1000,
+        help_text="Maximum calls allowed this month.",
+    )
+
+    # Metadata
+    last_used = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When the API was last called.",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "quota_usage"
+        unique_together = ["api_name", "month"]
+        ordering = ["-month", "api_name"]
+        verbose_name = "Quota Usage"
+        verbose_name_plural = "Quota Usage"
+
+    def __str__(self):
+        return f"{self.api_name} ({self.month}): {self.current_usage}/{self.monthly_limit}"
+
+    @property
+    def remaining(self) -> int:
+        """Get remaining quota."""
+        return max(0, self.monthly_limit - self.current_usage)
+
+    @property
+    def usage_percentage(self) -> float:
+        """Get usage as percentage."""
+        if self.monthly_limit == 0:
+            return 100.0
+        return (self.current_usage / self.monthly_limit) * 100
