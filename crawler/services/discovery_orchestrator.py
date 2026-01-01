@@ -303,7 +303,12 @@ class DiscoveryOrchestrator:
 
         self.job.urls_found += 1
 
-        # Create discovery result record
+        # Check if this is a list page (Phase 4)
+        if self._is_list_page(url, title):
+            self._process_list_page(url, title, term, rank)
+            return
+
+        # Create discovery result record for single product page
         domain = self._extract_domain(url)
         discovery_result = DiscoveryResult.objects.create(
             job=self.job,
@@ -328,6 +333,51 @@ class DiscoveryOrchestrator:
 
         # Extract product using SmartCrawler
         self._extract_and_save_product(term, discovery_result, url, title)
+
+    def _process_list_page(
+        self,
+        url: str,
+        title: str,
+        term: SearchTerm,
+        rank: int,
+    ):
+        """
+        Process a list page containing multiple products.
+
+        Args:
+            url: The list page URL
+            title: The page title
+            term: The search term
+            rank: Search result rank
+        """
+        logger.info(f"Processing list page: {title}")
+
+        # Fetch page content
+        html_content = self._fetch_page_content(url)
+        if not html_content:
+            logger.warning(f"Failed to fetch list page content: {url}")
+            return
+
+        # Extract products from list
+        products = self._extract_list_products(url, html_content)
+        if not products:
+            logger.warning(f"No products found in list page: {url}")
+            return
+
+        logger.info(f"Found {len(products)} products in list page")
+
+        # Process each product
+        for product_info in products:
+            result = self._enrich_product_from_list(product_info, url, term)
+
+            # Track results
+            if result.get("is_duplicate"):
+                self.job.products_duplicates += 1
+            elif result.get("created"):
+                self.job.products_new += 1
+            elif result.get("partial"):
+                # Create a partial product record
+                self._create_partial_product(product_info, url, term)
 
     def _is_product_url(self, url: str, title: str) -> bool:
         """
@@ -621,3 +671,475 @@ class DiscoveryOrchestrator:
         # For now, we could potentially update extracted_data
         # or add to a list of alternative source URLs
         pass
+
+    # =========================================================================
+    # Phase 4: Multi-Product Extraction Methods
+    # =========================================================================
+
+    # URL patterns that indicate list pages
+    LIST_URL_PATTERNS = [
+        r"/best-", r"/top-\d+", r"/\d+-best", r"best.*\d{4}",
+        r"/picks/", r"/favorites/", r"/gift-guide",
+        r"/ranking", r"/awards", r"/winners",
+    ]
+
+    # Title patterns that indicate list pages
+    LIST_TITLE_PATTERNS = [
+        r"\bbest\b.*\bwhisk", r"\bbest\b.*\bport",
+        r"\btop\s+\d+\b", r"\d+\s+best\b",
+        r"\bour\s+picks\b", r"\bfavorite\b",
+        r"\bgift\s+guide\b", r"\bultimate\s+guide\b",
+    ]
+
+    def _is_list_page(self, url: str, title: str) -> bool:
+        """
+        Determine if a URL/title indicates a list page with multiple products.
+
+        Args:
+            url: The page URL
+            title: The page title
+
+        Returns:
+            True if this appears to be a list page
+        """
+        url_lower = url.lower()
+        title_lower = title.lower()
+
+        # Check URL patterns
+        for pattern in self.LIST_URL_PATTERNS:
+            if re.search(pattern, url_lower):
+                return True
+
+        # Check title patterns
+        for pattern in self.LIST_TITLE_PATTERNS:
+            if re.search(pattern, title_lower):
+                return True
+
+        # Check for common list indicators in title
+        list_keywords = ["best", "top 10", "top 15", "top 20", "picks", "favorites", "ranking"]
+        if any(kw in title_lower for kw in list_keywords):
+            # Make sure it's not a single product review that mentions "best"
+            product_patterns = [r"/product/", r"/p/\d+", r"/shop/"]
+            if not any(re.search(p, url_lower) for p in product_patterns):
+                return True
+
+        return False
+
+    def _classify_list_type(self, url: str, title: str) -> str:
+        """
+        Classify the type of list page.
+
+        Args:
+            url: The page URL
+            title: The page title
+
+        Returns:
+            List type: "best_of", "top_n", "gift_guide", "ranking", or "other"
+        """
+        url_lower = url.lower()
+        title_lower = title.lower()
+
+        # Check for "top N" pattern
+        if re.search(r"\btop\s+\d+\b", title_lower) or re.search(r"/top-\d+", url_lower):
+            return "top_n"
+
+        # Check for gift guide
+        if "gift" in title_lower or "gift-guide" in url_lower:
+            return "gift_guide"
+
+        # Check for ranking/awards
+        if "ranking" in title_lower or "award" in title_lower:
+            return "ranking"
+
+        # Default to "best of"
+        if "best" in title_lower:
+            return "best_of"
+
+        return "other"
+
+    def _estimate_list_size(self, title: str) -> Optional[int]:
+        """
+        Estimate the number of products in a list from the title.
+
+        Args:
+            title: The page title
+
+        Returns:
+            Estimated number of products, or None if not determinable
+        """
+        # Look for patterns like "Top 10", "15 Best", "20 Must-Try"
+        patterns = [
+            r"\btop\s+(\d+)\b",
+            r"(\d+)\s+best\b",
+            r"\bthe\s+(\d+)\s+best\b",
+            r"\bour\s+(\d+)\b",
+        ]
+
+        title_lower = title.lower()
+        for pattern in patterns:
+            match = re.search(pattern, title_lower)
+            if match:
+                return int(match.group(1))
+
+        return None
+
+    def _fetch_page_content(self, url: str) -> str:
+        """
+        Fetch HTML content from a URL using ScrapingBee.
+
+        Args:
+            url: The URL to fetch
+
+        Returns:
+            HTML content string
+        """
+        if not self.smart_crawler:
+            return ""
+
+        try:
+            # Use the existing crawl capability
+            from crawler.services.smart_crawler import SmartCrawler
+
+            if hasattr(self.smart_crawler, "scrapingbee_client"):
+                response = self.smart_crawler.scrapingbee_client.get(url)
+                if hasattr(response, "content"):
+                    return response.content.decode("utf-8", errors="ignore")
+                return str(response)
+        except Exception as e:
+            logger.warning(f"Failed to fetch page content: {e}")
+
+        return ""
+
+    def _call_ai_list_extraction(
+        self,
+        html_content: str,
+        url: str,
+    ) -> Dict[str, Any]:
+        """
+        Call AI service to extract product list from HTML.
+
+        Args:
+            html_content: The HTML content
+            url: The source URL
+
+        Returns:
+            Dict with 'products' list and metadata
+        """
+        if not self.smart_crawler:
+            return {"products": [], "error": "SmartCrawler not available"}
+
+        try:
+            # Check if AI client exists
+            if hasattr(self.smart_crawler, "ai_client"):
+                # Use AI to extract products from the list page
+                prompt = """
+                Extract all whiskey/spirit products mentioned in this HTML content.
+                For each product, extract:
+                - name: The product name
+                - brand: The brand name
+                - link: Any product link (relative or absolute URL)
+                - price: Price if mentioned
+                - rating: Rating/score if mentioned
+                - description: Brief description if provided
+
+                Return as JSON: {"products": [...], "total_products": N}
+                """
+
+                # This would call the actual AI service
+                response = self.smart_crawler.ai_client.extract(
+                    content=html_content,
+                    prompt=prompt,
+                    extraction_type="list_products",
+                )
+
+                if hasattr(response, "data"):
+                    return response.data or {"products": []}
+                return response if isinstance(response, dict) else {"products": []}
+
+        except Exception as e:
+            logger.warning(f"AI list extraction failed: {e}")
+
+        return {"products": [], "error": str(e) if 'e' in dir() else "Unknown error"}
+
+    def _extract_list_products(
+        self,
+        url: str,
+        html_content: str,
+        max_products: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """
+        Extract products from a list page using AI.
+
+        Args:
+            url: The list page URL
+            html_content: The HTML content
+            max_products: Maximum products to extract
+
+        Returns:
+            List of product dictionaries
+        """
+        response = self._call_ai_list_extraction(html_content, url)
+        products = response.get("products", [])
+
+        # Limit to max_products
+        products = products[:max_products]
+
+        # Resolve relative links
+        products = self._resolve_product_links(products, url)
+
+        return products
+
+    def _resolve_product_links(
+        self,
+        products: List[Dict[str, Any]],
+        base_url: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Resolve relative links in product list to absolute URLs.
+
+        Args:
+            products: List of product dictionaries
+            base_url: The base URL for resolving relative links
+
+        Returns:
+            Products with resolved links
+        """
+        from urllib.parse import urljoin
+
+        resolved = []
+        for product in products:
+            product_copy = product.copy()
+            link = product_copy.get("link")
+
+            if link:
+                if link.startswith("/"):
+                    # Relative URL
+                    parsed = urlparse(base_url)
+                    product_copy["link"] = f"{parsed.scheme}://{parsed.netloc}{link}"
+                elif not link.startswith("http"):
+                    # Relative path
+                    product_copy["link"] = urljoin(base_url, link)
+                # else: already absolute
+
+            resolved.append(product_copy)
+
+        return resolved
+
+    def _search_for_product_details(
+        self,
+        product_name: str,
+        brand: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Search for additional product details using SerpAPI.
+
+        Args:
+            product_name: The product name
+            brand: Optional brand name
+
+        Returns:
+            Product details if found, None otherwise
+        """
+        # Construct search query
+        query = product_name
+        if brand:
+            query = f"{brand} {product_name}"
+
+        try:
+            results = self._search(query)
+            if results:
+                # Return first result that looks like a product page
+                for result in results[:5]:
+                    url = result.get("link", "")
+                    if self._is_product_url(url, result.get("title", "")):
+                        return {
+                            "url": url,
+                            "title": result.get("title"),
+                            "snippet": result.get("snippet"),
+                        }
+        except Exception as e:
+            logger.warning(f"Product detail search failed: {e}")
+
+        return None
+
+    def _enrich_product_from_list(
+        self,
+        product_info: Dict[str, Any],
+        source_url: str,
+        search_term: SearchTerm,
+    ) -> Dict[str, Any]:
+        """
+        Enrich a product discovered from a list page.
+
+        Args:
+            product_info: Basic product info from list
+            source_url: The list page URL
+            search_term: The search term that found this
+
+        Returns:
+            Result dictionary with enrichment details
+        """
+        name = product_info.get("name", "")
+        brand = product_info.get("brand")
+        link = product_info.get("link")
+
+        result = {
+            "name": name,
+            "brand": brand,
+            "discovered_via_list": source_url,
+            "is_duplicate": False,
+            "needs_review": False,
+            "partial": False,
+            "created": False,
+        }
+
+        # Check for existing product
+        existing = self._find_existing_product(link or "", name)
+        if existing:
+            result["is_duplicate"] = True
+            result["existing_product_id"] = existing.id
+            return result
+
+        # If we have a direct link, use SmartCrawler
+        if link and self.smart_crawler:
+            try:
+                product_type = search_term.product_type
+                if product_type == "both":
+                    product_type = "whiskey"
+
+                extraction = self.smart_crawler.extract_product(
+                    expected_name=name,
+                    product_type=product_type,
+                    primary_url=link,
+                )
+
+                # Track API calls
+                if self.job:
+                    if hasattr(extraction, "scrapingbee_calls"):
+                        self.job.scrapingbee_calls_used += extraction.scrapingbee_calls
+                    else:
+                        self.job.scrapingbee_calls_used += 1
+
+                    if hasattr(extraction, "ai_calls"):
+                        self.job.ai_calls_used += extraction.ai_calls
+                    else:
+                        self.job.ai_calls_used += 1
+
+                if extraction.success:
+                    result["created"] = True
+                    result["data"] = extraction.data
+                    result["needs_review"] = extraction.needs_review
+                    return result
+
+            except Exception as e:
+                logger.warning(f"Product enrichment failed for {name}: {e}")
+
+        # No link or extraction failed - create partial product
+        result["partial"] = True
+        result["needs_review"] = True
+
+        # Try to find additional details via search
+        if not link:
+            search_result = self._search_for_product_details(name, brand)
+            if search_result:
+                result["search_result"] = search_result
+
+        return result
+
+    def _process_list_page_products(
+        self,
+        products: List[Dict[str, Any]],
+        list_url: str,
+        search_term: SearchTerm,
+    ):
+        """
+        Process all products extracted from a list page.
+
+        Args:
+            products: List of product info dictionaries
+            list_url: The source list page URL
+            search_term: The search term that found this list
+        """
+        for product_info in products:
+            link = product_info.get("link")
+
+            # If product has a direct link, use SmartCrawler
+            if link and self.smart_crawler:
+                try:
+                    product_type = search_term.product_type
+                    if product_type == "both":
+                        product_type = "whiskey"
+
+                    extraction = self.smart_crawler.extract_product(
+                        expected_name=product_info.get("name", ""),
+                        product_type=product_type,
+                        primary_url=link,
+                    )
+
+                    # Track API calls
+                    if hasattr(extraction, "scrapingbee_calls"):
+                        self.job.scrapingbee_calls_used += extraction.scrapingbee_calls
+                    else:
+                        self.job.scrapingbee_calls_used += 1
+
+                    if hasattr(extraction, "ai_calls"):
+                        self.job.ai_calls_used += extraction.ai_calls
+                    else:
+                        self.job.ai_calls_used += 1
+
+                    if extraction.success and extraction.data:
+                        # Save the product
+                        product = self._save_product(extraction.data, link)
+                        if product:
+                            self.job.products_new += 1
+                        else:
+                            self.job.products_updated += 1
+
+                        self.job.urls_crawled += 1
+
+                except Exception as e:
+                    logger.warning(f"Failed to process list product {product_info.get('name')}: {e}")
+                    self.job.products_failed += 1
+
+    def _create_partial_product(
+        self,
+        product_info: Dict[str, Any],
+        source_url: str,
+        search_term: SearchTerm,
+    ):
+        """
+        Create a partial product record for a product without full details.
+
+        Args:
+            product_info: Basic product info from list
+            source_url: The list page URL
+            search_term: The search term that found this
+        """
+        name = product_info.get("name", "Unknown")
+
+        # Check if product already exists
+        existing = self._find_existing_product("", name)
+        if existing:
+            return
+
+        # Create product with partial info
+        product_type = search_term.product_type
+        if product_type == "both":
+            product_type = "whiskey"
+
+        product = DiscoveredProduct.objects.create(
+            name=name,
+            product_type=product_type,
+            source_url=source_url,
+            status="needs_review",
+            extracted_data={
+                "partial": True,
+                "from_list_page": source_url,
+                "brand": product_info.get("brand"),
+                "price": product_info.get("price"),
+                "rating": product_info.get("rating"),
+            },
+        )
+
+        self.job.products_new += 1
+        return product

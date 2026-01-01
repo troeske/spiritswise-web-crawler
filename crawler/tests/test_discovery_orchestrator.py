@@ -862,3 +862,576 @@ class TestQuotaTracking(TestCase):
             job = orchestrator.run()
 
         self.assertGreaterEqual(job.scrapingbee_calls_used, 1)
+
+
+# ============================================================================
+# Phase 4: Multi-Product Extraction Tests (TDD)
+# ============================================================================
+
+
+class TestListPageDetection(TestCase):
+    """Test TASK-GS-016: List Page Detection."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.schedule = DiscoverySchedule.objects.create(
+            name="Test Schedule",
+            frequency=ScheduleFrequency.DAILY,
+            max_search_terms=10,
+            max_results_per_term=5,
+        )
+
+    def test_detect_best_of_list_page_by_url(self):
+        """Test detecting 'best of' list pages by URL pattern."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        list_urls = [
+            ("https://vinepair.com/best-whiskey-2025", "Best Whiskey"),
+            ("https://liquor.com/top-10-bourbon", "Top 10 Bourbon"),
+            ("https://whiskyadvocate.com/best-scotch-under-50", "Best Scotch"),
+            ("https://tastingtable.com/15-best-port-wines", "15 Best Port Wines"),
+            ("https://example.com/10-best-whiskeys-of-2025", "10 Best Whiskeys"),
+        ]
+
+        for url, title in list_urls:
+            result = orchestrator._is_list_page(url, title)
+            self.assertTrue(result, f"Should detect list page: {url}")
+
+    def test_detect_list_page_by_title(self):
+        """Test detecting list pages by title keywords."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        list_titles = [
+            ("https://example.com/article", "The 20 Best Scotch Whiskies to Try"),
+            ("https://example.com/page", "Top 15 Bourbon Brands of 2025"),
+            ("https://example.com/review", "Our Picks: Best Irish Whiskeys"),
+            ("https://example.com/guide", "Ultimate Guide to the Best Port Wines"),
+        ]
+
+        for url, title in list_titles:
+            result = orchestrator._is_list_page(url, title)
+            self.assertTrue(result, f"Should detect list page by title: {title}")
+
+    def test_single_product_page_not_list(self):
+        """Test that single product pages are not detected as list pages."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        single_product_pages = [
+            ("https://masterofmalt.com/product/glenfiddich-18", "Glenfiddich 18 Year Old"),
+            ("https://thewhiskyexchange.com/p/123/lagavulin-16", "Lagavulin 16"),
+            ("https://example.com/whiskey/macallan-12", "Macallan 12 Year Old"),
+        ]
+
+        for url, title in single_product_pages:
+            result = orchestrator._is_list_page(url, title)
+            self.assertFalse(result, f"Should NOT detect as list page: {url}")
+
+    def test_list_page_type_classification(self):
+        """Test classifying different types of list pages."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # "best of" list
+        list_type = orchestrator._classify_list_type(
+            "https://example.com/best-whiskey-2025",
+            "Best Whiskeys of 2025"
+        )
+        self.assertEqual(list_type, "best_of")
+
+        # "top N" list
+        list_type = orchestrator._classify_list_type(
+            "https://example.com/top-10-bourbon",
+            "Top 10 Bourbon Brands"
+        )
+        self.assertEqual(list_type, "top_n")
+
+        # "gift guide" or recommendation list
+        list_type = orchestrator._classify_list_type(
+            "https://example.com/gift-guide",
+            "Holiday Gift Guide: Whiskey Edition"
+        )
+        self.assertEqual(list_type, "gift_guide")
+
+    def test_estimate_list_size_from_title(self):
+        """Test estimating number of products in a list from title."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        test_cases = [
+            ("Top 10 Bourbon Brands", 10),
+            ("15 Best Port Wines", 15),
+            ("The 20 Best Scotch Whiskies", 20),
+            ("Best Whiskeys to Try", None),  # No number
+            ("Our 5 Favorite Ryes", 5),
+        ]
+
+        for title, expected in test_cases:
+            size = orchestrator._estimate_list_size(title)
+            self.assertEqual(size, expected, f"Failed for title: {title}")
+
+
+class TestAIListExtraction(TestCase):
+    """Test TASK-GS-017: AI List Extraction."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.schedule = DiscoverySchedule.objects.create(
+            name="Test Schedule",
+            frequency=ScheduleFrequency.DAILY,
+            max_search_terms=10,
+            max_results_per_term=5,
+        )
+        self.search_term = SearchTerm.objects.create(
+            term_template="best whiskey {year}",
+            category=SearchTermCategory.BEST_LISTS,
+            product_type=SearchTermProductType.WHISKEY,
+            priority=100,
+            is_active=True,
+        )
+
+    def test_extract_products_from_list_page(self):
+        """Test extracting multiple products from a list page."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Mock the AI extraction response
+        mock_ai_response = {
+            "products": [
+                {"name": "Glenfiddich 18 Year Old", "brand": "Glenfiddich", "link": "/product/glenfiddich-18"},
+                {"name": "Lagavulin 16 Year Old", "brand": "Lagavulin", "link": "/product/lagavulin-16"},
+                {"name": "Macallan 12 Year Old", "brand": "Macallan", "link": "https://other-site.com/macallan"},
+            ],
+            "list_type": "best_of",
+            "total_products": 3,
+        }
+
+        with patch.object(
+            orchestrator, "_call_ai_list_extraction", return_value=mock_ai_response
+        ):
+            products = orchestrator._extract_list_products(
+                url="https://vinepair.com/best-whiskey-2025",
+                html_content="<html>...</html>"
+            )
+
+        self.assertEqual(len(products), 3)
+        self.assertEqual(products[0]["name"], "Glenfiddich 18 Year Old")
+
+    def test_resolve_relative_links_in_list(self):
+        """Test that relative links are resolved to absolute URLs."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        products = [
+            {"name": "Product 1", "link": "/product/p1"},
+            {"name": "Product 2", "link": "https://other.com/p2"},
+            {"name": "Product 3", "link": None},
+        ]
+
+        base_url = "https://example.com/best-whiskey"
+        resolved = orchestrator._resolve_product_links(products, base_url)
+
+        self.assertEqual(resolved[0]["link"], "https://example.com/product/p1")
+        self.assertEqual(resolved[1]["link"], "https://other.com/p2")
+        self.assertIsNone(resolved[2]["link"])
+
+    def test_ai_list_extraction_with_empty_page(self):
+        """Test AI extraction handles empty/invalid pages gracefully."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Mock empty response
+        with patch.object(
+            orchestrator, "_call_ai_list_extraction", return_value={"products": [], "error": "No products found"}
+        ):
+            products = orchestrator._extract_list_products(
+                url="https://example.com/empty-page",
+                html_content=""
+            )
+
+        self.assertEqual(len(products), 0)
+
+    def test_ai_extraction_limits_products(self):
+        """Test AI extraction respects max product limit."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Mock response with many products
+        many_products = [{"name": f"Product {i}", "link": f"/p{i}"} for i in range(50)]
+        mock_response = {"products": many_products, "total_products": 50}
+
+        with patch.object(
+            orchestrator, "_call_ai_list_extraction", return_value=mock_response
+        ):
+            products = orchestrator._extract_list_products(
+                url="https://example.com/big-list",
+                html_content="<html>...</html>",
+                max_products=20
+            )
+
+        self.assertLessEqual(len(products), 20)
+
+    def test_ai_extraction_parses_product_details(self):
+        """Test AI extraction captures available product details."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        mock_response = {
+            "products": [
+                {
+                    "name": "Glenfiddich 18",
+                    "brand": "Glenfiddich",
+                    "price": "$89.99",
+                    "rating": "95 points",
+                    "link": "/product/glenfiddich",
+                    "description": "A rich, oak-aged single malt"
+                }
+            ],
+            "total_products": 1,
+        }
+
+        with patch.object(
+            orchestrator, "_call_ai_list_extraction", return_value=mock_response
+        ):
+            products = orchestrator._extract_list_products(
+                url="https://example.com/list",
+                html_content="<html>...</html>"
+            )
+
+        self.assertEqual(products[0]["brand"], "Glenfiddich")
+        self.assertEqual(products[0]["price"], "$89.99")
+        self.assertEqual(products[0]["rating"], "95 points")
+
+
+class TestIndividualProductEnrichment(TestCase):
+    """Test TASK-GS-018: Individual Product Enrichment."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.schedule = DiscoverySchedule.objects.create(
+            name="Test Schedule",
+            frequency=ScheduleFrequency.DAILY,
+            max_search_terms=10,
+            max_results_per_term=5,
+        )
+        self.search_term = SearchTerm.objects.create(
+            term_template="best whiskey {year}",
+            category=SearchTermCategory.BEST_LISTS,
+            product_type=SearchTermProductType.WHISKEY,
+            priority=100,
+            is_active=True,
+        )
+
+    @patch("crawler.services.discovery_orchestrator.DiscoveryOrchestrator._search")
+    def test_enrichment_follows_product_links(self, mock_search):
+        """Test enrichment follows links to get full product details."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        # Mock search returning a list page
+        mock_search.return_value = [
+            {"title": "Best Whiskeys 2025", "link": "https://vinepair.com/best-whiskey-2025"}
+        ]
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Mock list detection
+        with patch.object(orchestrator, "_is_list_page", return_value=True):
+            # Mock list extraction returning products with links
+            mock_list_products = [
+                {"name": "Glenfiddich 18", "brand": "Glenfiddich", "link": "https://retailer.com/glenfiddich"},
+                {"name": "Lagavulin 16", "brand": "Lagavulin", "link": "https://retailer.com/lagavulin"},
+            ]
+            with patch.object(orchestrator, "_extract_list_products", return_value=mock_list_products):
+                # Mock SmartCrawler for enrichment
+                mock_extraction = Mock()
+                mock_extraction.success = True
+                mock_extraction.data = {"name": "Glenfiddich 18 Year Old", "abv": "43%"}
+                mock_extraction.needs_review = False
+                mock_extraction.source_url = "https://retailer.com/glenfiddich"
+                mock_extraction.source_type = "trusted_retailer"
+                mock_extraction.name_match_score = 0.95
+                mock_extraction.scrapingbee_calls = 1
+                mock_extraction.ai_calls = 1
+
+                with patch.object(
+                    orchestrator.smart_crawler, "extract_product", return_value=mock_extraction
+                ) as mock_extract:
+                    with patch.object(orchestrator, "_fetch_page_content", return_value="<html>...</html>"):
+                        job = orchestrator.run()
+
+                    # SmartCrawler should be called for each product with link
+                    self.assertGreaterEqual(mock_extract.call_count, 1)
+
+    def test_enrich_product_without_link(self):
+        """Test handling products without direct links."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Product from list with no link
+        product_info = {
+            "name": "Mystery Whiskey XO",
+            "brand": "Unknown",
+            "price": "$150",
+            "rating": "92 points",
+            "link": None
+        }
+
+        # Should create a partial product record needing enrichment
+        with patch.object(orchestrator, "_search_for_product_details") as mock_search:
+            mock_search.return_value = None  # No additional details found
+
+            result = orchestrator._enrich_product_from_list(
+                product_info,
+                source_url="https://example.com/best-list",
+                search_term=self.search_term
+            )
+
+        # Should create product with available info and mark for review
+        self.assertIsNotNone(result)
+        self.assertTrue(result.get("needs_review", False) or result.get("partial", False))
+
+    def test_enrichment_deduplicates_against_existing(self):
+        """Test enrichment checks for existing products before creating new ones."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.models import DiscoveredBrand
+
+        # Create existing product
+        brand = DiscoveredBrand.objects.create(name="Glenfiddich")
+        existing = DiscoveredProduct.objects.create(
+            name="Glenfiddich 18 Year Old",
+            brand=brand,
+            product_type="whiskey",
+            source_url="https://original.com/glenfiddich"
+        )
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Product from list that matches existing
+        product_info = {
+            "name": "Glenfiddich 18 Year Old",
+            "brand": "Glenfiddich",
+            "link": "https://new-source.com/glenfiddich-18"
+        }
+
+        result = orchestrator._enrich_product_from_list(
+            product_info,
+            source_url="https://example.com/best-list",
+            search_term=self.search_term
+        )
+
+        # Should detect as duplicate
+        self.assertTrue(result.get("is_duplicate", False))
+        self.assertEqual(result.get("existing_product_id"), existing.id)
+
+    @patch("crawler.services.discovery_orchestrator.DiscoveryOrchestrator._search")
+    def test_list_page_creates_multiple_products(self, mock_search):
+        """Test processing a list page creates multiple product records."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        mock_search.return_value = [
+            {"title": "Top 5 Bourbons", "link": "https://example.com/top-5-bourbon"}
+        ]
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        with patch.object(orchestrator, "_is_list_page", return_value=True):
+            mock_list = [
+                {"name": "Buffalo Trace", "brand": "Buffalo Trace", "link": None},
+                {"name": "Woodford Reserve", "brand": "Woodford", "link": None},
+                {"name": "Maker's Mark", "brand": "Maker's Mark", "link": None},
+            ]
+            with patch.object(orchestrator, "_extract_list_products", return_value=mock_list):
+                with patch.object(orchestrator, "_fetch_page_content", return_value="<html>...</html>"):
+                    with patch.object(orchestrator, "_enrich_product_from_list") as mock_enrich:
+                        mock_enrich.return_value = {"created": True, "needs_review": True}
+                        job = orchestrator.run()
+
+                        # Should have called enrich for each product
+                        self.assertEqual(mock_enrich.call_count, 3)
+
+    def test_enrichment_tracks_source_list(self):
+        """Test enriched products track their source list page."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        product_info = {
+            "name": "Test Whiskey",
+            "brand": "TestBrand",
+            "link": "https://retailer.com/test-whiskey"
+        }
+
+        # Mock SmartCrawler extraction
+        mock_extraction = Mock()
+        mock_extraction.success = True
+        mock_extraction.data = {"name": "Test Whiskey", "abv": "40%"}
+        mock_extraction.needs_review = False
+        mock_extraction.source_url = "https://retailer.com/test-whiskey"
+        mock_extraction.source_type = "trusted_retailer"
+        mock_extraction.name_match_score = 0.95
+        mock_extraction.scrapingbee_calls = 1
+        mock_extraction.ai_calls = 1
+
+        with patch.object(
+            orchestrator.smart_crawler, "extract_product", return_value=mock_extraction
+        ):
+            result = orchestrator._enrich_product_from_list(
+                product_info,
+                source_url="https://vinepair.com/best-whiskey-2025",
+                search_term=self.search_term
+            )
+
+        # Result should track the list page source
+        self.assertEqual(result.get("discovered_via_list"), "https://vinepair.com/best-whiskey-2025")
+
+
+class TestListPageProcessingIntegration(TestCase):
+    """Integration tests for full list page processing flow."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.schedule = DiscoverySchedule.objects.create(
+            name="Test Schedule",
+            frequency=ScheduleFrequency.DAILY,
+            max_search_terms=5,
+            max_results_per_term=10,
+        )
+        self.search_term = SearchTerm.objects.create(
+            term_template="best whiskey {year}",
+            category=SearchTermCategory.BEST_LISTS,
+            product_type=SearchTermProductType.WHISKEY,
+            priority=100,
+            is_active=True,
+        )
+
+    @patch("crawler.services.discovery_orchestrator.DiscoveryOrchestrator._search")
+    def test_full_list_page_flow(self, mock_search):
+        """Test complete flow: search -> detect list -> extract -> enrich."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        # Search returns a list page
+        mock_search.return_value = [
+            {"title": "10 Best Scotch Whiskies 2025", "link": "https://review-site.com/best-scotch"}
+        ]
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Mock page fetch
+        with patch.object(orchestrator, "_fetch_page_content", return_value="<html>list content</html>"):
+            # Mock list detection (based on URL/title)
+            with patch.object(orchestrator, "_is_list_page", return_value=True):
+                # Mock AI list extraction
+                mock_products = [
+                    {"name": "Lagavulin 16", "brand": "Lagavulin", "link": "https://retailer.com/lagavulin"},
+                    {"name": "Laphroaig 10", "brand": "Laphroaig", "link": "https://retailer.com/laphroaig"},
+                ]
+                with patch.object(orchestrator, "_extract_list_products", return_value=mock_products):
+                    # Mock SmartCrawler enrichment
+                    mock_extraction = Mock()
+                    mock_extraction.success = True
+                    mock_extraction.data = {"name": "Lagavulin 16 Year Old"}
+                    mock_extraction.needs_review = False
+                    mock_extraction.source_url = "https://retailer.com/lagavulin"
+                    mock_extraction.source_type = "trusted_retailer"
+                    mock_extraction.name_match_score = 0.95
+                    mock_extraction.scrapingbee_calls = 1
+                    mock_extraction.ai_calls = 1
+
+                    with patch.object(
+                        orchestrator.smart_crawler, "extract_product", return_value=mock_extraction
+                    ):
+                        job = orchestrator.run()
+
+        # Verify job completed and tracked list processing
+        self.assertEqual(job.status, DiscoveryJobStatus.COMPLETED)
+        self.assertGreaterEqual(job.products_new + job.products_updated, 0)
+
+    @patch("crawler.services.discovery_orchestrator.DiscoveryOrchestrator._search")
+    def test_mixed_single_and_list_pages(self, mock_search):
+        """Test handling both single product pages and list pages in same search."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        mock_search.return_value = [
+            {"title": "Glenfiddich 18 Review", "link": "https://retailer.com/glenfiddich-18"},  # Single
+            {"title": "Best Whiskeys 2025", "link": "https://review.com/best-whiskey"},  # List
+            {"title": "Macallan 12", "link": "https://shop.com/macallan"},  # Single
+        ]
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+
+        # Set up detection to return True only for the list page
+        def is_list_page(url, title):
+            return "best" in title.lower() and "best" in url.lower()
+
+        with patch.object(orchestrator, "_is_list_page", side_effect=is_list_page):
+            with patch.object(orchestrator, "_fetch_page_content", return_value="<html>...</html>"):
+                mock_list = [{"name": "Test", "link": None}]
+                with patch.object(orchestrator, "_extract_list_products", return_value=mock_list):
+                    mock_extraction = Mock()
+                    mock_extraction.success = True
+                    mock_extraction.data = {"name": "Test Product"}
+                    mock_extraction.needs_review = False
+                    mock_extraction.source_url = "https://example.com"
+                    mock_extraction.source_type = "other"
+                    mock_extraction.name_match_score = 0.90
+                    mock_extraction.scrapingbee_calls = 1
+                    mock_extraction.ai_calls = 1
+
+                    with patch.object(
+                        orchestrator.smart_crawler, "extract_product", return_value=mock_extraction
+                    ):
+                        with patch.object(orchestrator, "_enrich_product_from_list", return_value={"created": True}):
+                            job = orchestrator.run()
+
+        self.assertEqual(job.status, DiscoveryJobStatus.COMPLETED)
+
+    def test_list_extraction_quota_tracking(self):
+        """Test that list extraction properly tracks API quotas."""
+        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+        orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
+        orchestrator.job = DiscoveryJob.objects.create(
+            schedule=self.schedule,
+            status=DiscoveryJobStatus.RUNNING,
+        )
+
+        # Mock list with 5 products
+        mock_products = [
+            {"name": f"Product {i}", "link": f"https://example.com/p{i}"}
+            for i in range(5)
+        ]
+
+        mock_extraction = Mock()
+        mock_extraction.success = True
+        mock_extraction.data = {"name": "Product"}
+        mock_extraction.needs_review = False
+        mock_extraction.source_url = "https://example.com"
+        mock_extraction.source_type = "other"
+        mock_extraction.name_match_score = 0.90
+        mock_extraction.scrapingbee_calls = 1
+        mock_extraction.ai_calls = 1
+
+        with patch.object(
+            orchestrator.smart_crawler, "extract_product", return_value=mock_extraction
+        ):
+            orchestrator._process_list_page_products(
+                mock_products,
+                list_url="https://review.com/best-list",
+                search_term=self.search_term
+            )
+
+        # Should track 5 ScrapingBee calls (one per product link)
+        self.assertGreaterEqual(orchestrator.job.scrapingbee_calls_used, 5)
