@@ -4,6 +4,9 @@ Tests for Prestige-Led Discovery (Competition-Driven) system.
 Task Group 5: Prestige-Led Discovery (Competitions)
 These tests verify competition parsing, skeleton product creation,
 SerpAPI enrichment triggers, and fuzzy matching for skeleton enrichment.
+
+Phase 4 Update: Skeleton products now store awards as ProductAward records
+instead of in a JSON field.
 """
 
 import pytest
@@ -18,7 +21,7 @@ class TestSkeletonProductCreation:
     def test_creates_skeleton_product_from_competition_data(self):
         """Skeleton products created from competition data have correct attributes."""
         from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
-        from crawler.models import DiscoveredProduct, DiscoveredProductStatus, DiscoverySource
+        from crawler.models import DiscoveredProduct, DiscoveredProductStatus, DiscoverySource, ProductAward
 
         manager = SkeletonProductManager()
 
@@ -40,15 +43,94 @@ class TestSkeletonProductCreation:
         assert product.status == DiscoveredProductStatus.SKELETON
         assert product.discovery_source == DiscoverySource.COMPETITION
 
-        # Verify awards data stored correctly
-        assert len(product.awards) == 1
-        assert product.awards[0]["competition"] == "IWSC"
-        assert product.awards[0]["year"] == 2024
-        assert product.awards[0]["medal"] == "Gold"
+        # Verify awards stored as ProductAward records (Phase 4)
+        awards = ProductAward.objects.filter(product=product)
+        assert awards.count() == 1
+        award = awards.first()
+        assert award.competition == "IWSC"
+        assert award.year == 2024
+        assert award.medal == "gold"  # Normalized to lowercase
 
         # Verify minimal extracted_data
         assert product.extracted_data.get("name") == "Glenfiddich 18 Year Old"
-        assert "award" in product.extracted_data or len(product.awards) > 0
+
+        # Product name should also be in individual column
+        assert product.name == "Glenfiddich 18 Year Old"
+
+    @pytest.mark.django_db
+    def test_skeleton_product_has_brand_record(self):
+        """Skeleton product creates and links DiscoveredBrand record."""
+        from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
+        from crawler.models import DiscoveredBrand
+
+        manager = SkeletonProductManager()
+
+        award_data = {
+            "product_name": "Highland Park 18",
+            "producer": "Highland Park",
+            "competition": "IWSC",
+            "year": 2024,
+            "medal": "Gold",
+        }
+
+        product = manager.create_skeleton_product(award_data)
+
+        # Verify brand was created
+        assert product.brand is not None
+        assert product.brand.name == "Highland Park"
+
+    @pytest.mark.django_db
+    def test_adds_award_to_existing_skeleton(self):
+        """Adding a second award to existing skeleton creates new ProductAward."""
+        from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
+        from crawler.models import ProductAward
+
+        manager = SkeletonProductManager()
+
+        # First award
+        award_data_1 = {
+            "product_name": "Lagavulin 16",
+            "producer": "Lagavulin",
+            "competition": "IWSC",
+            "year": 2024,
+            "medal": "Gold",
+        }
+        product = manager.create_skeleton_product(award_data_1)
+        assert ProductAward.objects.filter(product=product).count() == 1
+
+        # Second award (different competition)
+        award_data_2 = {
+            "product_name": "Lagavulin 16",
+            "producer": "Lagavulin",
+            "competition": "World Whiskies Awards",
+            "year": 2024,
+            "medal": "Gold",
+        }
+        product = manager.create_skeleton_product(award_data_2)
+        assert ProductAward.objects.filter(product=product).count() == 2
+
+    @pytest.mark.django_db
+    def test_deduplicates_same_award(self):
+        """Duplicate awards are not created for same skeleton."""
+        from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
+        from crawler.models import ProductAward
+
+        manager = SkeletonProductManager()
+
+        award_data = {
+            "product_name": "Ardbeg Uigeadail",
+            "producer": "Ardbeg",
+            "competition": "IWSC",
+            "year": 2024,
+            "medal": "Gold",
+        }
+
+        # Create twice with same data
+        product = manager.create_skeleton_product(award_data)
+        product = manager.create_skeleton_product(award_data)
+
+        # Should only have 1 award
+        assert ProductAward.objects.filter(product=product).count() == 1
 
 
 class TestSerpAPITripleSearchTrigger:

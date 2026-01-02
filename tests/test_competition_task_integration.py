@@ -88,7 +88,8 @@ class TestCompetitionSourceDetection:
 
                 # Verify CompetitionOrchestrator was used
                 mock_orchestrator_class.assert_called_once()
-                mock_orchestrator.run_competition_discovery.assert_called_once()
+                # Note: run_competition_discovery is called multiple times (pagination + categories)
+                mock_orchestrator.run_competition_discovery.assert_called()
 
     @pytest.mark.django_db(transaction=True)
     def test_crawl_source_uses_content_processor_for_non_competition(self):

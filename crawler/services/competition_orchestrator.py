@@ -7,6 +7,8 @@ Pipeline flow:
 3. Search for articles about award products (via SerpAPI)
 4. Queue discovered URLs for crawling
 5. Crawl those URLs to get full product details and tasting notes
+
+Phase 4 Update: Uses ProductAward records instead of JSON awards field.
 """
 
 import logging
@@ -27,6 +29,7 @@ from crawler.models import (
     SourceCategory,
     CrawlError,
     ErrorType,
+    ProductAward,
 )
 from crawler.discovery.competitions.parsers import (
     get_parser,
@@ -165,6 +168,22 @@ class CompetitionOrchestrator:
             # Create skeleton products from awards
             for award_data in award_data_list:
                 try:
+                    # Get award count before creation for comparison
+                    existing_product = await sync_to_async(
+                        lambda: DiscoveredProduct.objects.filter(
+                            fingerprint=self.skeleton_manager._compute_skeleton_fingerprint(award_data),
+                            status=DiscoveredProductStatus.SKELETON,
+                        ).first(),
+                        thread_sensitive=True,
+                    )()
+
+                    award_count_before = 0
+                    if existing_product:
+                        award_count_before = await sync_to_async(
+                            lambda: ProductAward.objects.filter(product=existing_product).count(),
+                            thread_sensitive=True,
+                        )()
+
                     # Wrap sync ORM call for async context
                     create_skeleton = sync_to_async(
                         self.skeleton_manager.create_skeleton_product,
@@ -176,10 +195,15 @@ class CompetitionOrchestrator:
                         crawl_job=crawl_job,
                     )
 
-                    # Check if this was a new creation or update
-                    if product.awards and len(product.awards) == 1:
+                    # Check if this was a new creation or update using ProductAward count
+                    award_count_after = await sync_to_async(
+                        lambda: ProductAward.objects.filter(product=product).count(),
+                        thread_sensitive=True,
+                    )()
+
+                    if not existing_product:
                         result.skeletons_created += 1
-                    else:
+                    elif award_count_after > award_count_before:
                         result.skeletons_updated += 1
 
                 except Exception as e:
@@ -230,7 +254,8 @@ class CompetitionOrchestrator:
 
             for skeleton in skeletons:
                 try:
-                    product_name = skeleton.extracted_data.get("name", "")
+                    # Get product name from individual column or extracted_data
+                    product_name = skeleton.name or skeleton.extracted_data.get("name", "")
                     if not product_name:
                         continue
 
@@ -384,15 +409,15 @@ class CompetitionOrchestrator:
 
         enriched = total - awaiting_enrichment
 
-        # Get breakdown by competition
+        # Get breakdown by competition using ProductAward table
         from django.db.models import Count
 
         by_competition = (
-            DiscoveredProduct.objects.filter(
-                status=DiscoveredProductStatus.SKELETON,
+            ProductAward.objects.filter(
+                product__status=DiscoveredProductStatus.SKELETON,
             )
-            .values("awards__0__competition")
-            .annotate(count=Count("id"))
+            .values("competition")
+            .annotate(count=Count("product", distinct=True))
             .order_by("-count")
         )
 

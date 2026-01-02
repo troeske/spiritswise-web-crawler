@@ -6,6 +6,9 @@ Tests the end-to-end flow from competition URL to skeleton to enrichment:
 2. Skeleton deduplication
 3. Enrichment search triggering
 4. URL queuing from enrichment results
+
+Phase 4 Update: Skeleton products now store awards as ProductAward records
+instead of in a JSON field.
 """
 
 import pytest
@@ -27,6 +30,7 @@ class TestCompetitionPipelineEndToEnd:
             DiscoveredProductStatus,
             DiscoverySource,
             SourceCategory,
+            ProductAward,
         )
 
         # Create competition source
@@ -92,14 +96,21 @@ class TestCompetitionPipelineEndToEnd:
         )
         assert skeletons.count() >= 2
 
-        # Verify awards data is stored
+        # Verify awards data is stored as ProductAward records (Phase 4)
         glenfiddich = skeletons.filter(
-            extracted_data__name__icontains="Glenfiddich"
+            name__icontains="Glenfiddich"
         ).first()
+        if not glenfiddich:
+            glenfiddich = skeletons.filter(
+                extracted_data__name__icontains="Glenfiddich"
+            ).first()
+
         if glenfiddich:
-            assert len(glenfiddich.awards) > 0
-            assert glenfiddich.awards[0]["competition"] == "IWSC"
-            assert glenfiddich.awards[0]["year"] == 2024
+            awards = ProductAward.objects.filter(product=glenfiddich)
+            assert awards.count() > 0
+            award = awards.first()
+            assert award.competition == "IWSC"
+            assert award.year == 2024
 
 
 class TestSkeletonDeduplication:
@@ -109,7 +120,7 @@ class TestSkeletonDeduplication:
     def test_skeleton_deduplication_by_fingerprint(self):
         """Duplicate skeleton products are detected and updated instead of created."""
         from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
-        from crawler.models import DiscoveredProduct, DiscoveredProductStatus
+        from crawler.models import DiscoveredProduct, DiscoveredProductStatus, ProductAward
 
         manager = SkeletonProductManager()
 
@@ -136,20 +147,28 @@ class TestSkeletonDeduplication:
 
         # Should return the same product with additional award
         assert product2.id == original_id
-        assert len(product2.awards) == 2
+
+        # Verify awards stored as ProductAward records (Phase 4)
+        awards = ProductAward.objects.filter(product=product2)
+        assert awards.count() == 2
 
         # Verify only one skeleton exists
         skeletons = DiscoveredProduct.objects.filter(
             status=DiscoveredProductStatus.SKELETON,
-            extracted_data__name__icontains="Glenfiddich 18",
+            name__icontains="Glenfiddich 18",
         )
+        if skeletons.count() == 0:
+            skeletons = DiscoveredProduct.objects.filter(
+                status=DiscoveredProductStatus.SKELETON,
+                extracted_data__name__icontains="Glenfiddich 18",
+            )
         assert skeletons.count() == 1
 
     @pytest.mark.django_db
     def test_skeleton_batch_creation(self):
         """Batch skeleton creation handles duplicates correctly."""
         from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
-        from crawler.models import DiscoveredProduct
+        from crawler.models import DiscoveredProduct, ProductAward
 
         manager = SkeletonProductManager()
 
@@ -167,7 +186,7 @@ class TestSkeletonDeduplication:
                 "producer": "Ardbeg",
                 "competition": "WWA",
                 "year": 2024,
-                "medal": "Winner",
+                "medal": "gold",  # Lower case gold should normalize
             },
             {
                 "product_name": "Lagavulin 16",
@@ -183,12 +202,18 @@ class TestSkeletonDeduplication:
         # Should return 3 products but only 2 unique skeletons
         assert len(products) == 3
 
-        # Verify Ardbeg has 2 awards
+        # Verify Ardbeg has 2 awards using ProductAward (Phase 4)
         ardbeg = DiscoveredProduct.objects.filter(
-            extracted_data__name__icontains="Ardbeg Uigeadail"
+            name__icontains="Ardbeg Uigeadail"
         ).first()
+        if not ardbeg:
+            ardbeg = DiscoveredProduct.objects.filter(
+                extracted_data__name__icontains="Ardbeg Uigeadail"
+            ).first()
         assert ardbeg is not None
-        assert len(ardbeg.awards) == 2
+
+        awards = ProductAward.objects.filter(product=ardbeg)
+        assert awards.count() == 2
 
 
 class TestEnrichmentSearchTriggering:

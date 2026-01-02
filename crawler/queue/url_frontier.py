@@ -5,7 +5,7 @@ Implements a priority queue for URLs to be crawled with:
 - Priority-based ordering (lower score = higher priority)
 - URL deduplication via seen URL tracking
 - Domain-specific cookie caching
-- Persistence across restarts
+- Persistence across restarts via database fallback
 
 Reference: ai_enhancement_engine/crawlers/url_frontier.py
 """
@@ -23,11 +23,19 @@ logger = logging.getLogger(__name__)
 
 class URLFrontier:
     """
-    Redis-based URL frontier with priority queue.
+    Redis-based URL frontier with priority queue and database fallback.
 
     Uses sorted sets for priority ordering - lower score = higher priority
     (priority inversion: priority 10 becomes score 0, priority 1 becomes score 9).
     Maintains a separate set for URL deduplication.
+
+    Database Fallback (Fix 4):
+    After Redis restart, the seen URL sets are lost. To prevent re-crawling
+    URLs that were already processed, we fall back to checking:
+    1. CrawledSource table (URLs that were crawled)
+    2. DiscoveredProduct.source_url (URLs that yielded products)
+
+    When a URL is found in the database, we add it to Redis for future checks.
     """
 
     # Redis key patterns
@@ -62,6 +70,80 @@ class URLFrontier:
             broker_url = getattr(settings, "CELERY_BROKER_URL", "redis://localhost:6379/1")
             self._redis = redis.from_url(broker_url, decode_responses=True)
 
+    def _normalize_url(self, url: str) -> str:
+        """
+        Normalize URL for consistent comparison.
+
+        Args:
+            url: URL to normalize
+
+        Returns:
+            Normalized URL (lowercase, stripped, no trailing slash)
+        """
+        return url.lower().strip().rstrip("/")
+
+    def _check_crawled_source(self, url: str, url_hash: str, seen_key: str) -> bool:
+        """
+        Check if URL exists in CrawledSource table.
+
+        If found, populates Redis seen sets for future checks.
+
+        Args:
+            url: URL to check
+            url_hash: Pre-computed hash of the URL
+            seen_key: Queue-specific seen key
+
+        Returns:
+            True if URL was found in CrawledSource
+        """
+        try:
+            from crawler.models import CrawledSource
+
+            # Check both exact URL and normalized version
+            normalized = self._normalize_url(url)
+            if CrawledSource.objects.filter(url=url).exists() or \
+               CrawledSource.objects.filter(url=normalized).exists():
+                # URL was crawled before - add to Redis for future checks
+                self._redis.sadd(seen_key, url_hash)
+                self._redis.sadd(self.GLOBAL_SEEN_KEY, url_hash)
+                logger.debug(f"URL already in CrawledSource, skipping: {url[:50]}...")
+                return True
+        except Exception as e:
+            logger.warning(f"CrawledSource check failed: {e}")
+
+        return False
+
+    def _check_discovered_product(self, url: str, url_hash: str, seen_key: str) -> bool:
+        """
+        Check if URL exists in DiscoveredProduct.source_url.
+
+        If found, populates Redis seen sets for future checks.
+
+        Args:
+            url: URL to check
+            url_hash: Pre-computed hash of the URL
+            seen_key: Queue-specific seen key
+
+        Returns:
+            True if URL was found in DiscoveredProduct
+        """
+        try:
+            from crawler.models import DiscoveredProduct
+
+            # Check both exact URL and normalized version
+            normalized = self._normalize_url(url)
+            if DiscoveredProduct.objects.filter(source_url=url).exists() or \
+               DiscoveredProduct.objects.filter(source_url=normalized).exists():
+                # URL already used for a product - add to Redis for future checks
+                self._redis.sadd(seen_key, url_hash)
+                self._redis.sadd(self.GLOBAL_SEEN_KEY, url_hash)
+                logger.debug(f"URL already in DiscoveredProduct, skipping: {url[:50]}...")
+                return True
+        except Exception as e:
+            logger.warning(f"DiscoveredProduct check failed: {e}")
+
+        return False
+
     def add_url(
         self,
         queue_id: str,
@@ -72,6 +154,11 @@ class URLFrontier:
     ) -> bool:
         """
         Add URL to frontier if not already seen.
+
+        Checks in order (fast to slow):
+        1. Redis seen set (fastest, may be stale after restart)
+        2. CrawledSource table (persistent)
+        3. DiscoveredProduct.source_url (persistent)
 
         Args:
             queue_id: Queue identifier (typically source slug)
@@ -87,14 +174,23 @@ class URLFrontier:
         queue_key = self.QUEUE_KEY_PATTERN.format(queue_id=queue_id)
         seen_key = self.SEEN_KEY_PATTERN.format(queue_id=queue_id)
 
-        # Check if already seen (in this queue or globally)
+        # Check 1: Redis queue-specific seen set (fast, may be stale)
         if self._redis.sismember(seen_key, url_hash):
             return False
 
+        # Check 2: Redis global seen set (fast, may be stale)
         if self._redis.sismember(self.GLOBAL_SEEN_KEY, url_hash):
             return False
 
-        # Add to seen sets
+        # Check 3: CrawledSource table (persistent)
+        if self._check_crawled_source(url, url_hash, seen_key):
+            return False
+
+        # Check 4: DiscoveredProduct.source_url (persistent)
+        if self._check_discovered_product(url, url_hash, seen_key):
+            return False
+
+        # Truly new URL - add to seen sets
         self._redis.sadd(seen_key, url_hash)
         self._redis.sadd(self.GLOBAL_SEEN_KEY, url_hash)
 
@@ -213,6 +309,8 @@ class URLFrontier:
         """
         Check if URL has been seen.
 
+        Checks both Redis and database for complete coverage.
+
         Args:
             queue_id: Queue identifier
             url: URL to check
@@ -223,10 +321,19 @@ class URLFrontier:
         url_hash = self._hash_url(url)
         seen_key = self.SEEN_KEY_PATTERN.format(queue_id=queue_id)
 
-        return (
-            self._redis.sismember(seen_key, url_hash)
-            or self._redis.sismember(self.GLOBAL_SEEN_KEY, url_hash)
-        )
+        # Check Redis first (fast)
+        if self._redis.sismember(seen_key, url_hash):
+            return True
+        if self._redis.sismember(self.GLOBAL_SEEN_KEY, url_hash):
+            return True
+
+        # Check database (persistent)
+        if self._check_crawled_source(url, url_hash, seen_key):
+            return True
+        if self._check_discovered_product(url, url_hash, seen_key):
+            return True
+
+        return False
 
     def mark_url_seen(self, queue_id: str, url: str):
         """
@@ -357,7 +464,7 @@ class URLFrontier:
             Hex digest of URL hash
         """
         # Normalize URL before hashing
-        normalized = url.lower().strip().rstrip("/")
+        normalized = self._normalize_url(url)
         return hashlib.sha256(normalized.encode()).hexdigest()
 
 

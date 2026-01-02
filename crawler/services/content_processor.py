@@ -9,6 +9,11 @@ RECT-004: Added ProductAward creation from awards data.
 RECT-005: Added ProductSource junction record creation.
 RECT-006: Added ProductFieldSource provenance record creation.
 
+UNIFIED_PRODUCT_SAVE_REFACTORING - Phase 2:
+- Updated _save_product() to use unified save_discovered_product() function
+- Maintains backward compatibility with existing return signature
+- Helper functions retained for Phase 5 cleanup
+
 Pipeline steps:
 1. Clean raw HTML content using trafilatura extraction
 2. Determine product_type_hint from CrawlerSource.product_types
@@ -61,6 +66,9 @@ from crawler.models import (
     BrandAward,
 )
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult, get_ai_client
+
+# UNIFIED_PRODUCT_SAVE_REFACTORING - Phase 2: Import unified product saver
+from crawler.services.product_saver import save_discovered_product, ProductSaveResult
 
 logger = logging.getLogger(__name__)
 
@@ -310,6 +318,8 @@ VALID_MEDAL_CHOICES = {choice.value for choice in MedalChoices}
 
 # =============================================================================
 # RECT-002: Whiskey Field Extraction and Details Creation
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 def extract_whiskey_fields(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -430,6 +440,7 @@ def _create_whiskey_details(
     Create WhiskeyDetails record for a whiskey product.
 
     RECT-002: Creates linked WhiskeyDetails with whiskey-specific fields.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct to link to
@@ -477,6 +488,8 @@ def _create_whiskey_details(
 
 # =============================================================================
 # RECT-003: Port Wine Field Extraction and Details Creation
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 def extract_port_wine_fields(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -571,6 +584,7 @@ def _create_port_wine_details(
     Create PortWineDetails record for a port wine product.
 
     RECT-003: Creates linked PortWineDetails with port-specific fields.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct to link to
@@ -624,6 +638,8 @@ def _create_port_wine_details(
 
 # =============================================================================
 # RECT-004: Award Creation Functions
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 def create_product_awards(
@@ -635,6 +651,7 @@ def create_product_awards(
 
     Extracts awards from AI response and creates individual ProductAward
     records with proper field mapping and validation.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct to create awards for
@@ -722,6 +739,8 @@ def create_product_awards(
 
 # =============================================================================
 # RECT-007: ProductRating Creation Functions
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 def _safe_decimal(value: Any) -> Optional[Decimal]:
@@ -794,6 +813,7 @@ def create_product_ratings(
 
     Extracts ratings from AI response and creates individual ProductRating
     records with proper field mapping and validation.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct to create ratings for
@@ -870,6 +890,8 @@ def create_product_ratings(
 
 # =============================================================================
 # RECT-008: ProductImage Creation Functions
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 IMAGE_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
@@ -899,6 +921,7 @@ def create_product_images(
 
     Extracts images from AI response and creates individual ProductImage
     records with proper field mapping and validation.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct to create images for
@@ -982,6 +1005,8 @@ def create_product_images(
 
 # =============================================================================
 # RECT-005: ProductSource Junction Record Creation
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 def get_extracted_field_names(extracted_data: Dict[str, Any]) -> List[str]:
@@ -990,6 +1015,7 @@ def get_extracted_field_names(extracted_data: Dict[str, Any]) -> List[str]:
 
     Identifies which fields in the AI response have non-null, non-empty values.
     This is used for tracking provenance - which source provided which data.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         extracted_data: Dict from AI Enhancement Service
@@ -1026,6 +1052,7 @@ def create_product_source(
 
     Links a DiscoveredProduct to the CrawledSource it was extracted from,
     storing extraction metadata for provenance tracking.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct that was created/updated
@@ -1098,6 +1125,8 @@ def create_product_source(
 
 # =============================================================================
 # RECT-006: Field Provenance Tracking
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 
@@ -1133,6 +1162,7 @@ def create_field_provenance_records(
 
     RECT-006: Tracks which source provided each field value for conflict
     resolution and data quality tracking.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         product: The DiscoveredProduct to link provenance to
@@ -1216,6 +1246,8 @@ def extract_individual_fields(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
 
 # =============================================================================
 # RECT-010: Brand Creation Functions
+# NOTE: These functions are retained for Phase 5 cleanup.
+# The actual creation is now done via save_discovered_product().
 # =============================================================================
 
 # Brand field mapping: AI response key -> (model field name, type converter)
@@ -1238,6 +1270,7 @@ def create_brand_source(
     Create or update a BrandSource junction record.
 
     RECT-013: Links a DiscoveredBrand to a CrawledSource that mentioned it.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         brand: The DiscoveredBrand that was mentioned
@@ -1301,6 +1334,7 @@ def create_brand_award(
 
     RECT-013: Creates BrandAward records for awards given to brands
     (as opposed to product-level awards stored in ProductAward).
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Args:
         brand: The DiscoveredBrand that won the award
@@ -1372,6 +1406,7 @@ def get_or_create_brand(
 
     RECT-010: Creates brand records from AI extraction and links to products.
     RECT-013: Now also creates BrandSource junction record when crawled_source provided.
+    NOTE: This function is retained for Phase 5 cleanup.
 
     Looks for brand name in these fields (in order):
     1. brand
@@ -1523,6 +1558,10 @@ class ContentProcessor:
     7. Create ProductSource junction record
     8. Create ProductFieldSource provenance records
     9. Track API costs
+
+    UNIFIED_PRODUCT_SAVE_REFACTORING - Phase 2:
+    - Now uses unified save_discovered_product() function
+    - Maintains backward compatibility with existing return signature
     """
 
     # Estimated cost per AI enhancement call in cents
@@ -1718,12 +1757,9 @@ class ContentProcessor:
         """
         Save or update DiscoveredProduct from AI Enhancement result.
 
-        RECT-001: Now populates individual columns in addition to JSONFields.
-        RECT-002: Creates WhiskeyDetails for whiskey products.
-        RECT-003: Creates PortWineDetails for port wine products.
-        RECT-004: Now creates ProductAward records from awards data.
-        RECT-005: Now creates ProductSource junction records.
-        RECT-006: Now creates ProductFieldSource provenance records.
+        UNIFIED_PRODUCT_SAVE_REFACTORING - Phase 2:
+        Now uses unified save_discovered_product() function from product_saver.py.
+        Maintains backward compatibility with existing return signature.
 
         Args:
             url: Source URL
@@ -1736,166 +1772,59 @@ class ContentProcessor:
         Returns:
             Tuple of (product_id, is_new, awards_created, product_source_created, provenance_records, whiskey_details_created, port_wine_details_created)
         """
-        # Preserve original extracted_data for JSONField (dual-write)
-        extracted_data = result.extracted_data.copy()
-        extracted_data["source_url"] = url
-
-        # RECT-001: Extract individual field values with type conversion
-        individual_fields = extract_individual_fields(result.extracted_data)
-
-        # Compute fingerprint for deduplication
-        fingerprint = DiscoveredProduct.compute_fingerprint(extracted_data)
-
-        # Compute content hash
-        content_hash = hashlib.sha256(raw_content.encode()).hexdigest()
-
-        # RECT-004: Extract awards data for later processing
-        awards_data = result.extracted_data.get("awards", [])
-
-        # RECT-007: Extract ratings data for later processing
-        ratings_data = result.extracted_data.get("ratings", [])
-
-        # RECT-008: Extract images data for later processing
-        images_data = result.extracted_data.get("images", [])
-
         @sync_to_async
         def save_product():
-            with transaction.atomic():
-                # Check for existing product with same fingerprint
-                existing = DiscoveredProduct.objects.filter(
-                    fingerprint=fingerprint
-                ).first()
+            # Use the unified save_discovered_product() function
+            save_result: ProductSaveResult = save_discovered_product(
+                extracted_data=result.extracted_data,
+                source_url=url,
+                product_type=result.product_type,
+                discovery_source="direct",  # ContentProcessor uses direct discovery
+                crawled_source=crawled_source,
+                check_existing=True,  # Check for existing products by fingerprint
+                field_confidences=result.field_confidences,
+                extraction_confidence=result.confidence,
+                raw_content=raw_content,
+            )
 
-                if existing:
-                    # Update existing product with additional data
-                    existing.enriched_data = {
-                        **existing.enriched_data,
-                        **result.enrichment,
-                        "additional_sources": existing.enriched_data.get(
-                            "additional_sources", []
-                        ) + [url],
-                    }
-                    existing.extraction_confidence = max(
-                        existing.extraction_confidence or 0,
-                        result.confidence,
-                    )
-                    existing.save(
-                        update_fields=["enriched_data", "extraction_confidence"]
-                    )
+            product = save_result.product
 
-                    # RECT-004: Create awards for existing product too
-                    awards_created = create_product_awards(existing, awards_data)
+            # Update product with ContentProcessor-specific fields
+            # (source, crawl_job are not part of unified save_discovered_product)
+            update_fields = []
+            if source is not None and product.source != source:
+                product.source = source
+                update_fields.append("source")
+            if crawl_job is not None and product.crawl_job != crawl_job:
+                product.crawl_job = crawl_job
+                update_fields.append("crawl_job")
 
-                    # RECT-007: Create ratings for existing product too
-                    ratings_created = create_product_ratings(existing, ratings_data)
+            # For existing products, merge enrichment data
+            if not save_result.created:
+                enriched_data = product.enriched_data or {}
+                enriched_data = {
+                    **enriched_data,
+                    **result.enrichment,
+                    "additional_sources": enriched_data.get(
+                        "additional_sources", []
+                    ) + [url],
+                }
+                product.enriched_data = enriched_data
+                update_fields.append("enriched_data")
 
-                    # RECT-008: Create images for existing product too
-                    images_created = create_product_images(existing, images_data)
+            if update_fields:
+                product.save(update_fields=update_fields)
 
-                    # RECT-005: Create ProductSource junction record
-                    product_source = create_product_source(
-                        product=existing,
-                        crawled_source=crawled_source,
-                        extraction_confidence=result.confidence,
-                        extracted_data=result.extracted_data,
-                    )
-                    product_source_created = product_source is not None
-
-                    # RECT-006: Create field provenance records
-                    provenance_records = 0
-                    if crawled_source:
-                        provenance_records = create_field_provenance_records(
-                            product=existing,
-                            source=crawled_source,
-                            extracted_data=result.extracted_data,
-                            field_confidences=result.field_confidences,
-                            overall_confidence=result.confidence,
-                        )
-
-                    logger.info(
-                        f"Updated existing product {existing.id} with data from {url}"
-                    )
-                    # Existing products don't get new WhiskeyDetails
-                    return str(existing.id), False, awards_created, product_source_created, provenance_records, False
-
-                else:
-                    # Create new product
-                    product_type = result.product_type
-
-                    # Validate product type
-                    valid_types = [pt.value for pt in ProductType]
-                    if product_type not in valid_types:
-                        product_type = ProductType.WHISKEY
-
-                    # RECT-001: Build create kwargs with individual columns populated
-                    create_kwargs = {
-                        # Core required fields
-                        "source": source,
-                        "source_url": url,
-                        "crawl_job": crawl_job,
-                        "product_type": product_type,
-                        "raw_content": raw_content[:50000],  # Limit stored content
-                        "raw_content_hash": content_hash,
-                        # JSONFields still populated (dual-write for transition)
-                        "extracted_data": extracted_data,
-                        "enriched_data": result.enrichment,
-                        "extraction_confidence": result.confidence,
-                        "fingerprint": fingerprint,
-                        "status": DiscoveredProductStatus.PENDING,
-                        "discovery_source": DiscoverySource.DIRECT,
-                    }
-
-                    # RECT-001: Add individual field values from AI response
-                    create_kwargs.update(individual_fields)
-
-                    product = DiscoveredProduct.objects.create(**create_kwargs)
-
-                    # RECT-002: Create WhiskeyDetails for whiskey products
-                    whiskey_details_created = False
-                    if product_type == ProductType.WHISKEY or product_type == "whiskey":
-                        whiskey_details = _create_whiskey_details(product, result.extracted_data)
-                        whiskey_details_created = whiskey_details is not None
-
-                    # RECT-003: Create PortWineDetails for port wine products
-                    port_wine_details_created = False
-                    if product_type == ProductType.PORT_WINE or product_type == "port_wine":
-                        port_wine_details = _create_port_wine_details(product, result.extracted_data)
-                        port_wine_details_created = port_wine_details is not None
-
-                    # RECT-004: Create awards for new product
-                    awards_created = create_product_awards(product, awards_data)
-
-                    # RECT-007: Create ratings for new product
-                    ratings_created = create_product_ratings(product, ratings_data)
-
-                    # RECT-008: Create images for new product
-                    images_created = create_product_images(product, images_data)
-
-                    # RECT-005: Create ProductSource junction record
-                    product_source = create_product_source(
-                        product=product,
-                        crawled_source=crawled_source,
-                        extraction_confidence=result.confidence,
-                        extracted_data=result.extracted_data,
-                    )
-                    product_source_created = product_source is not None
-
-                    # RECT-006: Create field provenance records
-                    provenance_records = 0
-                    if crawled_source:
-                        provenance_records = create_field_provenance_records(
-                            product=product,
-                            source=crawled_source,
-                            extracted_data=result.extracted_data,
-                            field_confidences=result.field_confidences,
-                            overall_confidence=result.confidence,
-                        )
-
-                    logger.info(
-                        f"Created new product {product.id}: "
-                        f"{individual_fields.get('name', extracted_data.get('name', 'Unknown'))}"
-                    )
-                    return str(product.id), True, awards_created, product_source_created, provenance_records, whiskey_details_created, port_wine_details_created
+            # Map ProductSaveResult to expected return tuple
+            return (
+                str(product.id),
+                save_result.created,
+                save_result.awards_created,
+                save_result.source_record_created,
+                save_result.provenance_records_created,
+                save_result.whiskey_details_created,
+                save_result.port_wine_details_created,
+            )
 
         return await save_product()
 
