@@ -4969,167 +4969,8 @@ class SearchTerm(models.Model):
             return current_month >= self.seasonal_start_month or current_month <= self.seasonal_end_month
 
 
-class DiscoverySchedule(models.Model):
-    """
-    Configurable schedule for discovery jobs.
-
-    Schedules define when and how discovery jobs run, including:
-    - Frequency (hourly, daily, weekly, monthly)
-    - Limits on terms and results per run
-    - Filters for which search terms to use
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    # Identity
-    name = models.CharField(
-        max_length=100,
-        help_text="Descriptive name for this schedule.",
-    )
-    description = models.TextField(
-        blank=True,
-        help_text="Optional description of this schedule's purpose.",
-    )
-
-    # Timing
-    frequency = models.CharField(
-        max_length=20,
-        choices=ScheduleFrequency.choices,
-        help_text="How often to run this schedule.",
-    )
-    run_at_hour = models.IntegerField(
-        default=3,
-        validators=[MinValueValidator(0), MaxValueValidator(23)],
-        help_text="Hour (0-23) to run daily/weekly/monthly jobs. Ignored for hourly.",
-    )
-    run_on_day = models.IntegerField(
-        blank=True,
-        null=True,
-        validators=[MinValueValidator(0), MaxValueValidator(31)],
-        help_text="Day to run. For weekly: 0=Monday. For monthly: 1-31.",
-    )
-
-    # Limits
-    max_search_terms = models.IntegerField(
-        default=20,
-        validators=[MinValueValidator(1), MaxValueValidator(100)],
-        help_text="Maximum number of search terms to process per run.",
-    )
-    max_results_per_term = models.IntegerField(
-        default=10,
-        validators=[MinValueValidator(1), MaxValueValidator(50)],
-        help_text="Maximum number of search results to crawl per term.",
-    )
-
-    # Filters (JSON arrays)
-    search_categories = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="List of search term categories to include. Empty = all categories.",
-    )
-    product_types = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="List of product types to include. Empty = all types.",
-    )
-
-    # Status
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Only active schedules will run.",
-    )
-    last_run = models.DateTimeField(
-        blank=True,
-        null=True,
-        help_text="When this schedule last ran.",
-    )
-    next_run = models.DateTimeField(
-        blank=True,
-        null=True,
-        help_text="When this schedule will next run.",
-    )
-
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "discovery_schedule"
-        ordering = ["name"]
-        indexes = [
-            models.Index(fields=["is_active", "next_run"]),
-        ]
-        verbose_name = "Discovery Schedule"
-        verbose_name_plural = "Discovery Schedules"
-
-    def __str__(self):
-        return f"{self.name} ({self.frequency})"
-
-    def calculate_next_run(self):
-        """
-        Calculate the next run time based on frequency.
-
-        Returns:
-            datetime: The next scheduled run time.
-        """
-        from datetime import timedelta
-
-        now = timezone.now()
-
-        if self.frequency == ScheduleFrequency.HOURLY:
-            # Next hour
-            return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-
-        elif self.frequency == ScheduleFrequency.DAILY:
-            # Tomorrow at run_at_hour
-            next_run = now.replace(hour=self.run_at_hour, minute=0, second=0, microsecond=0)
-            if next_run <= now:
-                next_run += timedelta(days=1)
-            return next_run
-
-        elif self.frequency == ScheduleFrequency.WEEKLY:
-            # Next occurrence of run_on_day at run_at_hour
-            days_ahead = (self.run_on_day or 0) - now.weekday()
-            if days_ahead < 0:
-                days_ahead += 7
-            next_run = now.replace(hour=self.run_at_hour, minute=0, second=0, microsecond=0)
-            next_run += timedelta(days=days_ahead)
-            if next_run <= now:
-                next_run += timedelta(weeks=1)
-            return next_run
-
-        elif self.frequency == ScheduleFrequency.MONTHLY:
-            # Next occurrence of run_on_day at run_at_hour
-            day = min(self.run_on_day or 1, 28)  # Cap at 28 to avoid month overflow
-            next_run = now.replace(day=day, hour=self.run_at_hour, minute=0, second=0, microsecond=0)
-            if next_run <= now:
-                # Move to next month
-                if now.month == 12:
-                    next_run = next_run.replace(year=now.year + 1, month=1)
-                else:
-                    next_run = next_run.replace(month=now.month + 1)
-            return next_run
-
-        return now
-
-    def update_next_run(self):
-        """
-        Update next_run based on frequency and save.
-
-        Called after a job completes to schedule the next run.
-        """
-        self.last_run = timezone.now()
-        self.next_run = self.calculate_next_run()
-        self.save(update_fields=["last_run", "next_run"])
-
-    # Alias for tests that use next_run_at
-    @property
-    def next_run_at(self):
-        return self.next_run
-
-    @next_run_at.setter
-    def next_run_at(self, value):
-        self.next_run = value
+# DiscoverySchedule REMOVED - replaced by unified CrawlSchedule model (see line ~726)
+# Old DiscoverySchedule was here from lines 4972-5133
 
 
 class DiscoveryJob(models.Model):
@@ -5141,18 +4982,21 @@ class DiscoveryJob(models.Model):
     2. Crawls search results
     3. Extracts and saves products
     4. Tracks metrics and errors
+
+    Note: This is used internally by DiscoveryOrchestrator.
+    For scheduled jobs, see CrawlJob with CrawlSchedule.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    # Relationship to schedule (optional - can be manual)
-    schedule = models.ForeignKey(
-        DiscoverySchedule,
+    # Link to unified CrawlSchedule (optional - replaces old DiscoverySchedule FK)
+    crawl_schedule = models.ForeignKey(
+        "CrawlSchedule",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="jobs",
-        help_text="The schedule that triggered this job, if any.",
+        related_name="discovery_jobs",
+        help_text="The unified schedule that triggered this job, if any.",
     )
 
     # Status
@@ -5248,7 +5092,7 @@ class DiscoveryJob(models.Model):
         indexes = [
             models.Index(fields=["status"]),
             models.Index(fields=["started_at"]),
-            models.Index(fields=["schedule", "started_at"]),
+            models.Index(fields=["crawl_schedule", "started_at"]),
         ]
         verbose_name = "Discovery Job"
         verbose_name_plural = "Discovery Jobs"

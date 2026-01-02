@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from crawler.models import (
     SearchTerm,
-    DiscoverySchedule,
+    CrawlSchedule,
     DiscoveryJob,
     DiscoveryResult,
     DiscoveredProduct,
@@ -118,7 +118,7 @@ class DiscoveryOrchestrator:
 
     def __init__(
         self,
-        schedule: Optional[DiscoverySchedule] = None,
+        schedule: Optional[CrawlSchedule] = None,
         serpapi_client: Optional[SerpAPIClient] = None,
         smart_crawler=None,
     ):
@@ -163,7 +163,7 @@ class DiscoveryOrchestrator:
         """
         # Create job
         self.job = DiscoveryJob.objects.create(
-            schedule=self.schedule,
+            crawl_schedule=self.schedule,
             status=DiscoveryJobStatus.RUNNING,
         )
 

@@ -60,10 +60,6 @@ app.conf.task_routes = {
     "crawler.tasks.keyword_search": {"queue": "search"},
     "crawler.tasks.enrich_skeletons": {"queue": "enrichment"},
     "crawler.tasks.process_enrichment_queue": {"queue": "enrichment"},
-    # Legacy discovery tasks
-    "crawler.tasks.run_discovery_job": {"queue": "discovery"},
-    "crawler.tasks.check_and_run_schedules": {"queue": "discovery"},
-    "crawler.tasks.trigger_discovery_job_manual": {"queue": "discovery"},
     # Unified scheduling tasks
     "crawler.tasks.check_due_schedules": {"queue": "default"},
     "crawler.tasks.run_scheduled_job": {"queue": "discovery"},
@@ -91,12 +87,7 @@ app.conf.beat_schedule = {
         "schedule": crontab(minute="*/10"),  # Every 10 minutes
         "kwargs": {"max_urls": 100},
     },
-    # Discovery scheduling tasks (Phase 5 - Legacy)
-    "check-discovery-schedules-every-15-minutes": {
-        "task": "crawler.tasks.check_and_run_schedules",
-        "schedule": crontab(minute="*/15"),  # Every 15 minutes
-    },
-    # Unified scheduling task (replaces separate check_due_* tasks)
+    # Unified scheduling task
     "check-due-schedules-every-5-minutes": {
         "task": "crawler.tasks.check_due_schedules",
         "schedule": crontab(minute="*/5"),  # Every 5 minutes

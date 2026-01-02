@@ -60,7 +60,7 @@ from crawler.models import (
     NewRelease,
     # Discovery models
     SearchTerm,
-    DiscoverySchedule,
+    # DiscoverySchedule removed - replaced by CrawlSchedule
     DiscoveryJob,
     DiscoveryResult,
     QuotaUsage,
@@ -1891,165 +1891,7 @@ class SearchTermAdmin(admin.ModelAdmin):
         self.message_user(request, f"Reset statistics for {count} search term(s).")
 
 
-@admin.register(DiscoverySchedule)
-class DiscoveryScheduleAdmin(admin.ModelAdmin):
-    """
-    Admin interface for discovery schedules.
-
-    Allows configuration of automated discovery job schedules with
-    a "Run Now" action for manual triggering.
-    """
-
-    list_display = [
-        "name",
-        "frequency",
-        "run_at_hour_display",
-        "is_active_badge",
-        "max_search_terms",
-        "max_results_per_term",
-        "filter_summary",
-        "last_run",
-        "next_run",
-    ]
-    list_filter = [
-        "is_active",
-        "frequency",
-    ]
-    search_fields = ["name"]
-    ordering = ["-is_active", "name"]
-    readonly_fields = [
-        "last_run",
-        "next_run",
-        "created_at",
-        "updated_at",
-    ]
-
-    fieldsets = (
-        (
-            "Schedule Configuration",
-            {
-                "fields": (
-                    "name",
-                    "frequency",
-                    "run_at_hour",
-                    "is_active",
-                ),
-            },
-        ),
-        (
-            "Job Limits",
-            {
-                "fields": (
-                    "max_search_terms",
-                    "max_results_per_term",
-                ),
-            },
-        ),
-        (
-            "Filters",
-            {
-                "fields": (
-                    "search_categories",
-                    "product_types",
-                ),
-                "description": "Leave empty to include all categories/product types.",
-            },
-        ),
-        (
-            "Run History",
-            {
-                "fields": (
-                    "last_run",
-                    "next_run",
-                    "created_at",
-                    "updated_at",
-                ),
-                "classes": ("collapse",),
-            },
-        ),
-    )
-
-    actions = ["run_schedule_now", "run_discovery_now", "activate_schedules", "deactivate_schedules"]
-
-    def is_active_badge(self, obj):
-        """Display active status as colored badge."""
-        if obj.is_active:
-            return format_html(
-                '<span style="background-color: #28a745; color: white; padding: 3px 8px; '
-                'border-radius: 3px; font-size: 11px;">Active</span>'
-            )
-        return format_html(
-            '<span style="background-color: #dc3545; color: white; padding: 3px 8px; '
-            'border-radius: 3px; font-size: 11px;">Inactive</span>'
-        )
-
-    is_active_badge.short_description = "Status"
-
-    def run_at_hour_display(self, obj):
-        """Display run hour in 12-hour format."""
-        hour = obj.run_at_hour
-        if hour == 0:
-            return "12:00 AM"
-        elif hour < 12:
-            return f"{hour}:00 AM"
-        elif hour == 12:
-            return "12:00 PM"
-        else:
-            return f"{hour - 12}:00 PM"
-
-    run_at_hour_display.short_description = "Run At"
-
-    def filter_summary(self, obj):
-        """Display summary of filters."""
-        parts = []
-        if obj.search_categories:
-            parts.append(f"{len(obj.search_categories)} categories")
-        if obj.product_types:
-            parts.append(f"{len(obj.product_types)} types")
-        return ", ".join(parts) if parts else "All"
-
-    filter_summary.short_description = "Filters"
-
-    @admin.action(description="Run selected schedules now")
-    def run_schedule_now(self, request, queryset):
-        """Create and queue discovery jobs for selected schedules."""
-        from crawler.tasks import trigger_discovery_job_manual
-
-        jobs_dispatched = 0
-        for schedule in queryset:
-            try:
-                # Dispatch Celery task
-                trigger_discovery_job_manual.apply_async(
-                    args=[str(schedule.id)],
-                    queue="discovery",
-                )
-                jobs_dispatched += 1
-            except Exception as e:
-                self.message_user(
-                    request,
-                    f"Failed to dispatch job for {schedule.name}: {e}",
-                    level="ERROR"
-                )
-
-        self.message_user(
-            request,
-            f"Dispatched {jobs_dispatched} discovery job(s)."
-        )
-
-    @admin.action(description="Run discovery now")
-    def run_discovery_now(self, request, queryset):
-        """Alias for run_schedule_now for backward compatibility."""
-        return self.run_schedule_now(request, queryset)
-
-    @admin.action(description="Activate selected schedules")
-    def activate_schedules(self, request, queryset):
-        count = queryset.update(is_active=True)
-        self.message_user(request, f"Activated {count} schedule(s).")
-
-    @admin.action(description="Deactivate selected schedules")
-    def deactivate_schedules(self, request, queryset):
-        count = queryset.update(is_active=False)
-        self.message_user(request, f"Deactivated {count} schedule(s).")
+# DiscoveryScheduleAdmin REMOVED - replaced by CrawlScheduleAdmin (see line ~1550)
 
 
 @admin.register(DiscoveryJob)
@@ -2073,12 +1915,12 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
     ]
     list_filter = [
         "status",
-        ("schedule", admin.RelatedOnlyFieldListFilter),
+        ("crawl_schedule", admin.RelatedOnlyFieldListFilter),
     ]
     ordering = ["-started_at"]
     readonly_fields = [
         "id",
-        "schedule",
+        "crawl_schedule",
         "status",
         "started_at",
         "completed_at",
@@ -2107,7 +1949,7 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
             {
                 "fields": (
                     "id",
-                    "schedule",
+                    "crawl_schedule",
                     "status",
                     "started_at",
                     "completed_at",
@@ -2184,7 +2026,7 @@ class DiscoveryJobAdmin(admin.ModelAdmin):
 
     def schedule_name(self, obj):
         """Display schedule name or 'Manual'."""
-        return obj.schedule.name if obj.schedule else "Manual"
+        return obj.crawl_schedule.name if obj.crawl_schedule else "Manual"
 
     schedule_name.short_description = "Schedule"
 

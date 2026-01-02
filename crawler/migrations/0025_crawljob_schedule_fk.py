@@ -47,22 +47,5 @@ class Migration(migrations.Migration):
             name="created_at",
             field=models.DateTimeField(auto_now_add=True),
         ),
-        migrations.AlterField(
-            model_name="discoveryschedule",
-            name="frequency",
-            field=models.CharField(
-                choices=[
-                    ("hourly", "Hourly"),
-                    ("every_6_hours", "Every 6 Hours"),
-                    ("every_12_hours", "Every 12 Hours"),
-                    ("daily", "Daily"),
-                    ("weekly", "Weekly"),
-                    ("biweekly", "Bi-weekly"),
-                    ("monthly", "Monthly"),
-                    ("quarterly", "Quarterly"),
-                ],
-                help_text="How often to run this schedule.",
-                max_length=20,
-            ),
-        ),
+        # Note: AlterField for discoveryschedule.frequency removed - model deleted in 0026
     ]

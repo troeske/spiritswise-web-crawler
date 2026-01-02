@@ -14,13 +14,14 @@ from django.utils import timezone
 
 from crawler.models import (
     SearchTerm,
-    DiscoverySchedule,
+    CrawlSchedule,
+    ScheduleCategory,
+    ScheduleFrequency,
     DiscoveryJob,
     DiscoveryResult,
     DiscoveredProduct,
     SearchTermCategory,
     SearchTermProductType,
-    ScheduleFrequency,
     DiscoveryJobStatus,
     DiscoveryResultStatus,
 )
@@ -31,10 +32,12 @@ class TestDiscoveryOrchestratorInit(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
 
@@ -77,10 +80,12 @@ class TestDiscoveryOrchestratorRun(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
         # Create test search terms
@@ -103,7 +108,7 @@ class TestDiscoveryOrchestratorRun(TestCase):
         job = orchestrator.run()
 
         self.assertIsInstance(job, DiscoveryJob)
-        self.assertEqual(job.schedule, self.schedule)
+        self.assertEqual(job.crawl_schedule, self.schedule)
 
     @patch("crawler.services.discovery_orchestrator.DiscoveryOrchestrator._search")
     def test_run_sets_job_status_running(self, mock_search):
@@ -148,7 +153,7 @@ class TestDiscoveryOrchestratorRun(TestCase):
             orchestrator.run()
 
         # Job should still be saved with failed status
-        job = DiscoveryJob.objects.get(schedule=self.schedule)
+        job = DiscoveryJob.objects.get(crawl_schedule=self.schedule)
         self.assertEqual(job.status, DiscoveryJobStatus.FAILED)
         self.assertIn("SerpAPI error", job.error_log)
 
@@ -158,10 +163,12 @@ class TestGetSearchTerms(TestCase):
 
     def setUp(self):
         """Set up test fixtures with various search terms."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule-terms",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=5,
+            search_terms=["test query"],
             max_results_per_term=10,
         )
 
@@ -285,10 +292,12 @@ class TestSerpAPISearch(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
 
@@ -363,9 +372,12 @@ class TestURLProcessing(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule-url",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
+            search_terms=["test query"],
         )
 
     def test_is_product_url_detects_retailers(self):
@@ -476,10 +488,12 @@ class TestSmartCrawlerIntegration(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
         self.search_term = SearchTerm.objects.create(
@@ -590,9 +604,12 @@ class TestProductMergeLogic(TestCase):
         """Set up test fixtures."""
         from crawler.models import DiscoveredBrand
 
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule-merge",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
+            search_terms=["test query"],
         )
         # Create brand first
         self.brand = DiscoveredBrand.objects.create(
@@ -675,10 +692,12 @@ class TestResultRecording(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
         self.search_term = SearchTerm.objects.create(
@@ -810,10 +829,12 @@ class TestQuotaTracking(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule-quota",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=2,
+            search_terms=["test query"],
             max_results_per_term=3,
         )
         SearchTerm.objects.create(
@@ -874,10 +895,12 @@ class TestListPageDetection(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
 
@@ -983,10 +1006,12 @@ class TestAIListExtraction(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
         self.search_term = SearchTerm.objects.create(
@@ -1120,10 +1145,12 @@ class TestIndividualProductEnrichment(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=10,
+            search_terms=["test query"],
             max_results_per_term=5,
         )
         self.search_term = SearchTerm.objects.create(
@@ -1303,10 +1330,12 @@ class TestListPageProcessingIntegration(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.schedule = DiscoverySchedule.objects.create(
+        self.schedule = CrawlSchedule.objects.create(
             name="Test Schedule",
+            slug="test-schedule-integration",
+            category=ScheduleCategory.DISCOVERY,
             frequency=ScheduleFrequency.DAILY,
-            max_search_terms=5,
+            search_terms=["test query"],
             max_results_per_term=10,
         )
         self.search_term = SearchTerm.objects.create(
@@ -1404,7 +1433,7 @@ class TestListPageProcessingIntegration(TestCase):
 
         orchestrator = DiscoveryOrchestrator(schedule=self.schedule)
         orchestrator.job = DiscoveryJob.objects.create(
-            schedule=self.schedule,
+            crawl_schedule=self.schedule,
             status=DiscoveryJobStatus.RUNNING,
         )
 
