@@ -697,6 +697,212 @@ class DouroSubregionChoices(models.TextChoices):
 DiscoverySourceTypeChoices = SourceTypeChoices
 
 
+# ============================================================
+# Unified Crawler Scheduling (replaces separate scheduling models)
+# ============================================================
+
+
+class ScheduleCategory(models.TextChoices):
+    """Categories of crawl schedules."""
+
+    COMPETITION = "competition", "Competition/Awards"
+    DISCOVERY = "discovery", "Discovery Search"
+    RETAILER = "retailer", "Retailer Monitoring"
+
+
+class ScheduleFrequency(models.TextChoices):
+    """Frequency options for scheduling."""
+
+    HOURLY = "hourly", "Hourly"
+    EVERY_6_HOURS = "every_6_hours", "Every 6 Hours"
+    EVERY_12_HOURS = "every_12_hours", "Every 12 Hours"
+    DAILY = "daily", "Daily"
+    WEEKLY = "weekly", "Weekly"
+    BIWEEKLY = "biweekly", "Bi-weekly"
+    MONTHLY = "monthly", "Monthly"
+    QUARTERLY = "quarterly", "Quarterly"
+
+
+class CrawlSchedule(models.Model):
+    """
+    Unified scheduling model for all crawler flows.
+
+    Replaces both CrawlerSource (for scheduling) and DiscoverySchedule.
+    Category determines which orchestrator handles the schedule:
+    - COMPETITION: CompetitionOrchestrator
+    - DISCOVERY: DiscoveryOrchestrator
+    - RETAILER: Future retailer monitoring
+    """
+
+    # Primary key
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Identity
+    name = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+
+    # Category determines which orchestrator handles this schedule
+    category = models.CharField(
+        max_length=20,
+        choices=ScheduleCategory.choices,
+        default=ScheduleCategory.DISCOVERY,
+        db_index=True,
+    )
+
+    # ============================================
+    # SCHEDULING CONFIGURATION
+    # ============================================
+
+    is_active = models.BooleanField(default=True, db_index=True)
+    frequency = models.CharField(
+        max_length=20,
+        choices=ScheduleFrequency.choices,
+        default=ScheduleFrequency.DAILY,
+    )
+    priority = models.IntegerField(
+        default=5,
+        help_text="Higher priority schedules run first (1-10)",
+    )
+
+    # Scheduling timestamps
+    last_run = models.DateTimeField(null=True, blank=True)
+    next_run = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    # ============================================
+    # SEARCH CONFIGURATION (Used by all categories)
+    # ============================================
+
+    search_terms = models.JSONField(
+        default=list,
+        help_text="""
+        For COMPETITION: List of competition identifiers with years
+            e.g., ["iwsc:2024", "iwsc:2025", "wwa:2024"]
+        For DISCOVERY: List of search queries
+            e.g., ["best single malt whisky 2024", "award winning bourbon"]
+        """,
+    )
+
+    max_results_per_term = models.IntegerField(
+        default=10,
+        help_text="Maximum results to process per search term",
+    )
+
+    # ============================================
+    # FILTERING CONFIGURATION
+    # ============================================
+
+    product_types = models.JSONField(
+        default=list,
+        help_text="Filter to specific product types: ['whiskey', 'port_wine', etc.]",
+    )
+
+    exclude_domains = models.JSONField(
+        default=list,
+        help_text="Domains to exclude from results",
+    )
+
+    # ============================================
+    # COMPETITION-SPECIFIC CONFIGURATION
+    # ============================================
+
+    # Base URL for competition sites (only used for COMPETITION category)
+    base_url = models.URLField(
+        max_length=500,
+        blank=True,
+        help_text="Base URL for competition results page (COMPETITION only)",
+    )
+
+    # Compliance flags (for direct URL crawling)
+    robots_txt_compliant = models.BooleanField(default=True)
+    tos_compliant = models.BooleanField(default=True)
+
+    # ============================================
+    # QUOTA & LIMITS
+    # ============================================
+
+    daily_quota = models.IntegerField(
+        default=100,
+        help_text="Maximum API calls per day for this schedule",
+    )
+
+    monthly_quota = models.IntegerField(
+        default=2000,
+        help_text="Maximum API calls per month for this schedule",
+    )
+
+    # ============================================
+    # TRACKING & METADATA
+    # ============================================
+
+    total_runs = models.IntegerField(default=0)
+    total_products_found = models.IntegerField(default=0)
+    total_products_new = models.IntegerField(default=0)
+    total_products_duplicate = models.IntegerField(default=0)
+    total_errors = models.IntegerField(default=0)
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Additional configuration (extensible)
+    config = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Additional category-specific configuration",
+    )
+
+    class Meta:
+        db_table = "crawl_schedule"
+        ordering = ["-priority", "name"]
+        indexes = [
+            models.Index(fields=["is_active", "next_run"]),
+            models.Index(fields=["category", "is_active"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_category_display()})"
+
+    def calculate_next_run(self):
+        """Calculate the next run time based on frequency."""
+        from datetime import timedelta
+
+        base_time = self.last_run or timezone.now()
+
+        frequency_deltas = {
+            ScheduleFrequency.HOURLY: timedelta(hours=1),
+            ScheduleFrequency.EVERY_6_HOURS: timedelta(hours=6),
+            ScheduleFrequency.EVERY_12_HOURS: timedelta(hours=12),
+            ScheduleFrequency.DAILY: timedelta(days=1),
+            ScheduleFrequency.WEEKLY: timedelta(weeks=1),
+            ScheduleFrequency.BIWEEKLY: timedelta(weeks=2),
+            ScheduleFrequency.MONTHLY: timedelta(days=30),
+            ScheduleFrequency.QUARTERLY: timedelta(days=90),
+        }
+
+        delta = frequency_deltas.get(self.frequency, timedelta(days=1))
+        return base_time + delta
+
+    def update_next_run(self):
+        """Update next_run after a successful run."""
+        self.last_run = timezone.now()
+        self.next_run = self.calculate_next_run()
+        self.total_runs += 1
+        self.save(update_fields=["last_run", "next_run", "total_runs"])
+
+    def record_run_stats(self, products_found: int, products_new: int,
+                         products_duplicate: int, errors: int):
+        """Record statistics from a completed run."""
+        self.total_products_found += products_found
+        self.total_products_new += products_new
+        self.total_products_duplicate += products_duplicate
+        self.total_errors += errors
+        self.save(update_fields=[
+            "total_products_found", "total_products_new",
+            "total_products_duplicate", "total_errors"
+        ])
+
+
 class CrawlerSource(models.Model):
     """
     Configuration for a crawlable content source.
@@ -911,8 +1117,17 @@ class CrawlJob(models.Model):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Legacy: Link to CrawlerSource (for backward compatibility)
     source = models.ForeignKey(
-        CrawlerSource, on_delete=models.CASCADE, related_name="crawl_jobs"
+        CrawlerSource, on_delete=models.CASCADE, related_name="crawl_jobs",
+        null=True, blank=True,  # Made optional for unified scheduling
+    )
+
+    # New: Link to unified CrawlSchedule
+    schedule = models.ForeignKey(
+        "CrawlSchedule", on_delete=models.CASCADE, related_name="jobs",
+        null=True, blank=True,  # Optional during transition
     )
 
     # Status
@@ -952,7 +1167,8 @@ class CrawlJob(models.Model):
         ]
 
     def __str__(self):
-        return f"Job {self.id} - {self.source.name} ({self.status})"
+        name = self.schedule.name if self.schedule else (self.source.name if self.source else "Unknown")
+        return f"Job {self.id} - {name} ({self.status})"
 
     @property
     def duration_seconds(self):
@@ -975,10 +1191,11 @@ class CrawlJob(models.Model):
             self.error_message = error_message
         self.save(update_fields=["status", "completed_at", "error_message"])
 
-        # Update source stats
-        self.source.last_crawl_status = self.status
-        self.source.total_products_found += self.products_new
-        self.source.update_next_crawl_time()
+        # Update source stats (legacy path)
+        if self.source:
+            self.source.last_crawl_status = self.status
+            self.source.total_products_found += self.products_new
+            self.source.update_next_crawl_time()
 
 
 class CrawledURL(models.Model):
@@ -4292,74 +4509,9 @@ class ProductCandidate(models.Model):
 
 
 # ============================================================
-# Task Group 15: CrawlSchedule Model
+# Task Group 15: CrawlSchedule Model - REPLACED by unified CrawlSchedule
+# See line ~726 for the new unified scheduling model
 # ============================================================
-
-
-class CrawlSchedule(models.Model):
-    """
-    Task Group 15: Crawl scheduling with adaptive backoff.
-    """
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
-    # Source
-    source = models.ForeignKey(
-        DiscoverySourceConfig,
-        on_delete=models.CASCADE,
-        related_name='schedules',
-        help_text="Discovery source this schedule is for",
-    )
-
-    # Timing
-    next_run = models.DateTimeField(
-        help_text="When the next crawl should run",
-    )
-    last_run = models.DateTimeField(
-        blank=True,
-        null=True,
-        help_text="When the last crawl ran",
-    )
-    last_status = models.CharField(
-        max_length=20,
-        blank=True,
-        help_text="Status of the last crawl",
-    )
-
-    # Backoff
-    consecutive_errors = models.IntegerField(
-        default=0,
-        help_text="Number of consecutive errors",
-    )
-    current_backoff_hours = models.IntegerField(
-        default=0,
-        help_text="Current backoff in hours",
-    )
-
-    # Priority
-    priority_boost = models.IntegerField(
-        default=0,
-        help_text="Priority boost for this schedule",
-    )
-
-    # Status
-    is_active = models.BooleanField(
-        default=True,
-        help_text="Whether this schedule is active",
-    )
-
-    class Meta:
-        db_table = "crawl_schedule"
-        ordering = ["next_run"]
-        indexes = [
-            models.Index(fields=["next_run", "is_active"]),
-            models.Index(fields=["source"]),
-        ]
-        verbose_name = "Crawl Schedule"
-        verbose_name_plural = "Crawl Schedules"
-
-    def __str__(self):
-        return f"Schedule for {self.source} - Next: {self.next_run}"
 
 
 # ============================================================
@@ -4685,13 +4837,7 @@ class DiscoveryJobStatus(models.TextChoices):
     CANCELLED = "cancelled", "Cancelled"
 
 
-class ScheduleFrequency(models.TextChoices):
-    """Frequency options for discovery schedules."""
-
-    HOURLY = "hourly", "Hourly"
-    DAILY = "daily", "Daily"
-    WEEKLY = "weekly", "Weekly"
-    MONTHLY = "monthly", "Monthly"
+# ScheduleFrequency moved to line ~713 as part of unified scheduling
 
 
 class DiscoveryResultStatus(models.TextChoices):

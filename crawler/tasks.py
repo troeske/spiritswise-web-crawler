@@ -1234,6 +1234,290 @@ def trigger_discovery_job_manual(self, schedule_id: str) -> Dict[str, Any]:
     }
 
 
+# ============================================================
+# Unified Scheduling Tasks (replaces separate check_due_* tasks)
+# ============================================================
+
+
+@shared_task(name="crawler.tasks.check_due_schedules")
+def check_due_schedules() -> Dict[str, Any]:
+    """
+    Unified periodic task to check for schedules due for execution.
+
+    Runs every 5 minutes via Celery Beat.
+    Handles all schedule categories (competition, discovery, retailer).
+
+    Returns:
+        Dict with check results and dispatched jobs
+    """
+    from django.db.models import Q
+    from crawler.models import CrawlSchedule, CrawlJob, ScheduleCategory
+
+    logger.info("Checking for due schedules (unified)...")
+
+    now = timezone.now()
+    jobs_dispatched = []
+
+    # Find all due schedules
+    due_schedules = CrawlSchedule.objects.filter(
+        is_active=True,
+    ).filter(
+        Q(next_run__isnull=True) | Q(next_run__lte=now)
+    ).order_by("-priority", "next_run")
+
+    for schedule in due_schedules:
+        try:
+            # Create job record
+            job = CrawlJob.objects.create(schedule=schedule)
+
+            # Dispatch to appropriate queue based on category
+            queue = "crawl" if schedule.category == ScheduleCategory.COMPETITION else "discovery"
+
+            run_scheduled_job.apply_async(
+                args=[str(schedule.id), str(job.id)],
+                queue=queue,
+            )
+
+            jobs_dispatched.append({
+                "schedule_id": str(schedule.id),
+                "job_id": str(job.id),
+                "category": schedule.category,
+                "name": schedule.name,
+            })
+
+            logger.info(f"Dispatched job {job.id} for schedule: {schedule.name}")
+
+        except Exception as e:
+            logger.error(f"Failed to dispatch schedule {schedule.name}: {e}")
+
+    logger.info(f"Due schedule check complete: {len(jobs_dispatched)} jobs dispatched")
+
+    return {
+        "checked_at": now.isoformat(),
+        "jobs_dispatched": len(jobs_dispatched),
+        "details": jobs_dispatched,
+    }
+
+
+@shared_task(name="crawler.tasks.run_scheduled_job", bind=True)
+def run_scheduled_job(self, schedule_id: str, job_id: str) -> Dict[str, Any]:
+    """
+    Execute a scheduled crawl job.
+
+    Routes to appropriate orchestrator based on schedule category.
+
+    Args:
+        schedule_id: UUID of the CrawlSchedule
+        job_id: UUID of the CrawlJob
+
+    Returns:
+        Dict with job results
+    """
+    from crawler.models import CrawlSchedule, CrawlJob, CrawlJobStatus, ScheduleCategory
+
+    logger.info(f"Running scheduled job {job_id} for schedule {schedule_id}")
+
+    schedule = CrawlSchedule.objects.get(id=schedule_id)
+    job = CrawlJob.objects.get(id=job_id)
+
+    job.status = CrawlJobStatus.RUNNING
+    job.started_at = timezone.now()
+    job.save(update_fields=["status", "started_at"])
+
+    try:
+        # Route to appropriate orchestrator
+        if schedule.category == ScheduleCategory.COMPETITION:
+            result = run_competition_flow(schedule, job)
+        elif schedule.category == ScheduleCategory.DISCOVERY:
+            result = run_discovery_flow(schedule, job)
+        else:
+            raise ValueError(f"Unknown category: {schedule.category}")
+
+        # Update job with results
+        job.status = CrawlJobStatus.COMPLETED
+        job.completed_at = timezone.now()
+        job.products_found = result.get("products_found", 0)
+        job.products_new = result.get("products_new", 0)
+        job.results_summary = result
+        job.save()
+
+        # Update schedule stats
+        schedule.update_next_run()
+        schedule.record_run_stats(
+            products_found=job.products_found,
+            products_new=job.products_new,
+            products_duplicate=result.get("products_duplicate", 0),
+            errors=job.errors_count,
+        )
+
+        logger.info(f"Scheduled job {job_id} completed: {result}")
+        return result
+
+    except Exception as e:
+        job.status = CrawlJobStatus.FAILED
+        job.completed_at = timezone.now()
+        job.error_message = str(e)
+        job.save()
+
+        schedule.total_errors += 1
+        schedule.save(update_fields=["total_errors"])
+
+        logger.error(f"Scheduled job {job_id} failed: {e}")
+        raise
+
+
+def run_discovery_flow(schedule, job) -> Dict[str, Any]:
+    """
+    Execute discovery search flow using DiscoveryOrchestrator.
+
+    Args:
+        schedule: CrawlSchedule instance
+        job: CrawlJob instance
+
+    Returns:
+        Dict with discovery results
+    """
+    import asyncio
+    from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+
+    # Create a minimal DiscoverySchedule-like object for backward compatibility
+    # TODO: Update DiscoveryOrchestrator to accept CrawlSchedule directly
+    class ScheduleAdapter:
+        def __init__(self, s):
+            self.id = s.id
+            self.name = s.name
+            self.search_terms = s.search_terms
+            self.max_results_per_term = s.max_results_per_term
+            self.product_types = s.product_types
+            self.exclude_domains = s.exclude_domains
+            self.is_active = s.is_active
+
+    adapter = ScheduleAdapter(schedule)
+
+    orchestrator = DiscoveryOrchestrator(
+        schedule=adapter,
+        job=job,
+    )
+
+    # Run discovery
+    return asyncio.run(orchestrator.run_discovery())
+
+
+def run_competition_flow(schedule, job) -> Dict[str, Any]:
+    """
+    Execute competition crawl flow using CompetitionOrchestrator.
+
+    Args:
+        schedule: CrawlSchedule instance
+        job: CrawlJob instance
+
+    Returns:
+        Dict with competition results
+    """
+    import asyncio
+    from crawler.services.competition_orchestrator import CompetitionOrchestrator
+    from crawler.fetchers.smart_router import SmartRouter
+
+    orchestrator = CompetitionOrchestrator()
+    results = {
+        "products_found": 0,
+        "products_new": 0,
+        "products_duplicate": 0,
+        "competitions_processed": [],
+    }
+
+    # Parse search_terms as "competition:year" format
+    for term in schedule.search_terms:
+        if ":" in term:
+            competition_key, year = term.split(":", 1)
+            year = int(year)
+        else:
+            competition_key = term
+            year = timezone.now().year
+
+        try:
+            # Fetch competition page
+            router = SmartRouter()
+            url = f"{schedule.base_url}{year}/" if schedule.base_url else None
+
+            if not url:
+                logger.warning(f"No base_url for competition: {competition_key}")
+                continue
+
+            html_content = asyncio.run(router.fetch(url))
+
+            # Run competition discovery
+            comp_result = asyncio.run(
+                orchestrator.run_competition_discovery(
+                    competition_url=url,
+                    crawl_job=job,
+                    html_content=html_content,
+                    competition_key=competition_key,
+                    year=year,
+                )
+            )
+
+            results["products_found"] += comp_result.awards_found
+            results["products_new"] += comp_result.skeletons_created
+            results["competitions_processed"].append(comp_result.to_dict())
+
+        except Exception as e:
+            logger.error(f"Error processing competition {competition_key}:{year}: {e}")
+            results["errors"] = results.get("errors", []) + [str(e)]
+
+    return results
+
+
+@shared_task(name="crawler.tasks.trigger_scheduled_job_manual", bind=True)
+def trigger_scheduled_job_manual(self, schedule_id: str) -> Dict[str, Any]:
+    """
+    Manually trigger a scheduled job immediately.
+
+    Args:
+        schedule_id: UUID of the CrawlSchedule to run
+
+    Returns:
+        Dict with dispatch status
+    """
+    from crawler.models import CrawlSchedule, CrawlJob, ScheduleCategory
+
+    logger.info(f"Manual trigger for schedule {schedule_id}")
+
+    try:
+        schedule = CrawlSchedule.objects.get(id=schedule_id)
+    except CrawlSchedule.DoesNotExist:
+        logger.error(f"Schedule {schedule_id} not found")
+        return {
+            "triggered": False,
+            "error": f"Schedule {schedule_id} not found",
+        }
+
+    # Create job
+    job = CrawlJob.objects.create(schedule=schedule)
+
+    # Dispatch to appropriate queue
+    queue = "crawl" if schedule.category == ScheduleCategory.COMPETITION else "discovery"
+
+    run_scheduled_job.apply_async(
+        args=[str(schedule.id), str(job.id)],
+        queue=queue,
+    )
+
+    logger.info(f"Manual job dispatched for: {schedule.name}")
+
+    return {
+        "triggered": True,
+        "schedule_id": str(schedule.id),
+        "job_id": str(job.id),
+        "schedule_name": schedule.name,
+    }
+
+
+# ============================================================
+# End Unified Scheduling Tasks
+# ============================================================
+
+
 @shared_task(name="crawler.tasks.cleanup_raw_content_batch")
 def cleanup_raw_content_batch(limit: int = 100) -> Dict[str, Any]:
     """

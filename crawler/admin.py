@@ -1549,21 +1549,101 @@ class ProductCandidateAdmin(admin.ModelAdmin):
 
 @admin.register(CrawlSchedule)
 class CrawlScheduleAdmin(admin.ModelAdmin):
-    """Admin interface for crawl schedules."""
+    """Admin interface for unified crawl schedules."""
 
     list_display = [
-        "source",
+        "name",
+        "category",
+        "frequency",
+        "is_active",
+        "priority",
         "next_run",
         "last_run",
-        "last_status",
-        "consecutive_errors",
-        "is_active",
+        "total_runs",
+        "products_stats",
     ]
+
     list_filter = [
+        "category",
+        "frequency",
         "is_active",
-        "last_status",
+        "product_types",
     ]
-    ordering = ["next_run"]
+
+    search_fields = ["name", "slug", "search_terms"]
+
+    readonly_fields = [
+        "id",
+        "created_at",
+        "updated_at",
+        "total_runs",
+        "total_products_found",
+        "total_products_new",
+        "total_products_duplicate",
+        "total_errors",
+    ]
+
+    fieldsets = [
+        ("Identity", {
+            "fields": ["name", "slug", "description", "category"],
+        }),
+        ("Scheduling", {
+            "fields": ["is_active", "frequency", "priority", "next_run", "last_run"],
+        }),
+        ("Search Configuration", {
+            "fields": ["search_terms", "max_results_per_term"],
+        }),
+        ("Filtering", {
+            "fields": ["product_types", "exclude_domains"],
+        }),
+        ("Competition Settings", {
+            "fields": ["base_url", "robots_txt_compliant", "tos_compliant"],
+            "classes": ["collapse"],
+        }),
+        ("Quotas", {
+            "fields": ["daily_quota", "monthly_quota"],
+        }),
+        ("Statistics", {
+            "fields": [
+                "total_runs",
+                "total_products_found",
+                "total_products_new",
+                "total_products_duplicate",
+                "total_errors",
+            ],
+            "classes": ["collapse"],
+        }),
+        ("Metadata", {
+            "fields": ["id", "created_at", "updated_at", "config"],
+            "classes": ["collapse"],
+        }),
+    ]
+
+    actions = ["run_now", "activate", "deactivate"]
+    ordering = ["-priority", "name"]
+
+    @admin.display(description="Products (New/Dup/Total)")
+    def products_stats(self, obj):
+        return f"{obj.total_products_new}/{obj.total_products_duplicate}/{obj.total_products_found}"
+
+    @admin.action(description="Run selected schedules now")
+    def run_now(self, request, queryset):
+        from crawler.tasks import trigger_scheduled_job_manual
+
+        count = 0
+        for schedule in queryset:
+            trigger_scheduled_job_manual.delay(str(schedule.id))
+            count += 1
+
+        self.message_user(request, f"Triggered {count} schedule(s)")
+
+    @admin.action(description="Activate selected schedules")
+    def activate(self, request, queryset):
+        queryset.update(is_active=True)
+
+    @admin.action(description="Deactivate selected schedules")
+    def deactivate(self, request, queryset):
+        queryset.update(is_active=False)
 
 
 @admin.register(PriceHistory)
