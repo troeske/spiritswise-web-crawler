@@ -4,6 +4,8 @@ Services module for the Web Crawler.
 Contains:
 - ai_client: AI Enhancement Service API client
 - config_service: Configuration and schema builder service (V2 Architecture)
+- quality_gate_v2: V2 Quality Gate using database-backed configuration
+- content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
 - content_processor: Content processing pipeline
 - sitemap_parser: Sitemap parsing and URL discovery
 - link_extractor: Link extraction, filtering, and categorization
@@ -15,6 +17,20 @@ Contains:
 
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult
 from crawler.services.config_service import ConfigService, get_config_service
+from crawler.services.quality_gate_v2 import (
+    QualityGateV2,
+    QualityAssessment,
+    ProductStatus,
+    get_quality_gate_v2,
+    reset_quality_gate_v2,
+)
+from crawler.services.content_preprocessor import (
+    ContentPreprocessor,
+    ContentType,
+    PreprocessedContent,
+    get_content_preprocessor,
+    reset_content_preprocessor,
+)
 from crawler.services.content_processor import ContentProcessor
 from crawler.services.sitemap_parser import (
     SitemapParser,
@@ -58,6 +74,18 @@ __all__ = [
     # Config service (V2 Architecture)
     "ConfigService",
     "get_config_service",
+    # Quality Gate V2 (V2 Architecture)
+    "QualityGateV2",
+    "QualityAssessment",
+    "ProductStatus",
+    "get_quality_gate_v2",
+    "reset_quality_gate_v2",
+    # Content Preprocessor (V2 Architecture)
+    "ContentPreprocessor",
+    "ContentType",
+    "PreprocessedContent",
+    "get_content_preprocessor",
+    "reset_content_preprocessor",
     "ContentProcessor",
     "SitemapParser",
     "SitemapURL",
