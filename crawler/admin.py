@@ -2629,18 +2629,20 @@ class EnrichmentConfigAdmin(admin.ModelAdmin):
 
     def template_preview(self, obj):
         """Display template with placeholders highlighted."""
+        from django.utils.html import escape
         template = obj.search_template or ""
         if len(template) > 50:
             preview = template[:50] + "..."
         else:
             preview = template
-        # Highlight placeholders like {name}, {brand}
+        # Escape HTML first for XSS protection, then highlight placeholders
+        escaped = escape(preview)
         highlighted = re.sub(
             r"\{(\w+)\}",
-            r'<span style="background-color: #ffc107; color: #000; padding: 0 2px; border-radius: 2px;">{}</span>',
-            preview
+            r'<span style="background-color: #ffc107; color: #000; padding: 0 2px; border-radius: 2px;">{\1}</span>',
+            escaped
         )
-        return format_html(highlighted)
+        return mark_safe(highlighted)
     template_preview.short_description = "Template"
 
     def is_active_badge(self, obj):
