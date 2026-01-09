@@ -9,6 +9,7 @@ Contains:
 - enrichment_orchestrator_v2: Progressive multi-source enrichment (V2 Architecture Phase 4)
 - content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
 - source_tracker: Source tracking and field provenance (V2 Architecture Phase 4.5)
+- wayback_service: Wayback Machine integration with retry (V2 Architecture Phase 4.6)
 - content_processor: Content processing pipeline
 - sitemap_parser: Sitemap parsing and URL discovery
 - link_extractor: Link extraction, filtering, and categorization
@@ -51,6 +52,7 @@ from crawler.services.content_preprocessor import (
 )
 from crawler.services.content_processor import ContentProcessor
 from crawler.services.source_tracker import SourceTracker
+from crawler.services.wayback_service import WaybackService
 from crawler.services.sitemap_parser import (
     SitemapParser,
     SitemapURL,
@@ -121,6 +123,8 @@ __all__ = [
     "reset_content_preprocessor",
     # Source Tracker (V2 Architecture Phase 4.5)
     "SourceTracker",
+    # Wayback Service (V2 Architecture Phase 4.6)
+    "WaybackService",
     "ContentProcessor",
     "SitemapParser",
     "SitemapURL",
