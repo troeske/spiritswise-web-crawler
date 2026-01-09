@@ -412,3 +412,9 @@ class SourceTracker:
             .select_related('source')
             .order_by('-confidence', '-extracted_at')
         )
+
+
+# Singleton getter function
+def get_source_tracker() -> SourceTracker:
+    """Get the singleton SourceTracker instance."""
+    return SourceTracker()
