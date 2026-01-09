@@ -61,16 +61,16 @@ Tasks are assigned to specialized subagents:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 0.1.1 Write unit tests for `ProductTypeConfig` model | [ ] | crawler-dev | 0.0.1 |
-| 0.1.2 Write unit tests for `FieldDefinition` model | [ ] | crawler-dev | None |
-| 0.1.3 Write unit tests for `QualityGateConfig` model | [ ] | crawler-dev | None |
-| 0.1.4 Write unit tests for `EnrichmentConfig` model | [ ] | crawler-dev | None |
-| 0.1.5 Implement `ProductTypeConfig` model | [ ] | crawler-dev | 0.1.1 |
-| 0.1.6 Implement `FieldDefinition` model with target_model/target_field mapping | [ ] | crawler-dev | 0.1.2 |
-| 0.1.7 Implement `QualityGateConfig` model | [ ] | crawler-dev | 0.1.3 |
-| 0.1.8 Implement `EnrichmentConfig` model | [ ] | crawler-dev | 0.1.4 |
-| 0.1.9 Create database migrations | [ ] | crawler-dev | 0.1.5-0.1.8 |
-| 0.1.10 Run migrations and verify tables created | [ ] | test-runner | 0.1.9 |
+| 0.1.1 Write unit tests for `ProductTypeConfig` model | [X] | crawler-dev | 0.0.1 |
+| 0.1.2 Write unit tests for `FieldDefinition` model | [X] | crawler-dev | None |
+| 0.1.3 Write unit tests for `QualityGateConfig` model | [X] | crawler-dev | None |
+| 0.1.4 Write unit tests for `EnrichmentConfig` model | [X] | crawler-dev | None |
+| 0.1.5 Implement `ProductTypeConfig` model | [X] | crawler-dev | 0.1.1 |
+| 0.1.6 Implement `FieldDefinition` model with target_model/target_field mapping | [X] | crawler-dev | 0.1.2 |
+| 0.1.7 Implement `QualityGateConfig` model | [X] | crawler-dev | 0.1.3 |
+| 0.1.8 Implement `EnrichmentConfig` model | [X] | crawler-dev | 0.1.4 |
+| 0.1.9 Create database migrations | [X] | crawler-dev | 0.1.5-0.1.8 |
+| 0.1.10 Run migrations and verify tables created | [X] | test-runner | 0.1.9 |
 
 **Files to create:**
 - `spiritswise-web-crawler/crawler/models/config.py` (or add to existing models.py)
