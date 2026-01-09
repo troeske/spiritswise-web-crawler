@@ -99,13 +99,13 @@ Tasks are assigned to specialized subagents:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 0.3.1 Write unit tests for `build_extraction_schema()` method | [ ] | crawler-dev | 0.1.10 |
-| 0.3.2 Write unit tests for loading base + type-specific fields | [ ] | crawler-dev | 0.1.10 |
-| 0.3.3 Write unit tests for `to_extraction_schema()` conversion | [ ] | crawler-dev | 0.1.10 |
-| 0.3.4 Implement `ConfigService` class | [ ] | crawler-dev | 0.3.1-0.3.3 |
-| 0.3.5 Implement `build_extraction_schema()` method | [ ] | crawler-dev | 0.3.4 |
-| 0.3.6 Implement caching for config lookups | [ ] | crawler-dev | 0.3.5 |
-| 0.3.7 Run config service tests and verify all pass | [ ] | test-runner | 0.3.6 |
+| 0.3.1 Write unit tests for `build_extraction_schema()` method | [X] | crawler-dev | 0.1.10 |
+| 0.3.2 Write unit tests for loading base + type-specific fields | [X] | crawler-dev | 0.1.10 |
+| 0.3.3 Write unit tests for `to_extraction_schema()` conversion | [X] | crawler-dev | 0.1.10 |
+| 0.3.4 Implement `ConfigService` class | [X] | crawler-dev | 0.3.1-0.3.3 |
+| 0.3.5 Implement `build_extraction_schema()` method | [X] | crawler-dev | 0.3.4 |
+| 0.3.6 Implement caching for config lookups | [X] | crawler-dev | 0.3.5 |
+| 0.3.7 Run config service tests and verify all pass | [X] | test-runner | 0.3.6 |
 
 **Files to create:**
 - `spiritswise-web-crawler/crawler/services/config_service.py`

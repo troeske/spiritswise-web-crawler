@@ -3,6 +3,7 @@ Services module for the Web Crawler.
 
 Contains:
 - ai_client: AI Enhancement Service API client
+- config_service: Configuration and schema builder service (V2 Architecture)
 - content_processor: Content processing pipeline
 - sitemap_parser: Sitemap parsing and URL discovery
 - link_extractor: Link extraction, filtering, and categorization
@@ -13,6 +14,7 @@ Contains:
 """
 
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult
+from crawler.services.config_service import ConfigService, get_config_service
 from crawler.services.content_processor import ContentProcessor
 from crawler.services.sitemap_parser import (
     SitemapParser,
@@ -53,6 +55,9 @@ from crawler.services.wayback import (
 __all__ = [
     "AIEnhancementClient",
     "EnhancementResult",
+    # Config service (V2 Architecture)
+    "ConfigService",
+    "get_config_service",
     "ContentProcessor",
     "SitemapParser",
     "SitemapURL",
