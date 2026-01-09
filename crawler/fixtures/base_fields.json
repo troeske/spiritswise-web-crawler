@@ -1,0 +1,431 @@
+[
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000001",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "name",
+      "display_name": "Product Name",
+      "field_group": "core",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Full product name including brand and variant. Extract the complete name as displayed on the page.",
+      "examples": ["Ardbeg 10 Year Old", "Glenfiddich 18 Year Old Single Malt", "Taylor's 20 Year Old Tawny Port"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "name",
+      "sort_order": 1,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000002",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "brand",
+      "display_name": "Brand",
+      "field_group": "core",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Brand or producer name. This is typically the main company or distillery name.",
+      "examples": ["Ardbeg", "Glenfiddich", "Taylor's", "Buffalo Trace", "Graham's"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "brand",
+      "sort_order": 2,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000003",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "description",
+      "display_name": "Description",
+      "field_group": "core",
+      "field_type": "text",
+      "item_type": "",
+      "description": "Product description providing an overview of the product, its characteristics, and background.",
+      "examples": ["A classic Islay single malt with smoky, peaty flavors...", "This award-winning bourbon is crafted from..."],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "description",
+      "sort_order": 3,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000004",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "abv",
+      "display_name": "ABV (Alcohol by Volume)",
+      "field_group": "core",
+      "field_type": "decimal",
+      "item_type": "",
+      "description": "Alcohol percentage (0-80). Look for: ABV, Alcohol by Volume, Alcohol Content, Alc./Vol., Alc/Vol, Vol%, % Vol, % vol. For Proof (US), divide by 2 (e.g., 80 proof = 40% ABV). Also look for: Alkoholgehalt (German), Titre alcoometrique (French).",
+      "examples": [40.0, 43.0, 46.0, 58.5, 20.0],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "abv",
+      "sort_order": 4,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000005",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "age_statement",
+      "display_name": "Age Statement",
+      "field_group": "core",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Age statement of the product. Extract as shown (e.g., '12', '18 Year Old', 'NAS' for No Age Statement).",
+      "examples": ["10", "12 Year Old", "18", "21", "NAS", "No Age Statement"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "age_statement",
+      "sort_order": 5,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000006",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "volume_ml",
+      "display_name": "Volume (ml)",
+      "field_group": "core",
+      "field_type": "integer",
+      "item_type": "",
+      "description": "Bottle volume in milliliters. Convert if shown in liters (750ml, 700ml, 1000ml are common).",
+      "examples": [700, 750, 500, 1000, 50],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "volume_ml",
+      "sort_order": 6,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000007",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "country",
+      "display_name": "Country",
+      "field_group": "core",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Country of origin. Where the product was produced or distilled.",
+      "examples": ["Scotland", "United States", "Ireland", "Japan", "Portugal"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "country",
+      "sort_order": 7,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000008",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "region",
+      "display_name": "Region",
+      "field_group": "core",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Production region within the country. For whiskey: Speyside, Islay, Kentucky, etc. For port: Douro Valley.",
+      "examples": ["Speyside", "Islay", "Kentucky", "Douro Valley", "Highlands"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "region",
+      "sort_order": 8,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000009",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "nose_description",
+      "display_name": "Nose/Aroma Description",
+      "field_group": "tasting_nose",
+      "field_type": "text",
+      "item_type": "",
+      "description": "Tasting notes describing the aroma/nose of the product. Look for sections labeled 'Nose', 'Aroma', 'Bouquet', or 'On the nose'.",
+      "examples": ["Rich honey and vanilla with hints of citrus and oak", "Intense peat smoke with maritime notes and seaweed"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "nose_description",
+      "sort_order": 10,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000010",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "primary_aromas",
+      "display_name": "Primary Aromas",
+      "field_group": "tasting_nose",
+      "field_type": "array",
+      "item_type": "string",
+      "description": "List of primary aroma notes detected on the nose. Extract individual flavor descriptors.",
+      "examples": [["vanilla", "honey", "oak"], ["peat", "smoke", "seaweed", "iodine"]],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "primary_aromas",
+      "sort_order": 11,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000011",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "palate_description",
+      "display_name": "Palate Description",
+      "field_group": "tasting_palate",
+      "field_type": "text",
+      "item_type": "",
+      "description": "Tasting notes describing the palate/taste. Look for sections labeled 'Palate', 'Taste', 'On the palate', or 'Flavor'.",
+      "examples": ["Smooth and creamy with notes of caramel, toffee, and gentle spice", "Bold and smoky with layers of dark fruit and oak"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "palate_description",
+      "sort_order": 20,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000012",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "palate_flavors",
+      "display_name": "Palate Flavors",
+      "field_group": "tasting_palate",
+      "field_type": "array",
+      "item_type": "string",
+      "description": "List of flavor notes detected on the palate. Extract individual taste descriptors. CRITICAL: This field is required for COMPLETE status.",
+      "examples": [["caramel", "toffee", "vanilla", "cinnamon"], ["dried fruit", "fig", "walnut", "chocolate"]],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "palate_flavors",
+      "sort_order": 21,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000013",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "finish_description",
+      "display_name": "Finish Description",
+      "field_group": "tasting_finish",
+      "field_type": "text",
+      "item_type": "",
+      "description": "Tasting notes describing the finish/aftertaste. Look for sections labeled 'Finish', 'Aftertaste', or 'The finish'.",
+      "examples": ["Long and warming with lingering spice and oak", "Medium finish with notes of dried fruit and gentle smoke"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "finish_description",
+      "sort_order": 30,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000014",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "color_description",
+      "display_name": "Color Description",
+      "field_group": "tasting_appearance",
+      "field_type": "text",
+      "item_type": "",
+      "description": "Description of the product's color and appearance. Look for sections labeled 'Color', 'Appearance', or 'Eye'.",
+      "examples": ["Deep amber with golden highlights", "Rich mahogany with red hues", "Pale straw with hints of gold"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "color_description",
+      "sort_order": 5,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000015",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "awards",
+      "display_name": "Awards",
+      "field_group": "related",
+      "field_type": "array",
+      "item_type": "object",
+      "description": "Competition awards won by this product. Extract competition name, year, medal level, and category if available.",
+      "examples": [[{"competition": "IWSC", "year": 2024, "medal": "Gold"}, {"competition": "San Francisco World Spirits", "year": 2023, "medal": "Double Gold"}]],
+      "allowed_values": [],
+      "item_schema": {
+        "type": "object",
+        "properties": {
+          "competition": {"type": "string", "description": "Name of the competition"},
+          "year": {"type": "integer", "description": "Year the award was given"},
+          "medal": {"type": "string", "description": "Medal or award level (Gold, Silver, Bronze, Double Gold, Best in Class)"},
+          "category": {"type": "string", "description": "Category within the competition"}
+        },
+        "required": ["competition", "year", "medal"]
+      },
+      "target_model": "ProductAward",
+      "target_field": "awards",
+      "sort_order": 50,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000016",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "ratings",
+      "display_name": "Ratings",
+      "field_group": "related",
+      "field_type": "array",
+      "item_type": "object",
+      "description": "Ratings from critics, publications, or users. Extract source, score, scale, and reviewer if available.",
+      "examples": [[{"source": "Whisky Advocate", "score": 92, "max_score": 100}, {"source": "Jim Murray", "score": 95.5, "max_score": 100}]],
+      "allowed_values": [],
+      "item_schema": {
+        "type": "object",
+        "properties": {
+          "source": {"type": "string", "description": "Rating source or publication"},
+          "score": {"type": "number", "description": "Numeric score"},
+          "max_score": {"type": "number", "description": "Maximum possible score"},
+          "reviewer": {"type": "string", "description": "Name of the reviewer if available"},
+          "date": {"type": "string", "description": "Date of the review if available"}
+        },
+        "required": ["source", "score"]
+      },
+      "target_model": "ProductRating",
+      "target_field": "ratings",
+      "sort_order": 51,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000017",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "prices",
+      "display_name": "Prices",
+      "field_group": "related",
+      "field_type": "array",
+      "item_type": "object",
+      "description": "Price information from retailers. Extract price, currency, retailer name, and availability.",
+      "examples": [[{"price": 49.99, "currency": "USD", "retailer": "Total Wine"}, {"price": 45.00, "currency": "GBP", "retailer": "The Whisky Exchange"}]],
+      "allowed_values": [],
+      "item_schema": {
+        "type": "object",
+        "properties": {
+          "price": {"type": "number", "description": "Price amount"},
+          "currency": {"type": "string", "description": "Currency code (USD, GBP, EUR)"},
+          "retailer": {"type": "string", "description": "Retailer name"},
+          "url": {"type": "string", "description": "URL to the product page"},
+          "in_stock": {"type": "boolean", "description": "Whether the product is in stock"}
+        },
+        "required": ["price", "currency"]
+      },
+      "target_model": "ProductPrice",
+      "target_field": "prices",
+      "sort_order": 52,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000018",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "category",
+      "display_name": "Category",
+      "field_group": "core",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Sub-category of the product. For whiskey: Bourbon, Scotch Single Malt, Rye, etc. For port: Ruby, Tawny, Vintage, etc.",
+      "examples": ["Single Malt", "Bourbon", "Blended Scotch", "Tawny", "Vintage Port"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "category",
+      "sort_order": 9,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000019",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "bottler",
+      "display_name": "Bottler",
+      "field_group": "production",
+      "field_type": "string",
+      "item_type": "",
+      "description": "Independent bottler name if this is an independent bottling (not official distillery release).",
+      "examples": ["Gordon & MacPhail", "Signatory Vintage", "Douglas Laing", "Cadenhead's"],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "bottler",
+      "sort_order": 40,
+      "is_active": true
+    }
+  },
+  {
+    "model": "crawler.fielddefinition",
+    "pk": "00000000-0000-0000-0000-000000000020",
+    "fields": {
+      "product_type_config": null,
+      "field_name": "primary_cask",
+      "display_name": "Primary Cask",
+      "field_group": "cask",
+      "field_type": "array",
+      "item_type": "string",
+      "description": "Primary cask types used for maturation. Look for cask/barrel information in production details.",
+      "examples": [["ex-bourbon"], ["american oak", "sherry"], ["first-fill bourbon barrels"]],
+      "allowed_values": [],
+      "item_schema": {},
+      "target_model": "DiscoveredProduct",
+      "target_field": "primary_cask",
+      "sort_order": 41,
+      "is_active": true
+    }
+  }
+]

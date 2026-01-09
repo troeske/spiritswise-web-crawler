@@ -119,18 +119,18 @@ Tasks are assigned to specialized subagents:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 0.4.1 Create shared/base FieldDefinitions (name, brand, description, abv, etc.) | [ ] | crawler-dev | 0.1.10 |
-| 0.4.2 Create whiskey ProductTypeConfig seed data | [ ] | crawler-dev | 0.1.10 |
-| 0.4.3 Create whiskey FieldDefinitions (distillery, mash_bill, peated, cask_type, etc.) | [ ] | crawler-dev | 0.4.2 |
-| 0.4.4 Create whiskey QualityGateConfig (ABV required for PARTIAL/COMPLETE) | [ ] | crawler-dev | 0.4.2 |
-| 0.4.5 Create whiskey EnrichmentConfig templates | [ ] | crawler-dev | 0.4.2 |
-| 0.4.6 Create port_wine ProductTypeConfig seed data | [ ] | crawler-dev | 0.1.10 |
-| 0.4.7 Create port_wine FieldDefinitions (port_style, vintage, sweetness, etc.) | [ ] | crawler-dev | 0.4.6 |
-| 0.4.8 Create port_wine QualityGateConfig (ABV required for PARTIAL/COMPLETE) | [ ] | crawler-dev | 0.4.6 |
-| 0.4.9 Create port_wine EnrichmentConfig templates | [ ] | crawler-dev | 0.4.6 |
-| 0.4.10 Implement `seed_config` management command | [ ] | crawler-dev | 0.4.1-0.4.9 |
-| 0.4.11 Run seed command and verify whiskey config data | [ ] | test-runner | 0.4.10 |
-| 0.4.12 Run seed command and verify port_wine config data | [ ] | test-runner | 0.4.10 |
+| 0.4.1 Create shared/base FieldDefinitions (name, brand, description, abv, etc.) | [X] | crawler-dev | 0.1.10 |
+| 0.4.2 Create whiskey ProductTypeConfig seed data | [X] | crawler-dev | 0.1.10 |
+| 0.4.3 Create whiskey FieldDefinitions (distillery, mash_bill, peated, cask_type, etc.) | [X] | crawler-dev | 0.4.2 |
+| 0.4.4 Create whiskey QualityGateConfig (ABV required for PARTIAL/COMPLETE) | [X] | crawler-dev | 0.4.2 |
+| 0.4.5 Create whiskey EnrichmentConfig templates | [X] | crawler-dev | 0.4.2 |
+| 0.4.6 Create port_wine ProductTypeConfig seed data | [X] | crawler-dev | 0.1.10 |
+| 0.4.7 Create port_wine FieldDefinitions (port_style, vintage, sweetness, etc.) | [X] | crawler-dev | 0.4.6 |
+| 0.4.8 Create port_wine QualityGateConfig (ABV required for PARTIAL/COMPLETE) | [X] | crawler-dev | 0.4.6 |
+| 0.4.9 Create port_wine EnrichmentConfig templates | [X] | crawler-dev | 0.4.6 |
+| 0.4.10 Implement `seed_config` management command | [X] | crawler-dev | 0.4.1-0.4.9 |
+| 0.4.11 Run seed command and verify whiskey config data | [X] | test-runner | 0.4.10 |
+| 0.4.12 Run seed command and verify port_wine config data | [X] | test-runner | 0.4.10 |
 
 **Full Field Schema Requirements:**
 
