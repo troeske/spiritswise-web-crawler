@@ -2,7 +2,8 @@
 Services module for the Web Crawler.
 
 Contains:
-- ai_client: AI Enhancement Service API client
+- ai_client: AI Enhancement Service API client (V1)
+- ai_client_v2: AI Service V2 extraction client with content preprocessing
 - config_service: Configuration and schema builder service (V2 Architecture)
 - quality_gate_v2: V2 Quality Gate using database-backed configuration
 - content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
@@ -16,6 +17,14 @@ Contains:
 """
 
 from crawler.services.ai_client import AIEnhancementClient, EnhancementResult
+from crawler.services.ai_client_v2 import (
+    AIClientV2,
+    AIClientError,
+    ExtractedProductV2,
+    ExtractionResultV2,
+    get_ai_client_v2,
+    reset_ai_client_v2,
+)
 from crawler.services.config_service import ConfigService, get_config_service
 from crawler.services.quality_gate_v2 import (
     QualityGateV2,
@@ -69,8 +78,16 @@ from crawler.services.wayback import (
 )
 
 __all__ = [
+    # AI Enhancement Client (V1)
     "AIEnhancementClient",
     "EnhancementResult",
+    # AI Client V2 (V2 Architecture)
+    "AIClientV2",
+    "AIClientError",
+    "ExtractedProductV2",
+    "ExtractionResultV2",
+    "get_ai_client_v2",
+    "reset_ai_client_v2",
     # Config service (V2 Architecture)
     "ConfigService",
     "get_config_service",
