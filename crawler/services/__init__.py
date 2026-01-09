@@ -8,6 +8,7 @@ Contains:
 - quality_gate_v2: V2 Quality Gate using database-backed configuration
 - enrichment_orchestrator_v2: Progressive multi-source enrichment (V2 Architecture Phase 4)
 - content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
+- source_tracker: Source tracking and field provenance (V2 Architecture Phase 4.5)
 - content_processor: Content processing pipeline
 - sitemap_parser: Sitemap parsing and URL discovery
 - link_extractor: Link extraction, filtering, and categorization
@@ -49,6 +50,7 @@ from crawler.services.content_preprocessor import (
     reset_content_preprocessor,
 )
 from crawler.services.content_processor import ContentProcessor
+from crawler.services.source_tracker import SourceTracker
 from crawler.services.sitemap_parser import (
     SitemapParser,
     SitemapURL,
@@ -117,6 +119,8 @@ __all__ = [
     "PreprocessedContent",
     "get_content_preprocessor",
     "reset_content_preprocessor",
+    # Source Tracker (V2 Architecture Phase 4.5)
+    "SourceTracker",
     "ContentProcessor",
     "SitemapParser",
     "SitemapURL",

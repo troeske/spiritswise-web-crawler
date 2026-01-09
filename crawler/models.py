@@ -4142,6 +4142,22 @@ class CrawledSource(models.Model):
         help_text="Whether raw content has been cleared after processing",
     )
 
+    # Preprocessed Content (V2 Architecture)
+    preprocessed_content = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Preprocessed/cleaned content for AI extraction (93% token savings)",
+    )
+    preprocessed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When the content was preprocessed",
+    )
+    cleanup_eligible = models.BooleanField(
+        default=False,
+        help_text="Whether raw content can be cleared (extraction processed AND wayback saved)",
+    )
+
     # Wayback Machine
     wayback_url = models.URLField(
         max_length=500,
