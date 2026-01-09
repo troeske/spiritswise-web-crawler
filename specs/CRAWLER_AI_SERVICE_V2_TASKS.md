@@ -45,9 +45,9 @@ Tasks are assigned to specialized subagents:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 0.0.1 **ANALYZE**: Review existing models.py structure and identify integration points for new config models | [ ] | Explore | None |
-| 0.0.2 **ANALYZE**: Review existing DiscoveredProduct, WhiskeyDetails, PortWineDetails field definitions for schema mapping | [ ] | Explore | None |
-| 0.0.3 **ANALYZE**: Review existing admin.py patterns for Django Admin implementation | [ ] | Explore | None |
+| 0.0.1 **ANALYZE**: Review existing models.py structure and identify integration points for new config models | [X] | Explore | None |
+| 0.0.2 **ANALYZE**: Review existing DiscoveredProduct, WhiskeyDetails, PortWineDetails field definitions for schema mapping | [X] | Explore | None |
+| 0.0.3 **ANALYZE**: Review existing admin.py patterns for Django Admin implementation | [X] | Explore | None |
 
 **Analysis Tasks Output:**
 - Document existing model organization (single file vs module)
