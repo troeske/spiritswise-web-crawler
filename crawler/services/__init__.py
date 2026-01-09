@@ -6,6 +6,7 @@ Contains:
 - ai_client_v2: AI Service V2 extraction client with content preprocessing
 - config_service: Configuration and schema builder service (V2 Architecture)
 - quality_gate_v2: V2 Quality Gate using database-backed configuration
+- enrichment_orchestrator_v2: Progressive multi-source enrichment (V2 Architecture Phase 4)
 - content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
 - content_processor: Content processing pipeline
 - sitemap_parser: Sitemap parsing and URL discovery
@@ -32,6 +33,13 @@ from crawler.services.quality_gate_v2 import (
     ProductStatus,
     get_quality_gate_v2,
     reset_quality_gate_v2,
+)
+from crawler.services.enrichment_orchestrator_v2 import (
+    EnrichmentOrchestratorV2,
+    EnrichmentResult as EnrichmentResultV2,
+    EnrichmentSession,
+    get_enrichment_orchestrator_v2,
+    reset_enrichment_orchestrator_v2,
 )
 from crawler.services.content_preprocessor import (
     ContentPreprocessor,
@@ -97,6 +105,12 @@ __all__ = [
     "ProductStatus",
     "get_quality_gate_v2",
     "reset_quality_gate_v2",
+    # Enrichment Orchestrator V2 (V2 Architecture Phase 4)
+    "EnrichmentOrchestratorV2",
+    "EnrichmentResultV2",
+    "EnrichmentSession",
+    "get_enrichment_orchestrator_v2",
+    "reset_enrichment_orchestrator_v2",
     # Content Preprocessor (V2 Architecture)
     "ContentPreprocessor",
     "ContentType",
