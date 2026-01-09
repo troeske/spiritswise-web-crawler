@@ -15,6 +15,7 @@ Reference: spiritswise-ai-enhancement-service/ai_enhancement_engine/crawler_admi
 """
 
 import json
+import re
 from datetime import timedelta
 
 from django.contrib import admin
@@ -64,6 +65,11 @@ from crawler.models import (
     DiscoveryJob,
     DiscoveryResult,
     QuotaUsage,
+    # V2 Configuration models
+    ProductTypeConfig,
+    FieldDefinition,
+    QualityGateConfig,
+    EnrichmentConfig,
 )
 
 # Import task for trigger_crawl action
@@ -252,11 +258,13 @@ class CrawlJobAdmin(admin.ModelAdmin):
     Admin interface for crawl jobs.
 
     Task 8.3: Read-only view of crawl job status and metrics.
+    Supports both legacy (source-based) and unified (schedule-based) jobs.
     """
 
     list_display = [
         "id_short",
-        "source",
+        "job_name",
+        "job_type",
         "status_badge",
         "started_at",
         "completed_at",
@@ -267,13 +275,15 @@ class CrawlJobAdmin(admin.ModelAdmin):
     ]
     list_filter = [
         "status",
-        "source",
+        ("source", admin.RelatedOnlyFieldListFilter),
+        ("schedule", admin.RelatedOnlyFieldListFilter),
         ("created_at", admin.DateFieldListFilter),
     ]
-    search_fields = ["source__name", "id"]
+    search_fields = ["source__name", "schedule__name", "id"]
     readonly_fields = [
         "id",
         "source",
+        "schedule",
         "status",
         "created_at",
         "started_at",
@@ -291,7 +301,7 @@ class CrawlJobAdmin(admin.ModelAdmin):
 
     fieldsets = (
         ("Job Information", {
-            "fields": ("id", "source", "status"),
+            "fields": ("id", "source", "schedule", "status"),
         }),
         ("Timing", {
             "fields": ("created_at", "started_at", "completed_at"),
@@ -319,6 +329,31 @@ class CrawlJobAdmin(admin.ModelAdmin):
         """Display shortened job ID."""
         return str(obj.id)[:8]
     id_short.short_description = "Job ID"
+
+    def job_name(self, obj):
+        """Display job name from schedule or source."""
+        if obj.schedule:
+            return obj.schedule.name
+        elif obj.source:
+            return obj.source.name
+        return "Unknown"
+    job_name.short_description = "Name"
+    job_name.admin_order_field = "schedule__name"
+
+    def job_type(self, obj):
+        """Display whether job uses unified schedule or legacy source."""
+        if obj.schedule:
+            return format_html(
+                '<span style="background-color: #17a2b8; color: white; '
+                'padding: 2px 6px; border-radius: 3px; font-size: 11px;">Schedule</span>'
+            )
+        elif obj.source:
+            return format_html(
+                '<span style="background-color: #6c757d; color: white; '
+                'padding: 2px 6px; border-radius: 3px; font-size: 11px;">Legacy</span>'
+            )
+        return "-"
+    job_type.short_description = "Type"
 
     def status_badge(self, obj):
         """Display status as colored badge."""
@@ -669,7 +704,7 @@ class DiscoveredProductAdmin(admin.ModelAdmin):
         "discovery_source",
         "source",
     ]
-    search_fields = ["extracted_data", "source_url"]
+    search_fields = ["name", "source_url"]
     readonly_fields = [
         "id",
         "source",
@@ -678,8 +713,6 @@ class DiscoveredProductAdmin(admin.ModelAdmin):
         "fingerprint",
         "raw_content",
         "raw_content_hash",
-        "extracted_data_formatted",
-        "enriched_data_formatted",
         "awards_formatted",
         "extraction_confidence",
         "matched_product_id",
@@ -691,25 +724,46 @@ class DiscoveredProductAdmin(admin.ModelAdmin):
     ordering = ["-discovered_at"]
 
     fieldsets = (
-        ("Product Information", {
-            "fields": ("id", "product_type", "fingerprint"),
+        ("Identification", {
+            "fields": ("id", "name", "brand", "gtin", "fingerprint"),
+        }),
+        ("Basic Product Info", {
+            "fields": ("product_type", "category", "abv", "volume_ml", "description", "age_statement", "country", "region", "bottler"),
+        }),
+        ("Tasting Profile - Appearance", {
+            "fields": ("color_description", "color_intensity", "clarity", "viscosity"),
+            "classes": ("collapse",),
+        }),
+        ("Tasting Profile - Nose", {
+            "fields": ("nose_description", "primary_aromas", "primary_intensity", "secondary_aromas", "aroma_evolution"),
+            "classes": ("collapse",),
+        }),
+        ("Tasting Profile - Palate (CRITICAL)", {
+            "fields": ("palate_description", "palate_flavors", "initial_taste", "mid_palate_evolution", "flavor_intensity", "complexity", "mouthfeel"),
+            "classes": ("collapse",),
+        }),
+        ("Tasting Profile - Finish", {
+            "fields": ("finish_description", "finish_flavors", "finish_length", "warmth", "dryness", "finish_evolution", "final_notes"),
+            "classes": ("collapse",),
+        }),
+        ("Tasting Profile - Overall", {
+            "fields": ("balance", "overall_complexity", "uniqueness", "drinkability", "price_quality_ratio", "experience_level", "serving_recommendation", "food_pairings"),
+            "classes": ("collapse",),
+        }),
+        ("Cask Info", {
+            "fields": ("primary_cask", "finishing_cask", "wood_type", "cask_treatment", "maturation_notes"),
+            "classes": ("collapse",),
+        }),
+        ("Status & Verification", {
+            "fields": ("status", "completeness_score", "source_count", "verified_fields", "discovery_source", "extraction_confidence"),
         }),
         ("Source", {
-            "fields": ("source", "source_url", "crawl_job", "discovery_source"),
-        }),
-        ("Extracted Data", {
-            "fields": ("extracted_data_formatted", "extraction_confidence"),
-        }),
-        ("Enriched Data", {
-            "fields": ("enriched_data_formatted",),
+            "fields": ("source", "source_url", "crawl_job"),
             "classes": ("collapse",),
         }),
         ("Awards", {
             "fields": ("awards_formatted",),
             "classes": ("collapse",),
-        }),
-        ("Review Status", {
-            "fields": ("status", "reviewed_at", "reviewed_by"),
         }),
         ("Matching", {
             "fields": ("matched_product_id", "match_confidence"),
@@ -720,15 +774,15 @@ class DiscoveredProductAdmin(admin.ModelAdmin):
             "classes": ("collapse",),
         }),
         ("Metadata", {
-            "fields": ("discovered_at",),
+            "fields": ("discovered_at", "reviewed_at", "reviewed_by"),
         }),
     )
 
     actions = ["approve_products", "reject_products", "mark_duplicate"]
 
     def product_name(self, obj):
-        """Display product name from extracted data."""
-        name = obj.extracted_data.get("name", "Unknown")
+        """Display product name."""
+        name = obj.name or "Unknown"
         if len(name) > 50:
             return name[:50] + "..."
         return name
@@ -769,32 +823,6 @@ class DiscoveredProductAdmin(admin.ModelAdmin):
         )
     discovery_source_badge.short_description = "Discovery"
     discovery_source_badge.admin_order_field = "discovery_source"
-
-    def extracted_data_formatted(self, obj):
-        """Display extracted data as formatted JSON."""
-        if obj.extracted_data:
-            formatted = json.dumps(obj.extracted_data, indent=2)
-            return format_html(
-                '<pre style="white-space: pre-wrap; word-wrap: break-word; '
-                'background: #f5f5f5; padding: 10px; border-radius: 4px; '
-                'max-height: 400px; overflow-y: auto;">{}</pre>',
-                formatted
-            )
-        return "-"
-    extracted_data_formatted.short_description = "Extracted Data"
-
-    def enriched_data_formatted(self, obj):
-        """Display enriched data as formatted JSON."""
-        if obj.enriched_data:
-            formatted = json.dumps(obj.enriched_data, indent=2)
-            return format_html(
-                '<pre style="white-space: pre-wrap; word-wrap: break-word; '
-                'background: #f5f5f5; padding: 10px; border-radius: 4px; '
-                'max-height: 400px; overflow-y: auto;">{}</pre>',
-                formatted
-            )
-        return "-"
-    enriched_data_formatted.short_description = "Enriched Data"
 
     def awards_formatted(self, obj):
         """Display awards as formatted JSON."""
@@ -1030,7 +1058,7 @@ class ProductAvailabilityAdmin(admin.ModelAdmin):
     search_fields = [
         "retailer",
         "retailer_url",
-        "product__extracted_data",
+        "product__name",
     ]
     readonly_fields = [
         "id",
@@ -1077,9 +1105,9 @@ class ProductAvailabilityAdmin(admin.ModelAdmin):
     )
 
     def product_name(self, obj):
-        """Display product name from extracted data."""
+        """Display product name."""
         if obj.product:
-            name = obj.product.extracted_data.get("name", "Unknown")
+            name = obj.product.name or "Unknown"
             if len(name) > 40:
                 return name[:40] + "..."
             return name
@@ -1252,9 +1280,9 @@ class PurchaseRecommendationAdmin(admin.ModelAdmin):
     ordering = ["-recommendation_score", "-created_at"]
 
     def product_name(self, obj):
-        """Display product name from extracted data."""
+        """Display product name."""
         if obj.product:
-            name = obj.product.extracted_data.get("name", "Unknown")
+            name = obj.product.name or "Unknown"
             if len(name) > 40:
                 return name[:40] + "..."
             return name
@@ -1351,15 +1379,15 @@ class WhiskeyDetailsAdmin(admin.ModelAdmin):
     list_display = [
         "product",
         "whiskey_type",
-        "whiskey_country",
-        "whiskey_region",
         "distillery",
+        "peated",
+        "peat_level",
     ]
     list_filter = [
         "whiskey_type",
-        "whiskey_country",
+        "peated",
     ]
-    search_fields = ["distillery", "whiskey_region"]
+    search_fields = ["distillery"]
 
 
 @admin.register(PortWineDetails)
@@ -2328,3 +2356,303 @@ class QuotaUsageAdmin(admin.ModelAdmin):
         )
 
     usage_bar.short_description = "Usage %"
+
+
+
+# =============================================================================
+# V2 Configuration Models Admin
+# Task Group 0.2: Django Admin Configuration for V2 Architecture
+# =============================================================================
+
+
+class FieldDefinitionInline(admin.TabularInline):
+    """Inline display of field definitions within a product type config."""
+
+    model = FieldDefinition
+    extra = 0
+    show_change_link = True
+    fields = [
+        "field_name",
+        "display_name",
+        "field_group",
+        "field_type",
+        "target_model",
+        "sort_order",
+        "is_active",
+    ]
+    readonly_fields = ["field_name", "display_name", "field_group", "field_type", "target_model"]
+    ordering = ["field_group", "sort_order", "field_name"]
+    can_delete = False
+
+
+@admin.register(ProductTypeConfig)
+class ProductTypeConfigAdmin(admin.ModelAdmin):
+    """
+    Admin interface for product type configurations.
+
+    Task 0.2.1: Displays product types with active status badges,
+    field counts, and inline field definition editing.
+    """
+
+    list_display = [
+        "product_type",
+        "display_name",
+        "is_active_badge",
+        "version",
+        "field_count",
+        "updated_at",
+    ]
+    list_filter = ["is_active"]
+    search_fields = ["product_type", "display_name"]
+    readonly_fields = ["id", "created_at", "updated_at"]
+    ordering = ["product_type"]
+    inlines = [FieldDefinitionInline]
+
+    fieldsets = (
+        ("Identity", {"fields": ("id", "product_type", "display_name")}),
+        ("Status", {"fields": ("is_active", "version", "updated_by")}),
+        ("Categories", {"fields": ("categories",), "description": "Valid product categories for this type (JSON array)."}),
+        ("Enrichment Limits", {
+            "fields": ("max_sources_per_product", "max_serpapi_searches", "max_enrichment_time_seconds"),
+            "classes": ("collapse",),
+            "description": "Cost control settings for enrichment operations.",
+        }),
+        ("Metadata", {"fields": ("created_at", "updated_at"), "classes": ("collapse",)}),
+    )
+
+    def is_active_badge(self, obj):
+        """Display active status as colored badge."""
+        if obj.is_active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; '
+                'padding: 2px 8px; border-radius: 4px;">Active</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; '
+            'padding: 2px 8px; border-radius: 4px;">Inactive</span>'
+        )
+    is_active_badge.short_description = "Active"
+    is_active_badge.admin_order_field = "is_active"
+
+    def field_count(self, obj):
+        """Display count of associated field definitions."""
+        return obj.fields.count()
+    field_count.short_description = "Fields"
+
+
+@admin.register(FieldDefinition)
+class FieldDefinitionAdmin(admin.ModelAdmin):
+    """
+    Admin interface for field definitions.
+
+    Task 0.2.2: Displays fields with product type, group, and inline editing
+    for sort_order and is_active.
+    """
+
+    list_display = [
+        "field_name",
+        "product_type_display",
+        "field_group",
+        "field_type",
+        "target_model",
+        "is_active_badge",
+        "sort_order",
+    ]
+    list_filter = ["is_active", "field_group", "field_type", "product_type_config", "target_model"]
+    list_editable = ["sort_order"]
+    search_fields = ["field_name", "display_name", "description"]
+    readonly_fields = ["id"]
+    ordering = ["field_group", "sort_order", "field_name"]
+
+    fieldsets = (
+        ("Identity", {"fields": ("id", "field_name", "display_name")}),
+        ("Classification", {
+            "fields": ("product_type_config", "field_group"),
+            "description": "Set product_type_config to empty for shared/base fields used by all product types.",
+        }),
+        ("Extraction Schema", {
+            "fields": ("field_type", "item_type", "description", "examples", "allowed_values", "item_schema"),
+            "description": "AI extraction instructions - be specific and clear in the description.",
+        }),
+        ("Model Mapping", {
+            "fields": ("target_model", "target_field"),
+            "description": "Django model and field where extracted data is stored.",
+        }),
+        ("Status", {"fields": ("sort_order", "is_active")}),
+    )
+
+    def product_type_display(self, obj):
+        """Display product type or (Shared) for base fields."""
+        if obj.product_type_config:
+            return obj.product_type_config.product_type
+        return format_html(
+            '<span style="color: #6c757d; font-style: italic;">(Shared)</span>'
+        )
+    product_type_display.short_description = "Product Type"
+    product_type_display.admin_order_field = "product_type_config__product_type"
+
+    def is_active_badge(self, obj):
+        """Display active status as colored badge."""
+        if obj.is_active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; '
+                'padding: 2px 8px; border-radius: 4px;">Active</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; '
+            'padding: 2px 8px; border-radius: 4px;">Inactive</span>'
+        )
+    is_active_badge.short_description = "Active"
+    is_active_badge.admin_order_field = "is_active"
+
+
+@admin.register(QualityGateConfig)
+class QualityGateConfigAdmin(admin.ModelAdmin):
+    """
+    Admin interface for quality gate configurations.
+
+    Task 0.2.3: Displays quality levels with field requirement counts.
+    Quality gate logic: STATUS = (ALL required_fields) AND (N+ from any_of_fields)
+    """
+
+    list_display = [
+        "product_type_display",
+        "skeleton_count",
+        "partial_count",
+        "complete_count",
+        "enriched_count",
+    ]
+    readonly_fields = ["id"]
+    ordering = ["product_type_config__product_type"]
+
+    fieldsets = (
+        ("Product Type", {
+            "fields": ("id", "product_type_config"),
+            "description": "Each product type has exactly one quality gate configuration.",
+        }),
+        ("SKELETON Level", {
+            "fields": ("skeleton_required_fields",),
+            "description": "Minimum requirements to save at all. Product must have ALL listed fields.",
+        }),
+        ("PARTIAL Level", {
+            "fields": ("partial_required_fields", "partial_any_of_count", "partial_any_of_fields"),
+            "description": "Requirements for PARTIAL status: ALL required_fields AND at least N from any_of_fields.",
+        }),
+        ("COMPLETE Level", {
+            "fields": ("complete_required_fields", "complete_any_of_count", "complete_any_of_fields"),
+            "description": "Requirements for COMPLETE status (ready for production): ALL required_fields AND at least N from any_of_fields.",
+        }),
+        ("ENRICHED Level", {
+            "fields": ("enriched_required_fields", "enriched_any_of_count", "enriched_any_of_fields"),
+            "description": "Requirements for ENRICHED status (fully enriched): inherits COMPLETE requirements plus additional fields.",
+        }),
+    )
+
+    def product_type_display(self, obj):
+        """Display the associated product type."""
+        return obj.product_type_config.product_type
+    product_type_display.short_description = "Product Type"
+    product_type_display.admin_order_field = "product_type_config__product_type"
+
+    def skeleton_count(self, obj):
+        """Display skeleton level requirements summary."""
+        count = len(obj.skeleton_required_fields) if obj.skeleton_required_fields else 0
+        return f"{count} req"
+    skeleton_count.short_description = "SKELETON"
+
+    def partial_count(self, obj):
+        """Display partial level requirements summary."""
+        req_count = len(obj.partial_required_fields) if obj.partial_required_fields else 0
+        any_count = len(obj.partial_any_of_fields) if obj.partial_any_of_fields else 0
+        return f"{req_count} req + {obj.partial_any_of_count}/{any_count}"
+    partial_count.short_description = "PARTIAL"
+
+    def complete_count(self, obj):
+        """Display complete level requirements summary."""
+        req_count = len(obj.complete_required_fields) if obj.complete_required_fields else 0
+        any_count = len(obj.complete_any_of_fields) if obj.complete_any_of_fields else 0
+        return f"{req_count} req + {obj.complete_any_of_count}/{any_count}"
+    complete_count.short_description = "COMPLETE"
+
+    def enriched_count(self, obj):
+        """Display enriched level requirements summary."""
+        req_count = len(obj.enriched_required_fields) if obj.enriched_required_fields else 0
+        any_count = len(obj.enriched_any_of_fields) if obj.enriched_any_of_fields else 0
+        return f"{req_count} req + {obj.enriched_any_of_count}/{any_count}"
+    enriched_count.short_description = "ENRICHED"
+
+
+@admin.register(EnrichmentConfig)
+class EnrichmentConfigAdmin(admin.ModelAdmin):
+    """
+    Admin interface for enrichment configurations.
+
+    Task 0.2.4: Displays enrichment templates with preview highlighting
+    placeholders, inline editing for priority and is_active.
+    """
+
+    list_display = [
+        "display_name",
+        "product_type_display",
+        "template_preview",
+        "priority",
+        "is_active_badge",
+    ]
+    list_filter = ["is_active", "product_type_config", "priority"]
+    list_editable = ["priority"]
+    search_fields = ["template_name", "display_name", "search_template"]
+    readonly_fields = ["id"]
+    ordering = ["-priority"]
+
+    fieldsets = (
+        ("Identity", {"fields": ("id", "template_name", "display_name")}),
+        ("Product Type", {"fields": ("product_type_config",)}),
+        ("Search Template", {
+            "fields": ("search_template",),
+            "description": "Use placeholders like {name}, {brand} in the template.",
+        }),
+        ("Target Fields", {
+            "fields": ("target_fields",),
+            "description": "Fields this enrichment template targets (JSON array).",
+        }),
+        ("Priority & Status", {
+            "fields": ("priority", "is_active"),
+            "description": "Higher priority (1-10) templates are searched first when fields are missing.",
+        }),
+    )
+
+    def product_type_display(self, obj):
+        """Display the associated product type."""
+        return obj.product_type_config.product_type
+    product_type_display.short_description = "Product Type"
+    product_type_display.admin_order_field = "product_type_config__product_type"
+
+    def template_preview(self, obj):
+        """Display template with placeholders highlighted."""
+        template = obj.search_template or ""
+        if len(template) > 50:
+            preview = template[:50] + "..."
+        else:
+            preview = template
+        # Highlight placeholders like {name}, {brand}
+        highlighted = re.sub(
+            r"\{(\w+)\}",
+            r'<span style="background-color: #ffc107; color: #000; padding: 0 2px; border-radius: 2px;">{}</span>',
+            preview
+        )
+        return format_html(highlighted)
+    template_preview.short_description = "Template"
+
+    def is_active_badge(self, obj):
+        """Display active status as colored badge."""
+        if obj.is_active:
+            return format_html(
+                '<span style="background-color: #28a745; color: white; '
+                'padding: 2px 8px; border-radius: 4px;">Active</span>'
+            )
+        return format_html(
+            '<span style="background-color: #6c757d; color: white; '
+            'padding: 2px 8px; border-radius: 4px;">Inactive</span>'
+        )
+    is_active_badge.short_description = "Active"
+    is_active_badge.admin_order_field = "is_active"

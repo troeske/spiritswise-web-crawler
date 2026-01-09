@@ -84,11 +84,11 @@ Tasks are assigned to specialized subagents:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 0.2.1 Implement `ProductTypeConfigAdmin` with inline FieldDefinitions | [ ] | crawler-dev | 0.1.10 |
-| 0.2.2 Implement `FieldDefinitionAdmin` with filtering by product type | [ ] | crawler-dev | 0.1.10 |
-| 0.2.3 Implement `QualityGateConfigAdmin` | [ ] | crawler-dev | 0.1.10 |
-| 0.2.4 Implement `EnrichmentConfigAdmin` | [ ] | crawler-dev | 0.1.10 |
-| 0.2.5 Verify admin UI works correctly | [ ] | test-runner | 0.2.1-0.2.4 |
+| 0.2.1 Implement `ProductTypeConfigAdmin` with inline FieldDefinitions | [X] | crawler-dev | 0.1.10 |
+| 0.2.2 Implement `FieldDefinitionAdmin` with filtering by product type | [X] | crawler-dev | 0.1.10 |
+| 0.2.3 Implement `QualityGateConfigAdmin` | [X] | crawler-dev | 0.1.10 |
+| 0.2.4 Implement `EnrichmentConfigAdmin` | [X] | crawler-dev | 0.1.10 |
+| 0.2.5 Verify admin UI works correctly | [X] | test-runner | 0.2.1-0.2.4 |
 
 **Files to modify:**
 - `spiritswise-web-crawler/crawler/admin.py`
