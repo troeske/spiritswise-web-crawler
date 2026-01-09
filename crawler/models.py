@@ -62,15 +62,32 @@ class CrawlJobStatus(models.TextChoices):
 
 
 class DiscoveredProductStatus(models.TextChoices):
-    """Status of a discovered product."""
+    """
+    Status of a discovered product - based on completeness and verification.
 
-    PENDING = "pending", "Pending Review"
-    APPROVED = "approved", "Approved"
+    Status Model:
+    - INCOMPLETE: Score 0-29, missing critical data (no palate profile)
+    - PARTIAL: Score 30-59, has basic info but no tasting profile
+    - COMPLETE: Score 60-79, has tasting profile (at least palate)
+    - VERIFIED: Score 80-100, multi-source verified with full tasting
+    - REJECTED: Not a valid product
+    - MERGED: Merged into another product
+
+    Note: A product CANNOT reach COMPLETE or VERIFIED without palate tasting data.
+    """
+
+    INCOMPLETE = "incomplete", "Incomplete"
+    PARTIAL = "partial", "Partial"
+    COMPLETE = "complete", "Complete"
+    VERIFIED = "verified", "Verified"
     REJECTED = "rejected", "Rejected"
-    DUPLICATE = "duplicate", "Duplicate"
     MERGED = "merged", "Merged"
-    # Task 2.3: Added skeleton status for competition-discovered products
-    SKELETON = "skeleton", "Skeleton (needs enrichment)"
+
+    # Legacy status values - kept for migration compatibility
+    PENDING = "pending", "Pending Review (Legacy)"
+    APPROVED = "approved", "Approved (Legacy)"
+    DUPLICATE = "duplicate", "Duplicate (Legacy)"
+    SKELETON = "skeleton", "Skeleton (Legacy)"
 
 
 class AgeGateType(models.TextChoices):
@@ -698,6 +715,461 @@ DiscoverySourceTypeChoices = SourceTypeChoices
 
 
 # ============================================================
+# V2 Architecture: Configuration Models
+# Spec: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2
+# ============================================================
+
+
+class FieldTypeChoices(models.TextChoices):
+    """
+    V2 Architecture: Field type choices for FieldDefinition.
+
+    Defines the data type of a field for AI extraction:
+    - string: Short text value
+    - text: Long text value
+    - integer: Whole number
+    - decimal: Decimal number
+    - boolean: True/False value
+    - array: List of values
+    - object: Nested object structure
+    """
+
+    STRING = "string", "String"
+    TEXT = "text", "Text (long)"
+    INTEGER = "integer", "Integer"
+    DECIMAL = "decimal", "Decimal"
+    BOOLEAN = "boolean", "Boolean"
+    ARRAY = "array", "Array"
+    OBJECT = "object", "Object"
+
+
+class FieldGroupChoices(models.TextChoices):
+    """
+    V2 Architecture: Field group choices for FieldDefinition.
+
+    Organizes fields into logical groups for display and extraction:
+    - core: Core product identification fields
+    - tasting_appearance: Visual/color tasting notes
+    - tasting_nose: Aroma/nose tasting notes
+    - tasting_palate: Palate/flavor tasting notes
+    - tasting_finish: Finish tasting notes
+    - tasting_overall: Overall assessment
+    - production: Production/manufacturing details
+    - cask: Cask/maturation information
+    - related: Related data (awards, prices, ratings)
+    - type_specific: Type-specific fields (whiskey, port, etc.)
+    """
+
+    CORE = "core", "Core Product"
+    TASTING_APPEARANCE = "tasting_appearance", "Tasting - Appearance"
+    TASTING_NOSE = "tasting_nose", "Tasting - Nose"
+    TASTING_PALATE = "tasting_palate", "Tasting - Palate"
+    TASTING_FINISH = "tasting_finish", "Tasting - Finish"
+    TASTING_OVERALL = "tasting_overall", "Tasting - Overall"
+    PRODUCTION = "production", "Production"
+    CASK = "cask", "Cask/Maturation"
+    RELATED = "related", "Related Data"
+    TYPE_SPECIFIC = "type_specific", "Type Specific"
+
+
+class TargetModelChoices(models.TextChoices):
+    """
+    V2 Architecture: Target model choices for FieldDefinition.
+
+    Specifies which Django model a field maps to:
+    - DiscoveredProduct: Main product model
+    - WhiskeyDetails: Whiskey-specific details
+    - PortWineDetails: Port wine-specific details
+    - ProductAward: Award records
+    - ProductPrice: Price records
+    - ProductRating: Rating records
+    """
+
+    DISCOVERED_PRODUCT = "DiscoveredProduct", "DiscoveredProduct"
+    WHISKEY_DETAILS = "WhiskeyDetails", "WhiskeyDetails"
+    PORT_WINE_DETAILS = "PortWineDetails", "PortWineDetails"
+    PRODUCT_AWARD = "ProductAward", "ProductAward"
+    PRODUCT_PRICE = "ProductPrice", "ProductPrice"
+    PRODUCT_RATING = "ProductRating", "ProductRating"
+
+
+class ProductTypeConfig(models.Model):
+    """
+    V2 Architecture: Configuration for a product type (whiskey, port_wine, gin, etc.)
+
+    Top-level configuration that defines how a product type is handled by
+    the crawler and AI service. All product type knowledge is stored here
+    rather than in code.
+
+    Spec Reference: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2.1
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Identity
+    product_type = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+        help_text="Product type identifier (e.g., 'whiskey', 'port_wine')",
+    )
+    display_name = models.CharField(
+        max_length=100,
+        help_text="Human-readable name for display",
+    )
+    version = models.CharField(
+        max_length=20,
+        default="1.0",
+        help_text="Configuration version for tracking changes",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Enable/disable this product type configuration",
+    )
+
+    # Valid categories for this product type
+    categories = models.JSONField(
+        default=list,
+        help_text='Valid categories: ["bourbon", "scotch", "rye"]',
+    )
+
+    # ============================================
+    # Enrichment Limits (per product type)
+    # ============================================
+
+    max_sources_per_product = models.IntegerField(
+        default=5,
+        help_text="Maximum number of sources to fetch per product during enrichment",
+    )
+    max_serpapi_searches = models.IntegerField(
+        default=3,
+        help_text="Maximum SerpAPI searches per product (cost control)",
+    )
+    max_enrichment_time_seconds = models.IntegerField(
+        default=120,
+        help_text="Maximum time in seconds for enrichment per product",
+    )
+
+    # ============================================
+    # Timestamps
+    # ============================================
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="User who last updated this configuration",
+    )
+
+    class Meta:
+        db_table = "product_type_config"
+        verbose_name = "Product Type Configuration"
+        verbose_name_plural = "Product Type Configurations"
+        ordering = ["product_type"]
+
+    def __str__(self):
+        return f"{self.display_name} ({self.product_type})"
+
+
+class FieldDefinition(models.Model):
+    """
+    V2 Architecture: Field definition for extraction schema with model mapping.
+
+    Defines a field that can be extracted by the AI service, including:
+    - AI extraction instructions (description, examples, allowed values)
+    - Model mapping (which Django model/field to store the extracted data)
+
+    Fields with null product_type_config are shared/base fields for all product types.
+
+    Spec Reference: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2.2
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Relationship - null means shared/base field for all product types
+    product_type_config = models.ForeignKey(
+        ProductTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="fields",
+        null=True,
+        blank=True,
+        help_text="Null = shared/base field for all product types",
+    )
+
+    # Field identity
+    field_name = models.CharField(
+        max_length=100,
+        db_index=True,
+        help_text="Field name used in extraction schema",
+    )
+    display_name = models.CharField(
+        max_length=200,
+        help_text="Human-readable field name",
+    )
+    field_group = models.CharField(
+        max_length=50,
+        choices=FieldGroupChoices.choices,
+        default=FieldGroupChoices.CORE,
+        help_text="Logical group for organizing fields",
+    )
+
+    # ============================================
+    # AI Extraction Schema (sent to AI Service)
+    # ============================================
+
+    field_type = models.CharField(
+        max_length=20,
+        choices=FieldTypeChoices.choices,
+        help_text="Data type of the field",
+    )
+    item_type = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="For arrays: type of items (string, object)",
+    )
+    description = models.TextField(
+        help_text="Description for AI extraction - be specific and clear!",
+    )
+    examples = models.JSONField(
+        default=list,
+        help_text='Examples help AI understand: ["Ardbeg 10", "Glenfiddich 18"]',
+    )
+    allowed_values = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='For enums: ["gold", "silver", "bronze"]',
+    )
+    item_schema = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Schema for object/array items (awards, ratings, etc.)",
+    )
+
+    # ============================================
+    # Model Mapping (where to store extracted data)
+    # ============================================
+
+    target_model = models.CharField(
+        max_length=100,
+        choices=TargetModelChoices.choices,
+        help_text="Django model where this field is stored",
+    )
+    target_field = models.CharField(
+        max_length=100,
+        help_text="Field name in the target model",
+    )
+
+    # Ordering and status
+    sort_order = models.IntegerField(
+        default=0,
+        help_text="Order within field group (lower = first)",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Enable/disable this field definition",
+    )
+
+    class Meta:
+        db_table = "field_definition"
+        ordering = ["field_group", "sort_order", "field_name"]
+        unique_together = [["product_type_config", "field_name"]]
+        verbose_name = "Field Definition"
+        verbose_name_plural = "Field Definitions"
+
+    def __str__(self):
+        type_name = self.product_type_config.product_type if self.product_type_config else "shared"
+        return f"{self.field_name} ({type_name})"
+
+    def to_extraction_schema(self) -> dict:
+        """
+        Convert to schema format for AI Service request.
+
+        Returns a dictionary suitable for inclusion in the extraction_schema
+        sent to the AI service.
+        """
+        schema = {
+            "type": self.field_type,
+            "description": self.description,
+        }
+        if self.examples:
+            schema["examples"] = self.examples
+        if self.allowed_values:
+            schema["allowed_values"] = self.allowed_values
+        if self.item_type:
+            schema["item_type"] = self.item_type
+        if self.item_schema:
+            schema["item_schema"] = self.item_schema
+        return schema
+
+
+class QualityGateConfig(models.Model):
+    """
+    V2 Architecture: Quality gate thresholds for a product type.
+
+    Defines the requirements for each product status level:
+    - SKELETON: Minimum to save at all
+    - PARTIAL: Has some useful data
+    - COMPLETE: Ready for production use
+    - ENRICHED: Fully enriched with external data
+
+    Logic for each status:
+        STATUS = (ALL required_fields) AND (N or more from any_of_fields)
+
+    Example for COMPLETE:
+        complete_required_fields = ["name", "brand", "abv", "description", "palate_flavors"]
+        complete_any_of_count = 2
+        complete_any_of_fields = ["nose_description", "finish_description", "distillery", "region"]
+
+        A product is COMPLETE if:
+        - Has name AND brand AND abv AND description AND palate_flavors (all 5 required)
+        - AND has at least 2 of: nose_description, finish_description, distillery, region
+
+    Spec Reference: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2.3
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    product_type_config = models.OneToOneField(
+        ProductTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="quality_gates",
+        help_text="Product type this quality gate applies to",
+    )
+
+    # ============================================
+    # SKELETON: Minimum to save at all
+    # ============================================
+
+    skeleton_required_fields = models.JSONField(
+        default=list,
+        help_text='Must have ALL of these. Example: ["name"]',
+    )
+
+    # ============================================
+    # PARTIAL: Has some useful data
+    # ============================================
+
+    partial_required_fields = models.JSONField(
+        default=list,
+        help_text='Must have ALL of these. Example: ["name", "brand"]',
+    )
+    partial_any_of_count = models.IntegerField(
+        default=2,
+        help_text="Must have at least this many from any_of_fields",
+    )
+    partial_any_of_fields = models.JSONField(
+        default=list,
+        help_text='Pool of fields. Example: ["abv", "description", "region"]',
+    )
+
+    # ============================================
+    # COMPLETE: Ready for production use
+    # ============================================
+
+    complete_required_fields = models.JSONField(
+        default=list,
+        help_text='Must have ALL. Example: ["name", "brand", "description", "palate_flavors"]',
+    )
+    complete_any_of_count = models.IntegerField(
+        default=2,
+        help_text="Must have at least this many from any_of_fields",
+    )
+    complete_any_of_fields = models.JSONField(
+        default=list,
+        help_text='Pool of fields. Example: ["abv", "nose_description", "finish_description"]',
+    )
+
+    # ============================================
+    # ENRICHED: Fully enriched with external data
+    # ============================================
+
+    enriched_required_fields = models.JSONField(
+        default=list,
+        help_text="Must have ALL (inherits COMPLETE + these)",
+    )
+    enriched_any_of_count = models.IntegerField(
+        default=2,
+        help_text="Must have at least this many from any_of_fields",
+    )
+    enriched_any_of_fields = models.JSONField(
+        default=list,
+        help_text='External data fields: ["awards", "ratings", "prices"]',
+    )
+
+    class Meta:
+        db_table = "quality_gate_config"
+        verbose_name = "Quality Gate Configuration"
+        verbose_name_plural = "Quality Gate Configurations"
+
+    def __str__(self):
+        return f"Quality Gates for {self.product_type_config.product_type}"
+
+
+class EnrichmentConfig(models.Model):
+    """
+    V2 Architecture: Enrichment search templates for a product type.
+
+    Defines search templates used for progressive enrichment when a product
+    is missing data. Templates specify how to search for additional sources
+    and which fields they target.
+
+    Spec Reference: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2.4
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    product_type_config = models.ForeignKey(
+        ProductTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="enrichment_templates",
+        help_text="Product type this enrichment config applies to",
+    )
+
+    # Template identity
+    template_name = models.CharField(
+        max_length=50,
+        help_text='Template identifier (e.g., "tasting_notes")',
+    )
+    display_name = models.CharField(
+        max_length=100,
+        help_text="Human-readable template name",
+    )
+
+    # Search template with placeholders
+    search_template = models.CharField(
+        max_length=500,
+        help_text='Use placeholders: "{name} {brand} tasting notes review"',
+    )
+
+    # What fields this search targets
+    target_fields = models.JSONField(
+        default=list,
+        help_text='Fields this enriches: ["nose_description", "palate_description"]',
+    )
+
+    # Priority and status
+    priority = models.IntegerField(
+        default=5,
+        help_text="1-10, higher priority = search first when fields missing",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Enable/disable this enrichment template",
+    )
+
+    class Meta:
+        db_table = "enrichment_config"
+        ordering = ["-priority"]
+        verbose_name = "Enrichment Configuration"
+        verbose_name_plural = "Enrichment Configurations"
+
+    def __str__(self):
+        return f"{self.template_name} ({self.product_type_config.product_type})"
+
+
+
+# ============================================================
 # Unified Crawler Scheduling (replaces separate scheduling models)
 # ============================================================
 
@@ -832,6 +1304,15 @@ class CrawlSchedule(models.Model):
     )
 
     # ============================================
+    # ENRICHMENT CONFIGURATION
+    # ============================================
+
+    enrich = models.BooleanField(
+        default=False,
+        help_text="Run verification pipeline on extracted products",
+    )
+
+    # ============================================
     # TRACKING & METADATA
     # ============================================
 
@@ -839,6 +1320,7 @@ class CrawlSchedule(models.Model):
     total_products_found = models.IntegerField(default=0)
     total_products_new = models.IntegerField(default=0)
     total_products_duplicate = models.IntegerField(default=0)
+    total_products_verified = models.IntegerField(default=0)
     total_errors = models.IntegerField(default=0)
 
     # Timestamps
@@ -891,15 +1373,17 @@ class CrawlSchedule(models.Model):
         self.save(update_fields=["last_run", "next_run", "total_runs"])
 
     def record_run_stats(self, products_found: int, products_new: int,
-                         products_duplicate: int, errors: int):
+                         products_duplicate: int, errors: int,
+                         products_verified: int = 0):
         """Record statistics from a completed run."""
         self.total_products_found += products_found
         self.total_products_new += products_new
         self.total_products_duplicate += products_duplicate
+        self.total_products_verified += products_verified
         self.total_errors += errors
         self.save(update_fields=[
             "total_products_found", "total_products_new",
-            "total_products_duplicate", "total_errors"
+            "total_products_duplicate", "total_products_verified", "total_errors"
         ])
 
 
@@ -1284,24 +1768,37 @@ class DiscoveredProduct(models.Model):
 
     # Product Identification
     fingerprint = models.CharField(
-        max_length=64, db_index=True, help_text="Hash for deduplication"
+        max_length=64,
+        unique=True,
+        db_index=True,
+        help_text="Hash for deduplication - must be unique per spec",
     )
     product_type = models.CharField(max_length=20, choices=ProductType.choices)
-    # Product Basic Info (denormalized from extracted_data for querying)
+
+    # Product Basic Info
     name = models.CharField(
         max_length=500,
-        blank=True,
-        help_text="Product name (denormalized)",
+        db_index=True,
+        help_text="Product name - indexed per spec",
     )
-    abv = models.FloatField(
+    description = models.TextField(
         blank=True,
         null=True,
-        help_text="Alcohol by volume percentage",
+        help_text="Product description",
     )
-    age_statement = models.IntegerField(
+    abv = models.DecimalField(
+        max_digits=4,
+        decimal_places=1,
         blank=True,
         null=True,
-        help_text="Age statement in years",
+        db_index=True,
+        help_text="Alcohol by volume percentage 0-80%",
+    )
+    age_statement = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Age statement (e.g., '12', '18', 'NAS')",
     )
     volume_ml = models.IntegerField(
         blank=True,
@@ -1312,12 +1809,14 @@ class DiscoveredProduct(models.Model):
         max_length=200,
         blank=True,
         null=True,
+        db_index=True,
         help_text="Product region (e.g., Speyside, Kentucky)",
     )
     country = models.CharField(
         max_length=100,
         blank=True,
         null=True,
+        db_index=True,
         help_text="Country of origin",
     )
     # Task Group 13: GTIN for product matching
@@ -1336,16 +1835,21 @@ class DiscoveredProduct(models.Model):
     raw_content = models.TextField(help_text="Original HTML/text")
     raw_content_hash = models.CharField(max_length=64)
 
-    # Extracted Data (from AI Enhancement Service)
-    extracted_data = models.JSONField(default=dict)
-    enriched_data = models.JSONField(default=dict)
-    extraction_confidence = models.FloatField(null=True, blank=True)
+    # Extraction confidence (REMOVED: extracted_data, enriched_data JSON blobs per spec)
+    extraction_confidence = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Extraction confidence 0.00-1.00",
+    )
 
-    # Status
+    # Status - based on completeness and verification
     status = models.CharField(
         max_length=20,
         choices=DiscoveredProductStatus.choices,
-        default=DiscoveredProductStatus.PENDING,
+        default=DiscoveredProductStatus.INCOMPLETE,
+        help_text="Product status: incomplete, partial, complete, verified, rejected, merged",
     )
 
     # Task 2.3: Discovery source tracking (single source - legacy)
@@ -1364,13 +1868,7 @@ class DiscoveredProduct(models.Model):
     )
 
     # Phase 1: Model Expansion - New fields for comprehensive product data
-
-    # Taste Profile (JSONField)
-    taste_profile = models.JSONField(
-        default=dict,
-        blank=True,
-        help_text="Tasting notes: nose, palate, finish, flavor_tags, overall_notes",
-    )
+    # REMOVED: taste_profile JSON blob per spec - use individual tasting profile columns instead
 
     # Product Images (JSONField)
     images = models.JSONField(
@@ -1419,6 +1917,21 @@ class DiscoveredProduct(models.Model):
         blank=True,
         help_text="Sources that discovered this product: ['competition', 'serpapi', 'hub_crawl']",
     )
+
+    # ============================================================
+    # Multi-Source Verification Fields
+    # ============================================================
+
+    source_count = models.IntegerField(
+        default=1,
+        help_text="Number of unique sources this product data was collected from",
+    )
+    verified_fields = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Fields verified by multiple sources: ['name', 'abv', 'palate_description']",
+    )
+
     # Task Group 1: Brand relationship
     brand = models.ForeignKey(
         'DiscoveredBrand',
@@ -1465,6 +1978,11 @@ class DiscoveredProduct(models.Model):
         max_length=2000,
         blank=True,
         help_text="URL to best price",
+    )
+    best_price_updated = models.DateTimeField(
+        blank=True,
+        null=True,
+        help_text="When the best price was last updated",
     )
 
     # Matching
@@ -1871,6 +2389,11 @@ class DiscoveredProduct(models.Model):
         null=True,
         help_text="Mouthfeel description (e.g., 'oily', 'creamy', 'thin')",
     )
+    palate_description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Overall palate description combining initial taste, evolution, and mouthfeel",
+    )
 
     # ============================================================
     # Tasting Profile: Finish Fields
@@ -1905,6 +2428,11 @@ class DiscoveredProduct(models.Model):
         blank=True,
         null=True,
         help_text="Final lingering notes after finish",
+    )
+    finish_description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Overall finish description combining length, warmth, and lingering notes",
     )
 
     # ============================================================
@@ -1980,37 +2508,77 @@ class DiscoveredProduct(models.Model):
         ]
 
     def __str__(self):
-        name = self.extracted_data.get("name", "Unknown")
-        return f"{name} ({self.product_type})"
+        return f"{self.name or 'Unknown'} ({self.product_type})"
 
     def save(self, *args, **kwargs):
-        """Automatically compute fingerprint and content hash before saving."""
+        """Automatically compute fingerprint, content hash, completeness and status before saving."""
         if not self.raw_content_hash and self.raw_content:
             self.raw_content_hash = hashlib.sha256(self.raw_content.encode()).hexdigest()
-        if not self.fingerprint and self.extracted_data:
-            self.fingerprint = self.compute_fingerprint(self.extracted_data)
+        if not self.fingerprint and self.name:
+            self.fingerprint = self.compute_fingerprint_from_fields()
+
+        # Auto-update completeness score and status (unless explicitly skipped)
+        skip_status_update = kwargs.pop("skip_status_update", False)
+        if not skip_status_update:
+            # Avoid infinite recursion by checking if we're updating specific fields
+            update_fields = kwargs.get("update_fields")
+            if update_fields is None or "completeness_score" not in update_fields:
+                self.completeness_score = self.calculate_completeness_score()
+                # Don't override rejected/merged/skeleton status
+                if self.status not in (
+                    DiscoveredProductStatus.REJECTED,
+                    DiscoveredProductStatus.MERGED,
+                    DiscoveredProductStatus.SKELETON,
+                ):
+                    self.status = self.determine_status()
+
         super().save(*args, **kwargs)
 
-    @staticmethod
-    def compute_fingerprint(extracted_data: dict) -> str:
-        """Compute fingerprint for deduplication based on key fields."""
-        # Use key identifying fields
+    def compute_fingerprint_from_fields(self) -> str:
+        """Compute fingerprint for deduplication based on model fields."""
+        # Use key identifying fields from model columns (not JSON blobs)
+        brand_name = self.brand.name if self.brand else ""
         key_fields = {
-            "name": str(extracted_data.get("name", "")).lower().strip(),
-            "brand": str(extracted_data.get("brand", "")).lower().strip(),
-            "product_type": extracted_data.get("product_type", ""),
-            "volume_ml": extracted_data.get("volume_ml"),
-            "abv": extracted_data.get("abv"),
+            "name": str(self.name or "").lower().strip(),
+            "brand": str(brand_name).lower().strip(),
+            "product_type": self.product_type or "",
+            "volume_ml": self.volume_ml,
+            "abv": float(self.abv) if self.abv else None,
         }
 
         # Add type-specific fields
-        product_type = extracted_data.get("product_type", "")
+        if self.product_type == "whiskey":
+            key_fields["age_statement"] = self.age_statement
+            # Get distillery from WhiskeyDetails if exists
+            if hasattr(self, 'whiskey_details') and self.whiskey_details:
+                key_fields["distillery"] = str(self.whiskey_details.distillery or "").lower()
+        elif self.product_type == "port_wine":
+            # Get style and harvest_year from PortWineDetails if exists
+            if hasattr(self, 'port_details') and self.port_details:
+                key_fields["style"] = str(self.port_details.style or "").lower()
+                key_fields["harvest_year"] = self.port_details.harvest_year
+
+        fingerprint_str = json.dumps(key_fields, sort_keys=True)
+        return hashlib.sha256(fingerprint_str.encode()).hexdigest()
+
+    @staticmethod
+    def compute_fingerprint(data: dict) -> str:
+        """Compute fingerprint from a dict (for compatibility during migration)."""
+        key_fields = {
+            "name": str(data.get("name", "")).lower().strip(),
+            "brand": str(data.get("brand", "")).lower().strip(),
+            "product_type": data.get("product_type", ""),
+            "volume_ml": data.get("volume_ml"),
+            "abv": data.get("abv"),
+        }
+
+        product_type = data.get("product_type", "")
         if product_type == "whiskey":
-            key_fields["age_statement"] = extracted_data.get("age_statement")
-            key_fields["distillery"] = str(extracted_data.get("distillery", "")).lower()
+            key_fields["age_statement"] = data.get("age_statement")
+            key_fields["distillery"] = str(data.get("distillery", "")).lower()
         elif product_type == "port_wine":
-            key_fields["style"] = str(extracted_data.get("style", "")).lower()
-            key_fields["harvest_year"] = extracted_data.get("harvest_year")
+            key_fields["style"] = str(data.get("style", "")).lower()
+            key_fields["harvest_year"] = data.get("harvest_year")
 
         fingerprint_str = json.dumps(key_fields, sort_keys=True)
         return hashlib.sha256(fingerprint_str.encode()).hexdigest()
@@ -2101,22 +2669,328 @@ class DiscoveredProduct(models.Model):
             self.save(update_fields=["images"])
 
     def update_taste_profile(self, profile: dict) -> None:
-        """Merge taste profile data."""
-        current = self.taste_profile or {}
+        """Merge taste profile data into individual columns."""
+        update_fields = []
 
-        # Merge array fields (nose, palate, finish, flavor_tags)
-        for key in ["nose", "palate", "finish", "flavor_tags"]:
-            if key in profile:
-                existing = set(current.get(key, []))
-                new = set(profile.get(key, []))
-                current[key] = list(existing | new)
+        # Map profile fields to individual columns
+        field_mappings = {
+            "nose": ("primary_aromas", list),
+            "palate": ("palate_flavors", list),
+            "finish": ("finish_flavors", list),
+            "overall_notes": ("notes", str),
+            "nose_description": ("nose_description", str),
+            "palate_description": ("palate_description", str),
+            "finish_description": ("finish_description", str),
+        }
 
-        # Set overall_notes only if not already set
-        if "overall_notes" in profile and not current.get("overall_notes"):
-            current["overall_notes"] = profile["overall_notes"]
+        for profile_key, (model_field, field_type) in field_mappings.items():
+            if profile_key in profile and profile[profile_key]:
+                if field_type == list:
+                    # Merge arrays
+                    current_value = getattr(self, model_field, None) or []
+                    new_values = profile[profile_key]
+                    merged = list(set(current_value) | set(new_values))
+                    setattr(self, model_field, merged)
+                else:
+                    # Only set text fields if not already set
+                    if not getattr(self, model_field, None):
+                        setattr(self, model_field, profile[profile_key])
+                update_fields.append(model_field)
 
-        self.taste_profile = current
-        self.save(update_fields=["taste_profile"])
+        if update_fields:
+            self.save(update_fields=update_fields)
+
+    # ============================================================
+    # Completeness & Status Calculation Methods
+    # ============================================================
+
+    def calculate_completeness_score(self) -> int:
+        """
+        Calculate product data completeness score (0-100).
+
+        Scoring weights:
+        - Identification: 15 points (name + brand)
+        - Basic info: 15 points (type + ABV + description)
+        - Tasting profile: 40 points (palate 20, nose 10, finish 10)
+        - Enrichment: 20 points (price, images, ratings, awards)
+        - Verification bonus: 10 points (multi-source)
+
+        Note: Tasting profile is heavily weighted - cannot reach COMPLETE without palate.
+        """
+        score = 0
+
+        # ============================================================
+        # IDENTIFICATION (15 points max)
+        # ============================================================
+        if self.name:
+            score += 10
+        if self.brand_id:
+            score += 5
+
+        # ============================================================
+        # BASIC PRODUCT INFO (15 points max)
+        # ============================================================
+        if self.product_type:
+            score += 5
+        if self.abv:
+            score += 5
+        # Check for description in the individual column
+        if self.description:
+            score += 5
+
+        # ============================================================
+        # TASTING PROFILE (40 points max) - CRITICAL
+        # ============================================================
+
+        # Palate (20 points) - MANDATORY for COMPLETE status
+        palate_score = 0
+        if self.palate_flavors and len(self.palate_flavors) >= 2:
+            palate_score += 10
+        if self.palate_description or self.initial_taste:
+            palate_score += 5
+        if self.mid_palate_evolution:
+            palate_score += 3
+        if self.mouthfeel:
+            palate_score += 2
+        score += min(palate_score, 20)
+
+        # Nose (10 points)
+        nose_score = 0
+        if self.nose_description:
+            nose_score += 5
+        if self.primary_aromas and len(self.primary_aromas) >= 2:
+            nose_score += 5
+        score += min(nose_score, 10)
+
+        # Finish (10 points)
+        finish_score = 0
+        if self.finish_description or self.final_notes:
+            finish_score += 5
+        if self.finish_flavors and len(self.finish_flavors) >= 2:
+            finish_score += 3
+        if self.finish_length:
+            finish_score += 2
+        score += min(finish_score, 10)
+
+        # ============================================================
+        # ENRICHMENT DATA (20 points max)
+        # ============================================================
+
+        # Pricing (5 points)
+        if self.best_price:
+            score += 5
+
+        # Images (5 points)
+        if self.images and len(self.images) > 0:
+            score += 5
+
+        # Ratings (5 points)
+        if self.ratings and len(self.ratings) > 0:
+            score += 5
+
+        # Awards (5 points)
+        if self.awards and len(self.awards) > 0:
+            score += 5
+
+        # ============================================================
+        # VERIFICATION BONUS (10 points max)
+        # ============================================================
+        if self.source_count >= 2:
+            score += 5
+        if self.source_count >= 3:
+            score += 5
+
+        return min(score, 100)
+
+    def has_palate_profile(self) -> bool:
+        """Check if product has mandatory palate tasting data (for scoring - needs 2+ flavors)."""
+        return bool(
+            (self.palate_flavors and len(self.palate_flavors) >= 2)
+            or self.palate_description
+            or self.initial_taste
+        )
+
+    def has_palate_data(self) -> bool:
+        """
+        Check if product has ANY palate tasting data (for status determination).
+
+        Different from has_palate_profile() which requires 2+ flavors for scoring.
+        For STATUS, any palate data counts.
+        """
+        return bool(
+            (self.palate_flavors and len(self.palate_flavors) > 0)
+            or self.palate_description
+            or self.initial_taste
+        )
+
+    def has_nose_profile(self) -> bool:
+        """Check if product has nose/aroma profile."""
+        return bool(
+            self.nose_description
+            or (self.primary_aromas and len(self.primary_aromas) >= 2)
+        )
+
+    def has_finish_profile(self) -> bool:
+        """Check if product has finish profile."""
+        return bool(
+            self.finish_description
+            or (self.finish_flavors and len(self.finish_flavors) >= 2)
+        )
+
+    def has_complete_tasting(self) -> bool:
+        """Check if product has all three tasting components."""
+        return (
+            self.has_palate_profile()
+            and self.has_nose_profile()
+            and self.has_finish_profile()
+        )
+
+    def determine_status(self) -> str:
+        """
+        Determine product status based on completeness and tasting data.
+
+        Key rule: COMPLETE/VERIFIED requires palate tasting profile.
+
+        Returns one of: incomplete, partial, complete, verified, rejected, merged
+        """
+        # Don't change rejected/merged status
+        if self.status in (
+            DiscoveredProductStatus.REJECTED,
+            DiscoveredProductStatus.MERGED,
+        ):
+            return self.status
+
+        score = self.completeness_score or self.calculate_completeness_score()
+        has_palate = self.has_palate_data()
+
+        # Cannot be COMPLETE or VERIFIED without palate data
+        if not has_palate:
+            if score >= 30:
+                return DiscoveredProductStatus.PARTIAL
+            return DiscoveredProductStatus.INCOMPLETE
+
+        # With palate data, status based on score
+        if score >= 80:
+            return DiscoveredProductStatus.VERIFIED
+        elif score >= 60:
+            return DiscoveredProductStatus.COMPLETE
+        elif score >= 30:
+            return DiscoveredProductStatus.PARTIAL
+        else:
+            return DiscoveredProductStatus.INCOMPLETE
+
+    def update_completeness(self, save: bool = True) -> None:
+        """
+        Recalculate completeness score and update status.
+
+        Args:
+            save: If True, saves the model after updating
+        """
+        self.completeness_score = self.calculate_completeness_score()
+        self.status = self.determine_status()
+
+        if save:
+            self.save(update_fields=["completeness_score", "status"])
+
+    def get_missing_for_complete(self) -> list:
+        """Get list of fields needed to reach COMPLETE status."""
+        missing = []
+
+        if not self.has_palate_profile():
+            missing.append("palate_profile")
+
+        if not self.name:
+            missing.append("name")
+
+        if not self.abv:
+            missing.append("abv")
+
+        return missing
+
+    def get_missing_for_verified(self) -> list:
+        """Get list of fields needed to reach VERIFIED status."""
+        missing = self.get_missing_for_complete()
+
+        if not self.has_nose_profile():
+            missing.append("nose_profile")
+
+        if not self.has_finish_profile():
+            missing.append("finish_profile")
+
+        if self.source_count < 2:
+            missing.append("multi_source_verification")
+
+        return missing
+
+    def get_missing_critical_fields(self) -> list:
+        """
+        Get list of missing critical tasting fields.
+
+        Spec: Especially palate, nose, finish.
+        Returns list of missing field categories.
+        """
+        missing = []
+
+        # Palate missing when no palate_flavors AND no palate_description AND no initial_taste
+        if not (self.palate_flavors or self.palate_description or self.initial_taste):
+            missing.append("palate")
+
+        # Nose missing when no nose_description AND no primary_aromas
+        if not (self.nose_description or self.primary_aromas):
+            missing.append("nose")
+
+        # Finish missing when no finish_description AND no finish_flavors
+        if not (self.finish_description or self.finish_flavors):
+            missing.append("finish")
+
+        return missing
+
+    def mark_field_verified(self, field_name: str) -> None:
+        """
+        Mark a field as verified (confirmed by 2+ sources).
+
+        Args:
+            field_name: Name of the field to mark as verified
+        """
+        if self.verified_fields is None:
+            self.verified_fields = []
+
+        if field_name not in self.verified_fields:
+            self.verified_fields = list(self.verified_fields) + [field_name]
+
+    def values_match(self, val1, val2) -> bool:
+        """
+        Compare two values for verification matching.
+
+        Handles different types:
+        - Decimals: Compare numerically
+        - Strings: Case-insensitive comparison
+        - Lists: Order-independent comparison
+
+        Returns True if values are considered matching.
+        """
+        from decimal import Decimal
+
+        if val1 is None or val2 is None:
+            return val1 == val2
+
+        # Decimal comparison
+        if isinstance(val1, Decimal) or isinstance(val2, Decimal):
+            try:
+                return Decimal(str(val1)) == Decimal(str(val2))
+            except (ValueError, TypeError):
+                return False
+
+        # String comparison (case-insensitive)
+        if isinstance(val1, str) and isinstance(val2, str):
+            return val1.lower().strip() == val2.lower().strip()
+
+        # List comparison (order-independent)
+        if isinstance(val1, list) and isinstance(val2, list):
+            return sorted(val1) == sorted(val2)
+
+        # Default: direct comparison
+        return val1 == val2
 
 
 class CrawledArticle(models.Model):
@@ -2594,11 +3468,10 @@ class CategoryInsight(models.Model):
         ]
         constraints = [
             # Unique constraint on the combination of product_type, sub_category, region, country
-            # Using nulls_distinct=False to treat NULL values as equal for uniqueness
+            # Note: nulls_distinct=False requires Django 4.1+, removed for compatibility
             models.UniqueConstraint(
                 fields=["product_type", "sub_category", "region", "country"],
                 name="unique_category_insight",
-                nulls_distinct=False,
             ),
         ]
         verbose_name = "Category Insight"
@@ -3663,21 +4536,11 @@ class WhiskeyDetails(models.Model):
         help_text="The product these details belong to",
     )
 
-    # Classification
+    # Classification (REMOVED: whiskey_country, whiskey_region - use DiscoveredProduct.country/region)
     whiskey_type = models.CharField(
         max_length=30,
         choices=WhiskeyTypeChoices.choices,
         help_text="Type of whiskey",
-    )
-    whiskey_country = models.CharField(
-        max_length=100,
-        help_text="Country of origin",
-    )
-    whiskey_region = models.CharField(
-        max_length=100,
-        blank=True,
-        null=True,
-        help_text="Region within country (e.g., Speyside, Kentucky)",
     )
 
     # Production
@@ -3685,7 +4548,8 @@ class WhiskeyDetails(models.Model):
         max_length=200,
         blank=True,
         null=True,
-        help_text="Distillery name",
+        db_index=True,
+        help_text="Distillery name - indexed per spec",
     )
     mash_bill = models.CharField(
         max_length=200,
@@ -3694,19 +4558,7 @@ class WhiskeyDetails(models.Model):
         help_text="Grain composition",
     )
 
-    # Cask Information
-    cask_type = models.CharField(
-        max_length=200,
-        blank=True,
-        null=True,
-        help_text="Primary cask type used",
-    )
-    cask_finish = models.CharField(
-        max_length=200,
-        blank=True,
-        null=True,
-        help_text="Finishing cask if any",
-    )
+    # Cask Information (REMOVED: cask_type, cask_finish - use DiscoveredProduct.primary_cask/finishing_cask)
     cask_strength = models.BooleanField(
         default=False,
         help_text="Whether this is a cask strength release",
@@ -3751,19 +4603,24 @@ class WhiskeyDetails(models.Model):
         choices=PeatLevelChoices.choices,
         blank=True,
         null=True,
-        help_text="Level of peat",
+        help_text="Level of peat: unpeated, lightly, heavily",
+    )
+    peat_ppm = models.IntegerField(
+        blank=True,
+        null=True,
+        help_text="Phenol PPM measurement for peat level",
     )
 
-    # Production Methods
-    chill_filtered = models.BooleanField(
+    # Production Methods (spec uses positive naming)
+    natural_color = models.BooleanField(
         blank=True,
         null=True,
-        help_text="Whether chill filtration was used",
+        help_text="No E150a color added (True = natural color)",
     )
-    color_added = models.BooleanField(
+    non_chill_filtered = models.BooleanField(
         blank=True,
         null=True,
-        help_text="Whether color (E150a) was added",
+        help_text="Non-chill filtered (True = NCF)",
     )
 
     class Meta:
@@ -3794,9 +4651,9 @@ class PortWineDetails(models.Model):
 
     # Style
     style = models.CharField(
-        max_length=20,
+        max_length=30,
         choices=PortStyleChoices.choices,
-        help_text="Port wine style",
+        help_text="Port wine style: ruby, tawny, vintage, LBV, etc.",
     )
     indication_age = models.CharField(
         max_length=50,
@@ -3809,7 +4666,8 @@ class PortWineDetails(models.Model):
     harvest_year = models.IntegerField(
         blank=True,
         null=True,
-        help_text="Year of harvest/vintage",
+        db_index=True,
+        help_text="Year of harvest/vintage - indexed per spec",
     )
     bottling_year = models.IntegerField(
         blank=True,
@@ -3838,7 +4696,8 @@ class PortWineDetails(models.Model):
     )
     producer_house = models.CharField(
         max_length=200,
-        help_text="Port house/producer name",
+        db_index=True,
+        help_text="Port house/producer name - indexed per spec",
     )
 
     # Aging
@@ -5321,3 +6180,179 @@ class QuotaUsage(models.Model):
         if self.monthly_limit == 0:
             return 100.0
         return (self.current_usage / self.monthly_limit) * 100
+
+# ============================================================
+# Unified Product Pipeline Models - Phase 1
+# ============================================================
+
+
+class SourceHealthCheck(models.Model):
+    """
+    Track health check results for crawl sources.
+
+    Unified Pipeline Phase 1: Source health monitoring
+    Tracks selector health, yield monitoring, fingerprint checks,
+    and known product verification.
+    """
+
+    CHECK_TYPE_CHOICES = [
+        ("selector", "Selector Health"),
+        ("yield", "Yield Monitoring"),
+        ("fingerprint", "Structural Fingerprint"),
+        ("known_product", "Known Product Verification"),
+    ]
+
+    source = models.CharField(
+        max_length=50,
+        help_text="Source identifier (e.g., 'iwsc', 'sfwsc').",
+    )
+    check_type = models.CharField(
+        max_length=20,
+        choices=CHECK_TYPE_CHOICES,
+        help_text="Type of health check performed.",
+    )
+    is_healthy = models.BooleanField(
+        help_text="Whether the health check passed.",
+    )
+    details = models.JSONField(
+        default=dict,
+        help_text="Detailed health check results and metrics.",
+    )
+    checked_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the health check was performed.",
+    )
+
+    class Meta:
+        db_table = "source_health_check"
+        indexes = [
+            models.Index(fields=["source", "check_type"]),
+            models.Index(fields=["checked_at"]),
+        ]
+        verbose_name = "Source Health Check"
+        verbose_name_plural = "Source Health Checks"
+
+    def __str__(self):
+        status = "OK" if self.is_healthy else "FAIL"
+        return f"{self.source} [{self.check_type}]: {status}"
+
+
+class SourceFingerprint(models.Model):
+    """
+    Store structural fingerprints for sources.
+
+    Unified Pipeline Phase 1: Source structure tracking
+    Used to detect when source page structures change,
+    which may indicate selectors need updating.
+    """
+
+    source = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text="Source identifier (e.g., 'iwsc', 'sfwsc').",
+    )
+    fingerprint = models.CharField(
+        max_length=64,
+        help_text="SHA-256 hash of page structure elements.",
+    )
+    sample_url = models.URLField(
+        help_text="URL used to generate the fingerprint.",
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="When the fingerprint was last updated.",
+    )
+
+    class Meta:
+        db_table = "source_fingerprint"
+        verbose_name = "Source Fingerprint"
+        verbose_name_plural = "Source Fingerprints"
+
+    def __str__(self):
+        return f"{self.source}: {self.fingerprint[:12]}..."
+
+
+class APICrawlJob(models.Model):
+    """
+    Track API-triggered crawl jobs.
+
+    Unified Pipeline Phase 1: API job tracking
+    Records crawl jobs initiated via the REST API,
+    including status, progress, and execution details.
+    """
+
+    STATUS_CHOICES = [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+
+    job_id = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True,
+        help_text="Unique job identifier (UUID).",
+    )
+    source = models.CharField(
+        max_length=50,
+        help_text="Source identifier (e.g., 'iwsc', 'sfwsc').",
+    )
+    year = models.IntegerField(
+        help_text="Competition year to crawl.",
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="queued",
+        help_text="Current job status.",
+    )
+    progress = models.JSONField(
+        default=dict,
+        help_text="Progress details: {total, processed, errors}.",
+    )
+    error = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Error message if job failed.",
+    )
+    celery_task_id = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        help_text="Celery task ID for background processing.",
+    )
+    started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job started execution.",
+    )
+    completed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the job completed.",
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When the job was created.",
+    )
+
+    class Meta:
+        db_table = "api_crawl_job"
+        indexes = [
+            models.Index(fields=["status"]),
+            models.Index(fields=["source", "year"]),
+        ]
+        verbose_name = "API Crawl Job"
+        verbose_name_plural = "API Crawl Jobs"
+
+    def __str__(self):
+        return f"{self.source}/{self.year} [{self.status}]"
+
+    @property
+    def elapsed_seconds(self) -> int:
+        """Calculate elapsed time in seconds."""
+        if not self.started_at:
+            return 0
+        end = self.completed_at or timezone.now()
+        return int((end - self.started_at).total_seconds())
