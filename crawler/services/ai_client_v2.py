@@ -533,6 +533,12 @@ class AIClientV2:
             "price",
             "country",
             "region",
+            # Tasting profile fields - critical for complete product data
+            "nose_description",
+            "palate_description",
+            "finish_description",
+            "primary_aromas",
+            "palate_flavors",
         ]
         logger.debug("Using fallback schema with %d fields", len(fallback_fields))
         return fallback_fields

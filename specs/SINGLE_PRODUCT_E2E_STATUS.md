@@ -36,7 +36,7 @@
 ### Phase 3: Execution
 - [x] Run test successfully for Frank August - PASSED 2026-01-11 (61.0 seconds)
 - [x] Verify JSON output at `tests/e2e/outputs/` - DONE
-- [ ] Commit and push
+- [x] Commit and push - DONE 2026-01-11
 
 ---
 
@@ -140,7 +140,43 @@
 
 ## Current Status
 
-**Status**: COMPLETE - Test passing with dynamic discovery
-**Last Updated**: 2026-01-11 11:41
-**Test Result**: PASSED (61.0 seconds)
-**Product Enriched**: partial → complete (5 fields)
+**Status**: FULLY COMPLETE - Test passing with data quality fixes
+**Last Updated**: 2026-01-11 12:15
+**Test Result**: PASSED (39.0 seconds)
+**Quality Before**: complete (previously was "partial")
+**Quality After**: complete (no enrichment needed)
+**Data Source**: Official product page (previously was external reviewers)
+
+---
+
+## Bug Fixes Applied (2026-01-11)
+
+### Issue 1: Missing Tasting Notes in Extraction
+**Problem**: AI extraction wasn't capturing nose/palate/finish from product pages.
+**Root Cause**: `ai_client_v2.py` fallback schema didn't include tasting note fields.
+**Fix**: Added `nose_description`, `palate_description`, `finish_description`, `primary_aromas`, `palate_flavors` to fallback schema.
+**Result**: Tasting notes now extracted from official source. Quality status is "complete" before enrichment.
+
+### Issue 2: No Product Validation in Enrichment
+**Problem**: Enrichment could extract data from wrong products (e.g., "Rye" vs "Bourbon").
+**Root Cause**: `enrichment_orchestrator_v2.py` didn't validate extracted product matches target.
+**Fix**: Added `_validate_product_match()` method that checks brand, name tokens, and product type keywords.
+**Result**: Sources with mismatched products are now rejected and logged.
+
+### Issue 3: Enrichment Sources Not Logged
+**Problem**: Could not verify which URLs provided enrichment data.
+**Fix**: Added `sources_used_urls` and `sources_rejected` to test output and JSON export.
+**Result**: Full traceability of enrichment data sources.
+
+---
+
+## Verification Results (Post-Fix)
+
+**Official Frank August Page Tasting Notes (NOW CAPTURED):**
+- Nose: "caramel and vanilla...balanced with warm oak and mild baking spices"
+- Palate: "sweet caramel and vanilla notes...cinnamon and rye bread spices"
+- Finish: "vanilla, oak and baking spices...medium-long finish"
+
+**Enrichment Sources (NOW LOGGED):**
+- Used: None needed (data complete from source)
+- Rejected: None (no product mismatches)

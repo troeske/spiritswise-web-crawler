@@ -48,6 +48,8 @@ class EnrichmentResult:
     searches_performed: int = 0
     time_elapsed_seconds: float = 0.0
     error: Optional[str] = None
+    # Track sources that were rejected due to product mismatch
+    sources_rejected: List[Dict[str, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -60,6 +62,7 @@ class EnrichmentSession:
     field_confidences: Dict[str, float]
     sources_searched: List[str] = field(default_factory=list)
     sources_used: List[str] = field(default_factory=list)
+    sources_rejected: List[Dict[str, str]] = field(default_factory=list)
     fields_enriched: List[str] = field(default_factory=list)
     searches_performed: int = 0
     max_sources: int = 5
@@ -242,6 +245,25 @@ class EnrichmentOrchestratorV2:
                         )
 
                         if extracted:
+                            # Validate that extracted data is for the correct product
+                            is_match, match_reason = self._validate_product_match(
+                                session.current_data,
+                                extracted,
+                            )
+
+                            if not is_match:
+                                logger.warning(
+                                    "PRODUCT MISMATCH - Rejecting enrichment from %s: %s",
+                                    url,
+                                    match_reason,
+                                )
+                                session.sources_rejected.append({
+                                    "url": url,
+                                    "reason": match_reason,
+                                    "extracted_name": extracted.get("name", ""),
+                                })
+                                continue
+
                             merged, enriched = self._merge_data(
                                 session.current_data,
                                 extracted,
@@ -274,15 +296,22 @@ class EnrichmentOrchestratorV2:
 
             logger.info(
                 "Enrichment complete for %s: status %s -> %s, "
-                "fields enriched=%d, sources=%d, searches=%d, time=%.1fs",
+                "fields enriched=%d, sources=%d (rejected=%d), searches=%d, time=%.1fs",
                 product_id,
                 status_before,
                 status_after,
                 len(set(session.fields_enriched)),
                 len(session.sources_used),
+                len(session.sources_rejected),
                 session.searches_performed,
                 elapsed,
             )
+
+            if session.sources_rejected:
+                logger.info(
+                    "Rejected sources due to product mismatch: %s",
+                    [r["url"] for r in session.sources_rejected],
+                )
 
             return EnrichmentResult(
                 success=True,
@@ -293,6 +322,7 @@ class EnrichmentOrchestratorV2:
                 status_after=status_after,
                 searches_performed=session.searches_performed,
                 time_elapsed_seconds=elapsed,
+                sources_rejected=session.sources_rejected,
             )
 
         except Exception as e:
@@ -618,6 +648,87 @@ class EnrichmentOrchestratorV2:
             return False
 
         return True
+
+    def _validate_product_match(
+        self,
+        target_data: Dict[str, Any],
+        extracted_data: Dict[str, Any],
+    ) -> Tuple[bool, str]:
+        """
+        Validate that extracted data matches the target product.
+
+        Prevents enrichment from wrong products (e.g., extracting tasting notes
+        from "Frank August Rye" when enriching "Frank August Bourbon").
+
+        Args:
+            target_data: The product we're trying to enrich
+            extracted_data: Data extracted from an enrichment source
+
+        Returns:
+            Tuple of (is_match, reason)
+        """
+        target_name = (target_data.get("name") or "").lower().strip()
+        target_brand = (target_data.get("brand") or "").lower().strip()
+        extracted_name = (extracted_data.get("name") or "").lower().strip()
+        extracted_brand = (extracted_data.get("brand") or "").lower().strip()
+
+        # If extracted data has no name, we can't validate - allow it but log warning
+        if not extracted_name:
+            logger.debug("No product name in extracted data, allowing enrichment")
+            return True, "no_name_extracted"
+
+        # Brand must match if both are present
+        if target_brand and extracted_brand:
+            if target_brand not in extracted_brand and extracted_brand not in target_brand:
+                return False, f"brand_mismatch: target='{target_brand}', extracted='{extracted_brand}'"
+
+        # Check for product type keywords that indicate different products
+        # E.g., "bourbon" vs "rye", "single malt" vs "blended"
+        product_type_keywords = [
+            ("bourbon", "rye"),
+            ("bourbon", "wheat"),
+            ("single malt", "blended"),
+            ("scotch", "bourbon"),
+            ("irish", "scotch"),
+            ("tawny", "ruby"),
+            ("vintage", "lbv"),
+            ("10 year", "20 year"),
+            ("12 year", "18 year"),
+        ]
+
+        for keyword1, keyword2 in product_type_keywords:
+            # If target has keyword1 but extracted has keyword2 (or vice versa)
+            target_has_k1 = keyword1 in target_name
+            target_has_k2 = keyword2 in target_name
+            extracted_has_k1 = keyword1 in extracted_name
+            extracted_has_k2 = keyword2 in extracted_name
+
+            if target_has_k1 and extracted_has_k2 and not extracted_has_k1:
+                return False, f"product_type_mismatch: target has '{keyword1}', extracted has '{keyword2}'"
+            if target_has_k2 and extracted_has_k1 and not extracted_has_k2:
+                return False, f"product_type_mismatch: target has '{keyword2}', extracted has '{keyword1}'"
+
+        # Check for significant name token overlap
+        # Split names into tokens and check overlap
+        def tokenize(s: str) -> set:
+            # Remove common words and punctuation
+            stopwords = {"the", "a", "an", "and", "of", "for", "with", "by", "from"}
+            tokens = re.findall(r'\b\w+\b', s.lower())
+            return set(t for t in tokens if t not in stopwords and len(t) > 2)
+
+        target_tokens = tokenize(target_name)
+        extracted_tokens = tokenize(extracted_name)
+
+        if target_tokens and extracted_tokens:
+            overlap = target_tokens & extracted_tokens
+            # Require at least 30% token overlap
+            min_overlap_ratio = 0.3
+            overlap_ratio = len(overlap) / min(len(target_tokens), len(extracted_tokens))
+
+            if overlap_ratio < min_overlap_ratio:
+                return False, f"name_mismatch: low overlap ({overlap_ratio:.0%}), target='{target_name}', extracted='{extracted_name}'"
+
+        return True, "match"
 
     def _assess_status(
         self,

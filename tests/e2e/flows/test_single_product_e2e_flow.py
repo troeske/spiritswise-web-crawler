@@ -555,13 +555,18 @@ class TestSingleProductE2EFlow:
             logger.info(
                 f"Enrichment complete: {enrichment_result.status_before} -> {enrichment_result.status_after}"
             )
+            logger.info(f"Sources used: {enrichment_result.sources_used}")
+            if hasattr(enrichment_result, 'sources_rejected') and enrichment_result.sources_rejected:
+                logger.warning(f"Sources REJECTED (product mismatch): {enrichment_result.sources_rejected}")
 
             self.recorder.complete_step(
                 output_data={
                     "status_before": enrichment_result.status_before,
                     "status_after": enrichment_result.status_after,
                     "fields_enriched": enrichment_result.fields_enriched,
-                    "sources_used": len(enrichment_result.sources_used),
+                    "sources_used_count": len(enrichment_result.sources_used),
+                    "sources_used_urls": enrichment_result.sources_used,  # Actual URLs
+                    "sources_rejected": getattr(enrichment_result, 'sources_rejected', []),
                     "searches_performed": enrichment_result.searches_performed,
                 },
                 success=True
@@ -623,6 +628,9 @@ class TestSingleProductE2EFlow:
             "quality_status_after": final_status,
             "enrichment_success": enrichment_result.success,
             "fields_enriched": enrichment_result.fields_enriched if enrichment_result.success else [],
+            # Include enrichment source URLs for verification
+            "enrichment_sources_used": enrichment_result.sources_used if enrichment_result.success else [],
+            "enrichment_sources_rejected": getattr(enrichment_result, 'sources_rejected', []),
         }
 
         # Record in report collector
