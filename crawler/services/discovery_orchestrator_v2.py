@@ -11,12 +11,20 @@ Features:
 - Enrichment queue decision logic
 - Content preprocessing integration
 - URL resolution for relative links
+- Backward-compatible run() method for V1 interface support
+
+V2 Migration (2026-01-11):
+- Added schedule parameter to __init__ for backward compatibility with V1
+- Added run() method to support V1 interface used in tasks.py
+- Maintains all V2 functionality while supporting V1 callers
 """
 
 import asyncio
 import logging
+import re
+import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -31,6 +39,12 @@ from crawler.services.enrichment_orchestrator_v2 import (
 from crawler.services.source_tracker import SourceTracker, get_source_tracker
 
 logger = logging.getLogger(__name__)
+
+
+# Safety limits for enrichment (ScrapingBee cost control)
+MAX_URLS_PER_PRODUCT = 5
+MAX_SERPAPI_SEARCHES_PER_PRODUCT = 3
+MAX_ENRICHMENT_TIME_SECONDS = 120
 
 
 @dataclass
@@ -69,9 +83,36 @@ class DiscoveryOrchestratorV2:
     - Source tracking and field provenance
 
     Supports both single product pages and list pages.
+
+    V2 Migration: Also supports V1 interface via schedule parameter and run() method.
     """
 
     DEFAULT_TIMEOUT = 30.0
+
+    # Domains to skip (social media, general news, etc.)
+    SKIP_DOMAINS = {
+        "facebook.com", "twitter.com", "instagram.com", "youtube.com",
+        "tiktok.com", "pinterest.com", "linkedin.com", "reddit.com",
+        "cnn.com", "bbc.com", "nytimes.com", "theguardian.com",
+        "washingtonpost.com", "usatoday.com", "foxnews.com",
+        "amazon.com", "ebay.com", "walmart.com",
+        "wikipedia.org", "yelp.com",
+    }
+
+    # Known retailer domains
+    RETAILER_DOMAINS = {
+        "masterofmalt.com", "thewhiskyexchange.com", "totalwine.com",
+        "wine.com", "drizly.com", "reservebar.com", "caskers.com",
+        "flaviar.com", "klwines.com", "wine-searcher.com",
+        "dekanta.com", "whiskyshop.com", "finedrams.com",
+    }
+
+    # Known review/list sites
+    REVIEW_DOMAINS = {
+        "whiskyadvocate.com", "vinepair.com", "whiskymagazine.com",
+        "diffordsguide.com", "liquor.com", "tastingtable.com",
+        "thespruceeats.com", "winemag.com", "decanter.com",
+    }
 
     def __init__(
         self,
@@ -79,6 +120,9 @@ class DiscoveryOrchestratorV2:
         quality_gate: Optional[QualityGateV2] = None,
         enrichment_orchestrator: Optional[EnrichmentOrchestratorV2] = None,
         source_tracker: Optional[SourceTracker] = None,
+        schedule=None,
+        serpapi_client=None,
+        smart_crawler=None,
     ):
         """
         Initialize the Discovery Orchestrator V2.
@@ -88,13 +132,350 @@ class DiscoveryOrchestratorV2:
             quality_gate: QualityGateV2 instance (optional, creates default)
             enrichment_orchestrator: EnrichmentOrchestratorV2 instance (optional)
             source_tracker: SourceTracker instance (optional, creates default)
+            schedule: CrawlSchedule for V1 backward compatibility (optional)
+            serpapi_client: SerpAPI client for V1 backward compatibility (optional)
+            smart_crawler: SmartCrawler for V1 backward compatibility (optional)
         """
         self.ai_client = ai_client or get_ai_client_v2()
         self.quality_gate = quality_gate or get_quality_gate_v2()
         self.enrichment_orchestrator = enrichment_orchestrator or get_enrichment_orchestrator_v2()
         self.source_tracker = source_tracker or get_source_tracker()
 
+        # V1 backward compatibility
+        self.schedule = schedule
+        self.serpapi_client = serpapi_client
+        self.smart_crawler = smart_crawler
+        self.job = None  # DiscoveryJob, set during run()
+
+        # Enrichment tracking (from V1)
+        self._product_url_counts: Dict[str, int] = {}
+        self._product_serpapi_counts: Dict[str, int] = {}
+        self._product_start_times: Dict[str, float] = {}
+
+        # Initialize SerpAPI client if not provided
+        if self.serpapi_client is None and self.schedule is not None:
+            self._init_serpapi_client()
+
         logger.debug("DiscoveryOrchestratorV2 initialized with V2 components")
+
+    def _init_serpapi_client(self):
+        """Initialize SerpAPI client from settings."""
+        try:
+            import os
+            from django.conf import settings
+
+            api_key = getattr(settings, "SERPAPI_KEY", None) or os.getenv("SERPAPI_KEY")
+            if api_key:
+                # Create a simple wrapper for SerpAPI
+                self.serpapi_client = _SerpAPIClient(api_key)
+        except Exception as e:
+            logger.warning(f"Could not initialize SerpAPI client: {e}")
+
+    # =========================================================================
+    # V1 Backward Compatibility Methods
+    # =========================================================================
+
+    def run(self):
+        """
+        Execute a discovery run using the V1 interface.
+
+        This method provides backward compatibility with the V1 DiscoveryOrchestrator
+        interface used in tasks.py:run_discovery_flow().
+
+        Returns:
+            DiscoveryJob with results
+        """
+        from django.utils import timezone
+        from crawler.models import (
+            DiscoveryJob,
+            DiscoveryJobStatus,
+            SearchTerm,
+        )
+
+        if self.schedule is None:
+            raise ValueError("schedule must be set to use run() method")
+
+        # Create job
+        self.job = DiscoveryJob.objects.create(
+            crawl_schedule=self.schedule,
+            status=DiscoveryJobStatus.RUNNING,
+        )
+
+        try:
+            # Get search terms
+            terms = self._get_search_terms()
+            self.job.search_terms_total = len(terms)
+            self.job.save()
+
+            # Process each term
+            for term in terms:
+                self._process_search_term(term)
+                self.job.search_terms_processed += 1
+                self.job.save()
+
+            # Complete job
+            self.job.status = DiscoveryJobStatus.COMPLETED
+            self.job.completed_at = timezone.now()
+            self.job.save()
+
+        except Exception as e:
+            logger.error(f"Discovery job failed: {e}")
+            self.job.status = DiscoveryJobStatus.FAILED
+            self.job.log_error(str(e))
+            self.job.save()
+            raise
+
+        return self.job
+
+    def _get_search_terms(self) -> List:
+        """Get search terms from schedule."""
+        # Check if schedule has direct search_terms
+        if self.schedule and hasattr(self.schedule, 'search_terms') and self.schedule.search_terms:
+
+            class DirectSearchTerm:
+                """Lightweight wrapper for direct search term strings."""
+                def __init__(self, query: str, priority: int = 100, product_type: str = None):
+                    self.search_query = query
+                    self.priority = priority
+                    self.search_count = 0
+                    self.products_discovered = 0
+                    self.max_results = 10
+                    self.product_type = product_type or self._infer_product_type(query)
+
+                def _infer_product_type(self, query: str) -> str:
+                    query_lower = query.lower()
+                    if any(w in query_lower for w in ["whisky", "whiskey", "scotch", "bourbon", "rye"]):
+                        return "whiskey"
+                    elif any(w in query_lower for w in ["port", "wine"]):
+                        return "port_wine"
+                    elif any(w in query_lower for w in ["rum"]):
+                        return "rum"
+                    elif any(w in query_lower for w in ["gin"]):
+                        return "gin"
+                    return "spirits"
+
+                def save(self, *args, **kwargs):
+                    pass
+
+            return [DirectSearchTerm(term, 100 - i) for i, term in enumerate(self.schedule.search_terms)]
+
+        # Fall back to SearchTerm model lookup
+        from crawler.models import SearchTerm
+        terms = SearchTerm.objects.filter(is_active=True)
+
+        if self.schedule and hasattr(self.schedule, 'product_types') and self.schedule.product_types:
+            terms = terms.filter(product_type__in=self.schedule.product_types)
+
+        terms = sorted(list(terms), key=lambda t: -t.priority)
+        return terms[:20]
+
+    def _process_search_term(self, term):
+        """Process a single search term."""
+        from django.utils import timezone
+
+        query = term.search_query
+        logger.info(f"Searching: {query}")
+
+        # Execute search
+        results = self._search(query)
+        self.job.serpapi_calls_used += 1
+
+        max_results = getattr(term, 'max_results', 10)
+
+        # Process each result
+        for rank, result in enumerate(results[:max_results], 1):
+            self._process_search_result(term, result, rank)
+
+        # Update term stats
+        if hasattr(term, 'last_searched'):
+            term.last_searched = timezone.now()
+            term.search_count += 1
+            term.save()
+
+    def _search(self, query: str) -> List[Dict[str, Any]]:
+        """Execute a search query via SerpAPI."""
+        if self.serpapi_client is None:
+            logger.warning("SerpAPI client not initialized")
+            return []
+
+        try:
+            response = self.serpapi_client.search(query)
+            return response.get("organic_results", [])
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            return []
+
+    def _process_search_result(self, term, result: Dict[str, Any], rank: int):
+        """Process a single search result."""
+        from crawler.models import DiscoveryResult, DiscoveryResultStatus, SearchTerm
+
+        url = result.get("link")
+        title = result.get("title", "")
+
+        if not url:
+            return
+
+        # Check if this is a product URL we should process
+        if not self._is_product_url(url, title):
+            self.job.urls_skipped += 1
+            return
+
+        self.job.urls_found += 1
+        logger.info(f"Processing URL: {url[:80]}...")
+
+        # Create discovery result record
+        domain = self._extract_domain(url)
+        search_term_fk = term if isinstance(term, SearchTerm) else None
+
+        discovery_result = DiscoveryResult.objects.create(
+            job=self.job,
+            search_term=search_term_fk,
+            source_url=url,
+            source_domain=domain,
+            source_title=title,
+            search_rank=rank,
+            product_name=title,
+            status=DiscoveryResultStatus.PROCESSING,
+        )
+
+        # Check for existing product
+        existing = self._find_existing_product(url, title)
+        if existing:
+            discovery_result.product = existing
+            discovery_result.is_duplicate = True
+            discovery_result.status = DiscoveryResultStatus.DUPLICATE
+            discovery_result.save()
+            self.job.products_duplicates += 1
+            return
+
+        # Extract product using V2 AI client
+        self._extract_and_save_product_v2(term, discovery_result, url, title)
+
+    def _is_product_url(self, url: str, title: str) -> bool:
+        """Determine if a URL likely leads to product information."""
+        domain = self._extract_domain(url)
+
+        if domain in self.SKIP_DOMAINS:
+            return False
+
+        for skip in self.SKIP_DOMAINS:
+            if skip in domain:
+                return False
+
+        if domain in self.RETAILER_DOMAINS:
+            return True
+
+        if domain in self.REVIEW_DOMAINS:
+            return True
+
+        url_lower = url.lower()
+        product_patterns = [
+            "/product/", "/products/", "/p/", "/shop/",
+            "/whiskey/", "/whisky/", "/bourbon/", "/scotch/",
+            "/port/", "/wine/", "/spirits/",
+            "/best-", "/top-", "/review/",
+        ]
+        if any(pattern in url_lower for pattern in product_patterns):
+            return True
+
+        title_lower = title.lower()
+        product_keywords = [
+            "whiskey", "whisky", "bourbon", "scotch", "port wine",
+            "best", "top 10", "review", "tasting", "year old",
+        ]
+        if any(keyword in title_lower for keyword in product_keywords):
+            return True
+
+        return True
+
+    def _extract_domain(self, url: str) -> str:
+        """Extract domain from URL, removing www prefix."""
+        parsed = urlparse(url)
+        domain = parsed.netloc
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain
+
+    def _find_existing_product(self, url: str, name: str):
+        """Find an existing product by URL or fuzzy name match."""
+        from crawler.models import DiscoveredProduct, CrawledSource, ProductSource
+
+        # Check for exact URL match
+        product = DiscoveredProduct.objects.filter(source_url=url).first()
+        if product:
+            return product
+
+        # Check CrawledSource -> ProductSource path
+        try:
+            crawled = CrawledSource.objects.filter(url=url).first()
+            if crawled:
+                source = ProductSource.objects.filter(source=crawled).first()
+                if source and source.product:
+                    return source.product
+        except Exception:
+            pass
+
+        return None
+
+    def _extract_and_save_product_v2(self, term, discovery_result, url: str, title: str):
+        """Extract product data using V2 AI client and save."""
+        from crawler.models import DiscoveryResultStatus
+
+        product_type = getattr(term, 'product_type', 'whiskey')
+        if product_type == "both":
+            product_type = "whiskey"
+
+        try:
+            # Use async extraction via V2
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            try:
+                result = loop.run_until_complete(
+                    self.extract_single_product(
+                        url=url,
+                        product_type=product_type,
+                        save_to_db=True,
+                    )
+                )
+
+                if result.success:
+                    discovery_result.crawl_success = True
+                    discovery_result.extraction_success = True
+                    discovery_result.extracted_data = result.product_data or {}
+                    discovery_result.status = DiscoveryResultStatus.SUCCESS
+                    discovery_result.is_new_product = True
+
+                    if result.product_id:
+                        from crawler.models import DiscoveredProduct
+                        try:
+                            discovery_result.product = DiscoveredProduct.objects.get(id=result.product_id)
+                        except DiscoveredProduct.DoesNotExist:
+                            pass
+
+                    self.job.products_new += 1
+                    self.job.urls_crawled += 1
+                else:
+                    discovery_result.status = DiscoveryResultStatus.FAILED
+                    discovery_result.error_message = result.error
+                    self.job.products_failed += 1
+
+                discovery_result.save()
+
+            finally:
+                loop.close()
+
+        except Exception as e:
+            logger.error(f"Extraction failed for {url}: {e}")
+            discovery_result.status = DiscoveryResultStatus.FAILED
+            discovery_result.error_message = str(e)
+            discovery_result.save()
+            self.job.products_failed += 1
+            self.job.error_count += 1
+
+    # =========================================================================
+    # V2 Core Methods (Original V2 API)
+    # =========================================================================
 
     async def extract_single_product(
         self,
@@ -288,6 +669,7 @@ class DiscoveryOrchestratorV2:
         Returns:
             HTML content or None if failed
         """
+        router = None
         try:
             # Use SmartRouter for fetching - it handles JavaScript rendering
             router = SmartRouter(timeout=self.DEFAULT_TIMEOUT)
@@ -326,10 +708,11 @@ class DiscoveryOrchestratorV2:
             raise
         finally:
             # Clean up SmartRouter connections
-            try:
-                await router.close()
-            except Exception:
-                pass
+            if router:
+                try:
+                    await router.close()
+                except Exception:
+                    pass
 
     def _assess_quality(
         self,
@@ -480,6 +863,37 @@ class DiscoveryOrchestratorV2:
         except Exception as e:
             logger.exception("Failed to save product: %s", e)
             return None
+
+
+class _SerpAPIClient:
+    """Simple SerpAPI client wrapper for V1 compatibility."""
+
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+    def search(self, query: str, num_results: int = 10) -> Dict[str, Any]:
+        """Execute a Google search via SerpAPI."""
+        try:
+            import requests
+
+            params = {
+                "api_key": self.api_key,
+                "engine": "google",
+                "q": query,
+                "num": num_results,
+            }
+
+            response = requests.get(
+                "https://serpapi.com/search",
+                params=params,
+                timeout=30,
+            )
+            response.raise_for_status()
+            return response.json()
+
+        except Exception as e:
+            logger.error(f"SerpAPI search failed: {e}")
+            raise
 
 
 # Singleton instance

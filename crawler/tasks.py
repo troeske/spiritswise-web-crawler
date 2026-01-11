@@ -18,6 +18,7 @@ Task Group 31 Implementation:
 V2 Migration Update:
 - Uses CompetitionOrchestratorV2 for competition crawling (V2 quality assessment)
 - Uses get_ai_client_v2 for AI Enhancement (V2 extraction schema with tasting notes)
+- Uses DiscoveryOrchestratorV2 for discovery crawling (V2 quality assessment, V1 API compatible)
 """
 
 import logging
@@ -44,8 +45,9 @@ from crawler.models import (
     APICrawlJob,
 )
 
-# V2 Components for competition orchestration
+# V2 Components for orchestration
 from crawler.services.competition_orchestrator_v2 import CompetitionOrchestratorV2
+from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
 logger = logging.getLogger(__name__)
 
@@ -1235,7 +1237,7 @@ def run_scheduled_job(self, schedule_id: str, job_id: str) -> Dict[str, Any]:
 
 def run_discovery_flow(schedule, job, enrich: bool = False) -> Dict[str, Any]:
     """
-    Execute discovery search flow using DiscoveryOrchestrator.
+    Execute discovery search flow using DiscoveryOrchestratorV2.
 
     Args:
         schedule: CrawlSchedule instance
@@ -1245,11 +1247,11 @@ def run_discovery_flow(schedule, job, enrich: bool = False) -> Dict[str, Any]:
     Returns:
         Dict with discovery results
     """
-    from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+    from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-    # DiscoveryOrchestrator accepts CrawlSchedule directly
+    # DiscoveryOrchestratorV2 accepts CrawlSchedule directly (V1 backward compatibility)
     # Note: enrich parameter is stored on schedule, not passed to __init__
-    orchestrator = DiscoveryOrchestrator(schedule=schedule)
+    orchestrator = DiscoveryOrchestratorV2(schedule=schedule)
 
     # Run discovery - orchestrator creates and manages its own DiscoveryJob
     discovery_job = orchestrator.run()
