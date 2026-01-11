@@ -65,7 +65,15 @@ from crawler.models import (
     BrandSource,
     BrandAward,
 )
-from crawler.services.ai_client import AIEnhancementClient, EnhancementResult, get_ai_client
+# V1→V2 Migration: Use V2 AI client with backward-compatible interface
+from crawler.services.ai_client_v2 import (
+    AIClientV2,
+    EnhancementResult,
+    get_ai_client_v2,
+)
+# Type alias for backward compatibility
+AIEnhancementClient = AIClientV2
+get_ai_client = get_ai_client_v2
 
 # UNIFIED_PRODUCT_SAVE_REFACTORING - Phase 2: Import unified product saver
 from crawler.services.product_saver import save_discovered_product, ProductSaveResult

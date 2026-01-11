@@ -2,7 +2,6 @@
 Services module for the Web Crawler.
 
 Contains:
-- ai_client: AI Enhancement Service API client (V1)
 - ai_client_v2: AI Service V2 extraction client with content preprocessing
 - config_service: Configuration and schema builder service (V2 Architecture)
 - quality_gate_v2: V2 Quality Gate using database-backed configuration
@@ -17,17 +16,24 @@ Contains:
 - strategy_detection: Crawl strategy auto-detection and escalation
 - scrapingbee_client: ScrapingBee API client wrapper
 - wayback: Wayback Machine integration service
+
+V1→V2 Migration: V1 ai_client removed. Use ai_client_v2 (AIClientV2) instead.
+AIEnhancementClient and EnhancementResult are now aliases to V2 classes for backward compatibility.
 """
 
-from crawler.services.ai_client import AIEnhancementClient, EnhancementResult
+# V1→V2 Migration: Import V2 components with backward-compatible aliases
 from crawler.services.ai_client_v2 import (
     AIClientV2,
     AIClientError,
+    EnhancementResult,  # V1-compatible result class for backward compatibility
     ExtractedProductV2,
     ExtractionResultV2,
     get_ai_client_v2,
     reset_ai_client_v2,
 )
+# Backward-compatible aliases for V1 names
+AIEnhancementClient = AIClientV2
+get_ai_client = get_ai_client_v2
 from crawler.services.config_service import ConfigService, get_config_service
 from crawler.services.quality_gate_v2 import (
     QualityGateV2,
@@ -90,9 +96,10 @@ from crawler.services.wayback import (
 )
 
 __all__ = [
-    # AI Enhancement Client (V1)
-    "AIEnhancementClient",
-    "EnhancementResult",
+    # AI Client (V2 with V1-compatible aliases)
+    "AIEnhancementClient",  # Alias for AIClientV2 (backward compatibility)
+    "EnhancementResult",    # V1-compatible result class
+    "get_ai_client",        # Alias for get_ai_client_v2 (backward compatibility)
     # AI Client V2 (V2 Architecture)
     "AIClientV2",
     "AIClientError",

@@ -310,33 +310,88 @@ from crawler.services.competition_orchestrator_v2 import CompetitionOrchestrator
 
 ---
 
+## Phase 1.5: Additional Production Code Migration
+
+### Task 1.7: Migrate content_processor.py
+**Status**: [x] COMPLETE
+**Subagent**: `implementer`
+**TDD**: Required
+**Files**: `crawler/services/content_processor.py`, `crawler/services/__init__.py`, `crawler/services/ai_client_v2.py`
+
+**Description**: Update ContentProcessor to use V2 AI client instead of V1.
+
+**Changes Required**:
+```python
+# FROM:
+from crawler.services.ai_client import AIEnhancementClient, EnhancementResult, get_ai_client
+
+# TO:
+from crawler.services.ai_client_v2 import AIClientV2, get_ai_client_v2
+# Type alias for backward compatibility
+AIEnhancementClient = AIClientV2
+get_ai_client = get_ai_client_v2
+```
+
+**Test Requirements**:
+1. Write test verifying V2 client is used
+2. Write test verifying V1 imports are removed
+3. Run existing content_processor tests
+
+**Progress Log**:
+- [x] Tests written (crawler/tests/unit/test_content_processor_v2_migration.py - 10 tests)
+- [x] Code migrated (2026-01-11)
+- [x] Tests passing (10/10 passed)
+- [x] __init__.py updated
+
+**Migration Details**:
+- Added `EnhancementResult` dataclass to ai_client_v2.py for V1 compatibility
+- Added `enhance_from_crawler()` method to AIClientV2 that wraps extract() and returns V1-compatible EnhancementResult
+- Updated content_processor.py to import from ai_client_v2 with backward-compatible aliases
+- Updated __init__.py to export V2 components with V1-compatible aliases:
+  - `AIEnhancementClient = AIClientV2`
+  - `get_ai_client = get_ai_client_v2`
+  - `EnhancementResult` from ai_client_v2
+- All 10 unit tests pass:
+  - test_imports_v2_ai_client
+  - test_v1_ai_client_not_directly_imported
+  - test_enhancement_result_from_v2
+  - test_content_processor_uses_v2_client_type
+  - test_default_client_is_v2
+  - test_enhance_from_crawler_method_exists_on_v2_client
+  - test_enhance_from_crawler_returns_enhancement_result
+  - test_services_module_exports_ai_enhancement_client
+  - test_services_module_exports_get_ai_client
+  - test_services_module_exports_enhancement_result
+
+---
+
 ## Phase 2: API Views Migration
 
 ### Task 2.1: Audit and Migrate API Views
-**Status**: [ ] NOT STARTED
+**Status**: [x] COMPLETE (N/A - No V1 imports in API views)
 **Subagent**: `Explore` then `implementer`
 **TDD**: Required
 **Files**: `crawler/api/views.py`
 
 **Description**: Check all API views for V1 component usage and migrate to V2.
 
-**Steps**:
-1. Grep views.py for V1 imports
-2. Identify which views use V1 orchestrators/clients
-3. Update to V2 equivalents
-4. Verify API response format compatibility
+**Verification**:
+```bash
+grep -n "from crawler.services.ai_client import" crawler/api/views.py
+grep -n "from crawler.services.competition_orchestrator import" crawler/api/views.py
+grep -n "from crawler.services.discovery_orchestrator import" crawler/api/views.py
+# All return empty - NO V1 imports found
+```
 
-**Test Requirements**:
-1. Write API tests for each migrated endpoint
-2. Verify response schema unchanged
-3. Test error handling
+**Notes**: API views only import shared utilities (SmartCrawler, SelectorHealthChecker).
+No V1 orchestrator or client imports exist.
 
 **Progress Log**:
-- [ ] Audit complete
-- [ ] Migration plan documented
-- [ ] Tests written
-- [ ] Code migrated
-- [ ] Tests passing
+- [x] Audit complete (2026-01-11) - No V1 imports found
+- [x] Migration plan documented - N/A
+- [x] Tests written - N/A
+- [x] Code migrated - N/A
+- [x] Tests passing - N/A
 
 ---
 
@@ -530,11 +585,12 @@ Phase 5 (Cleanup) ─────┬── Task 5.1 (Rename Files - Optional)
 | Phase | Tasks | Completed | Status |
 |-------|-------|-----------|--------|
 | Phase 1: Production | 6 | 6 | COMPLETE |
-| Phase 2: API | 1 | 0 | NOT STARTED |
+| Phase 1.5: Additional Production | 1 | 1 | COMPLETE |
+| Phase 2: API | 1 | 1 | COMPLETE (N/A) |
 | Phase 3: Tests | 2 | 0 | NOT STARTED |
 | Phase 4: Removal | 3 | 0 | NOT STARTED |
 | Phase 5: Cleanup | 2 | 0 | NOT STARTED |
-| **TOTAL** | **14** | **6** | **43%** |
+| **TOTAL** | **15** | **8** | **53%** |
 
 ---
 

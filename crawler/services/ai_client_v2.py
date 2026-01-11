@@ -49,6 +49,26 @@ class ExtractedProductV2:
 
 
 @dataclass
+class EnhancementResult:
+    """
+    V1-compatible result format for backward compatibility with content_processor.py.
+
+    V1→V2 Migration: This class provides backward compatibility with code
+    that expects the V1 AIEnhancementClient result format.
+    """
+
+    success: bool
+    product_type: str = ""
+    confidence: float = 0.0
+    extracted_data: Dict[str, Any] = field(default_factory=dict)
+    enrichment: Dict[str, Any] = field(default_factory=dict)
+    processing_time_ms: float = 0.0
+    error: Optional[str] = None
+    token_usage: Optional[Dict[str, int]] = None
+    field_confidences: Optional[Dict[str, float]] = None
+
+
+@dataclass
 class ExtractionResultV2:
     """Result of AI V2 extraction API call."""
 
@@ -551,6 +571,65 @@ class AIClientV2:
         """
         from asgiref.sync import sync_to_async
         return await sync_to_async(self._get_default_schema, thread_sensitive=True)(product_type)
+
+    async def enhance_from_crawler(
+        self,
+        content: str,
+        source_url: str = "",
+        product_type_hint: str = "whiskey",
+    ) -> EnhancementResult:
+        """
+        V1-compatible method for backward compatibility with content_processor.py.
+
+        Wraps the V2 extract() method and converts the result to V1's EnhancementResult format.
+
+        V1→V2 Migration: This method provides a drop-in replacement for the V1
+        AIEnhancementClient.enhance_from_crawler() method.
+
+        Args:
+            content: Raw HTML or text content to process
+            source_url: URL where content was fetched
+            product_type_hint: Product type hint (whiskey, port_wine, etc.)
+
+        Returns:
+            EnhancementResult in V1-compatible format
+        """
+        # Call V2 extract method
+        v2_result = await self.extract(
+            content=content,
+            source_url=source_url,
+            product_type=product_type_hint,
+        )
+
+        # Convert V2 result to V1 EnhancementResult format
+        if not v2_result.success:
+            return EnhancementResult(
+                success=False,
+                error=v2_result.error,
+                processing_time_ms=v2_result.processing_time_ms,
+                token_usage=v2_result.token_usage,
+            )
+
+        # Get first product if available (V1 only supported single product)
+        if v2_result.products:
+            first_product = v2_result.products[0]
+            return EnhancementResult(
+                success=True,
+                product_type=first_product.product_type or product_type_hint,
+                confidence=first_product.confidence,
+                extracted_data=first_product.extracted_data,
+                enrichment={},  # V2 doesn't do inline enrichment
+                processing_time_ms=v2_result.processing_time_ms,
+                token_usage=v2_result.token_usage,
+                field_confidences=first_product.field_confidences,
+            )
+        else:
+            return EnhancementResult(
+                success=False,
+                error="No products extracted from content",
+                processing_time_ms=v2_result.processing_time_ms,
+                token_usage=v2_result.token_usage,
+            )
 
     async def health_check(self) -> bool:
         """
