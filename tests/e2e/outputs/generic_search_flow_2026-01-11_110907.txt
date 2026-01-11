@@ -1,0 +1,152 @@
+================================================================================
+TEST: Generic Search Flow
+Started: 2026-01-11T11:09:07.333338
+Duration: 248.8s
+================================================================================
+
+STEPS:
+----------------------------------------
+1. [OK] serpapi_search: SerpAPI search: best non-peated single malts in 2025... (4117ms)
+      organic_results_count: 7
+      search_time_ms: 4117.1
+      top_urls: ['https://flavorcamp.org/goto-scotches/', 'https://www.worldwhiskiesawards.com/winner-whisky/whisky/2025/worlds-best-single', 'https://www.breakingbourbon.com/article/best-american-single-malt-whiskeys-of-20']
+      top_titles: ['The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ...', 'World Whiskies Awards 2025 - Winners', 'Best American Single Malt Whiskeys of 2025']
+2. [OK] fetch_url: Fetching: https://flavorcamp.org/goto-scotches/... (51398ms)
+      tier_used: 3
+      tier_name: ScrapingBee
+      content_length_bytes: 240117
+      content_length_kb: 234.5
+      has_product_indicators: True
+3. [OK] ai_extract: AI extraction from: The Scotch Shortlist: 12 Go-To (Unpeated... (38147ms)
+      products_extracted: 6
+      extraction_time_ms: 38147.0
+      is_list_page: False
+4. [OK] db_create_source: Creating CrawledSource for https://flavorcamp.org/goto-scotches/... (2ms)
+      source_id: d0dac809-10af-4d32-b38e-8d826dc98ce8
+      title: The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ...
+      source_type: list_page
+5. [OK] quality_assess: Quality assessment for Tamnavulin Sherry Cask (N/A)
+      product_name: Tamnavulin Sherry Cask
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'nose_description', 'palate_description', 'finish_description', 'region']
+      needs_enrichment: True
+6. [OK] enrichment: Enriching Tamnavulin Sherry Cask... via SerpAPI + AI (61038ms)
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_flavors', 'volume_ml', 'nose_description', 'finish_description', 'abv', 'description', 'palate_description', 'primary_aromas']
+      sources_used: 5
+7. [OK] enrichment_result: Enrichment complete for Tamnavulin Sherry Cask (N/A)
+      product_name: Tamnavulin Sherry Cask
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_flavors', 'volume_ml', 'nose_description', 'finish_description', 'abv', 'description', 'palate_description', 'primary_aromas']
+      fields_enriched_count: 8
+      sources_used: 5
+      searches_performed: 2
+      time_elapsed_seconds: 61.0
+      status_improved: True
+8. [OK] quality_assess: Quality assessment for Tamnavulin Sherry Cask (post-e (N/A)
+      product_name: Tamnavulin Sherry Cask (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+9. [OK] quality_assess: Quality assessment for Auchentoshan 2000 (N/A)
+      product_name: Auchentoshan 2000
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['nose_description', 'palate_description', 'finish_description']
+      needs_enrichment: True
+10. [OK] enrichment: Enriching Auchentoshan 2000... via SerpAPI + AI (54215ms)
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_flavors', 'nose_description', 'finish_description', 'palate_description', 'primary_aromas']
+      sources_used: 3
+11. [OK] enrichment_result: Enrichment complete for Auchentoshan 2000 (N/A)
+      product_name: Auchentoshan 2000
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_flavors', 'nose_description', 'finish_description', 'palate_description', 'primary_aromas']
+      fields_enriched_count: 5
+      sources_used: 3
+      searches_performed: 1
+      time_elapsed_seconds: 54.2
+      status_improved: True
+12. [OK] quality_assess: Quality assessment for Auchentoshan 2000 (post-enrich (N/A)
+      product_name: Auchentoshan 2000 (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+13. [OK] quality_assess: Quality assessment for Adelphi Private Stock Blend (N/A)
+      product_name: Adelphi Private Stock Blend
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'nose_description', 'palate_description', 'finish_description', 'region']
+      needs_enrichment: True
+14. [OK] enrichment: Enriching Adelphi Private Stock Blend... via SerpAPI + AI (37799ms)
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_flavors', 'nose_description', 'finish_description', 'abv', 'palate_description', 'primary_aromas']
+      sources_used: 4
+15. [OK] enrichment_result: Enrichment complete for Adelphi Private Stock Blend (N/A)
+      product_name: Adelphi Private Stock Blend
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_flavors', 'nose_description', 'finish_description', 'abv', 'palate_description', 'primary_aromas']
+      fields_enriched_count: 6
+      sources_used: 4
+      searches_performed: 1
+      time_elapsed_seconds: 37.8
+      status_improved: True
+16. [OK] quality_assess: Quality assessment for Adelphi Private Stock Blend (p (N/A)
+      product_name: Adelphi Private Stock Blend (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+
+PRODUCTS:
+----------------------------------------
+  1. Tamnavulin Sherry Cask
+      Status: VALID
+      Confidence: 0.74
+      Fields: name, brand, description, country, source_title
+  2. Auchentoshan 2000
+      Status: VALID
+      Confidence: 0.94
+      Fields: name, brand, description, abv, age_statement...
+  3. Adelphi Private Stock Blend
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, description, price, country...
+  4. King of Scots
+      Status: VALID
+      Confidence: 0.74
+      Fields: name, brand, description, country, source_title
+  5. Waterproof Whisky
+      Status: VALID
+      Confidence: 0.84
+      Fields: name, brand, description, abv, price...
+  6. Timorous Beastie
+      Status: VALID
+      Confidence: 0.82
+      Fields: name, brand, description, country, region...
+
+SUMMARY:
+----------------------------------------
+  Total Steps: 16
+  Successful Steps: 16
+  Failed Steps: 0
+  Total Products: 6
+  Valid Products: 6
+  Rejected Products: 0
+
+================================================================================

@@ -1,0 +1,662 @@
+{
+  "test_name": "Generic Search Flow",
+  "started_at": "2026-01-11T11:09:07.333338",
+  "completed_at": "2026-01-11T11:13:16.130253",
+  "total_duration_seconds": 248.796915,
+  "output_file": "tests\\e2e\\outputs\\generic_search_flow_2026-01-11_110907.json",
+  "steps": [
+    {
+      "step_name": "serpapi_search",
+      "description": "SerpAPI search: best non-peated single malts in 2025...",
+      "started_at": "2026-01-11T11:09:07.384629",
+      "completed_at": "2026-01-11T11:09:11.501742",
+      "duration_ms": 4117.112636566162,
+      "input_data": {
+        "query": "best non-peated single malts in 2025",
+        "max_results": 10
+      },
+      "output_data": {
+        "organic_results_count": 7,
+        "search_time_ms": 4117.1,
+        "top_urls": [
+          "https://flavorcamp.org/goto-scotches/",
+          "https://www.worldwhiskiesawards.com/winner-whisky/whisky/2025/worlds-best-single",
+          "https://www.breakingbourbon.com/article/best-american-single-malt-whiskeys-of-20"
+        ],
+        "top_titles": [
+          "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ...",
+          "World Whiskies Awards 2025 - Winners",
+          "Best American Single Malt Whiskeys of 2025"
+        ]
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "fetch_url",
+      "description": "Fetching: https://flavorcamp.org/goto-scotches/...",
+      "started_at": "2026-01-11T11:09:11.501742",
+      "completed_at": "2026-01-11T11:10:02.899772",
+      "duration_ms": 51398.03075790405,
+      "input_data": {
+        "url": "https://flavorcamp.org/goto-scotches/",
+        "max_retries": 3,
+        "force_tier": null
+      },
+      "output_data": {
+        "tier_used": 3,
+        "tier_name": "ScrapingBee",
+        "content_length_bytes": 240117,
+        "content_length_kb": 234.5,
+        "has_product_indicators": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "ai_extract",
+      "description": "AI extraction from: The Scotch Shortlist: 12 Go-To (Unpeated...",
+      "started_at": "2026-01-11T11:10:02.901539",
+      "completed_at": "2026-01-11T11:10:41.048584",
+      "duration_ms": 38147.045612335205,
+      "input_data": {
+        "url": "https://flavorcamp.org/goto-scotches/",
+        "content_length": 240117
+      },
+      "output_data": {
+        "products_extracted": 6,
+        "extraction_time_ms": 38147.0,
+        "is_list_page": false
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "db_create_source",
+      "description": "Creating CrawledSource for https://flavorcamp.org/goto-scotches/...",
+      "started_at": "2026-01-11T11:10:43.064933",
+      "completed_at": "2026-01-11T11:10:43.066966",
+      "duration_ms": 2.0329952239990234,
+      "input_data": {
+        "url": "https://flavorcamp.org/goto-scotches/"
+      },
+      "output_data": {
+        "source_id": "d0dac809-10af-4d32-b38e-8d826dc98ce8",
+        "title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ...",
+        "source_type": "list_page"
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Tamnavulin Sherry Cask",
+      "started_at": "2026-01-11T11:10:43.066966",
+      "completed_at": "2026-01-11T11:10:43.066966",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Tamnavulin Sherry Cask",
+        "status": "partial",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "abv",
+          "nose_description",
+          "palate_description",
+          "finish_description",
+          "region"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching Tamnavulin Sherry Cask... via SerpAPI + AI",
+      "started_at": "2026-01-11T11:10:43.066966",
+      "completed_at": "2026-01-11T11:11:44.105027",
+      "duration_ms": 61038.06161880493,
+      "input_data": {
+        "product_name": "Tamnavulin Sherry Cask",
+        "product_id": "b28c8771-5a91-45bb-9d1e-69f7051e5bdb"
+      },
+      "output_data": {
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "palate_flavors",
+          "volume_ml",
+          "nose_description",
+          "finish_description",
+          "abv",
+          "description",
+          "palate_description",
+          "primary_aromas"
+        ],
+        "sources_used": 5
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment_result",
+      "description": "Enrichment complete for Tamnavulin Sherry Cask",
+      "started_at": "2026-01-11T11:11:44.106856",
+      "completed_at": "2026-01-11T11:11:44.106856",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Tamnavulin Sherry Cask",
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "palate_flavors",
+          "volume_ml",
+          "nose_description",
+          "finish_description",
+          "abv",
+          "description",
+          "palate_description",
+          "primary_aromas"
+        ],
+        "fields_enriched_count": 8,
+        "sources_used": 5,
+        "searches_performed": 2,
+        "time_elapsed_seconds": 61.0,
+        "status_improved": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Tamnavulin Sherry Cask (post-e",
+      "started_at": "2026-01-11T11:11:44.108759",
+      "completed_at": "2026-01-11T11:11:44.108759",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Tamnavulin Sherry Cask (post-enrichment)",
+        "status": "complete",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [],
+        "needs_enrichment": false
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Auchentoshan 2000",
+      "started_at": "2026-01-11T11:11:44.108759",
+      "completed_at": "2026-01-11T11:11:44.108759",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Auchentoshan 2000",
+        "status": "partial",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "nose_description",
+          "palate_description",
+          "finish_description"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching Auchentoshan 2000... via SerpAPI + AI",
+      "started_at": "2026-01-11T11:11:44.108759",
+      "completed_at": "2026-01-11T11:12:38.323943",
+      "duration_ms": 54215.184688568115,
+      "input_data": {
+        "product_name": "Auchentoshan 2000",
+        "product_id": "a2adba07-1d26-408f-aa52-72a867820139"
+      },
+      "output_data": {
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "palate_flavors",
+          "nose_description",
+          "finish_description",
+          "palate_description",
+          "primary_aromas"
+        ],
+        "sources_used": 3
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment_result",
+      "description": "Enrichment complete for Auchentoshan 2000",
+      "started_at": "2026-01-11T11:12:38.323943",
+      "completed_at": "2026-01-11T11:12:38.323943",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Auchentoshan 2000",
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "palate_flavors",
+          "nose_description",
+          "finish_description",
+          "palate_description",
+          "primary_aromas"
+        ],
+        "fields_enriched_count": 5,
+        "sources_used": 3,
+        "searches_performed": 1,
+        "time_elapsed_seconds": 54.2,
+        "status_improved": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Auchentoshan 2000 (post-enrich",
+      "started_at": "2026-01-11T11:12:38.323943",
+      "completed_at": "2026-01-11T11:12:38.323943",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Auchentoshan 2000 (post-enrichment)",
+        "status": "complete",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [],
+        "needs_enrichment": false
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Adelphi Private Stock Blend",
+      "started_at": "2026-01-11T11:12:38.323943",
+      "completed_at": "2026-01-11T11:12:38.323943",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Adelphi Private Stock Blend",
+        "status": "partial",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "abv",
+          "nose_description",
+          "palate_description",
+          "finish_description",
+          "region"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching Adelphi Private Stock Blend... via SerpAPI + AI",
+      "started_at": "2026-01-11T11:12:38.323943",
+      "completed_at": "2026-01-11T11:13:16.123254",
+      "duration_ms": 37799.31116104126,
+      "input_data": {
+        "product_name": "Adelphi Private Stock Blend",
+        "product_id": "c83d0167-56ad-4131-8a80-051102e79164"
+      },
+      "output_data": {
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "palate_flavors",
+          "nose_description",
+          "finish_description",
+          "abv",
+          "palate_description",
+          "primary_aromas"
+        ],
+        "sources_used": 4
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment_result",
+      "description": "Enrichment complete for Adelphi Private Stock Blend",
+      "started_at": "2026-01-11T11:13:16.123254",
+      "completed_at": "2026-01-11T11:13:16.123254",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Adelphi Private Stock Blend",
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "palate_flavors",
+          "nose_description",
+          "finish_description",
+          "abv",
+          "palate_description",
+          "primary_aromas"
+        ],
+        "fields_enriched_count": 6,
+        "sources_used": 4,
+        "searches_performed": 1,
+        "time_elapsed_seconds": 37.8,
+        "status_improved": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Adelphi Private Stock Blend (p",
+      "started_at": "2026-01-11T11:13:16.126251",
+      "completed_at": "2026-01-11T11:13:16.126251",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Adelphi Private Stock Blend (post-enrichment)",
+        "status": "complete",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [],
+        "needs_enrichment": false
+      },
+      "success": true,
+      "error": null
+    }
+  ],
+  "products": [
+    {
+      "index": 0,
+      "name": "Tamnavulin Sherry Cask",
+      "brand": "Tamnavulin",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.74,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "country",
+        "source_title"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Tamnavulin Sherry Cask",
+        "brand": "Tamnavulin",
+        "description": "This is a bottle you never get sick of, isn’t insanely expensive, and that you enjoy on the regular. It features banana, maple syrup and orange notes.",
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": null,
+        "price": null,
+        "country": "Scotland",
+        "region": null,
+        "source_url": "https://flavorcamp.org/goto-scotches/",
+        "field_confidences": {
+          "name": 0.95,
+          "brand": 0.95,
+          "description": 0.95,
+          "abv": 0.0,
+          "volume_ml": 0.0,
+          "age_statement": 0.0,
+          "price": 0.0,
+          "country": 0.95,
+          "region": 0.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.74,
+        "source_title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ..."
+      }
+    },
+    {
+      "index": 1,
+      "name": "Auchentoshan 2000",
+      "brand": "Berry Bros & Rudd",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.94,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "abv",
+        "age_statement",
+        "price",
+        "country",
+        "region",
+        "source_title"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Auchentoshan 2000",
+        "brand": "Berry Bros & Rudd",
+        "description": "This gem from Auchentoshan is 13 years old and sits at a bold 53.6% ABV. It opens with bright citrus and fresh green grass, evolving into toasted marshmallow and caramel.",
+        "abv": 53.6,
+        "volume_ml": null,
+        "age_statement": 13,
+        "price": 95.0,
+        "country": "Scotland",
+        "region": "Lowland",
+        "source_url": "https://flavorcamp.org/goto-scotches/",
+        "field_confidences": {
+          "name": 0.95,
+          "brand": 0.95,
+          "description": 0.95,
+          "abv": 0.95,
+          "volume_ml": 0.0,
+          "age_statement": 0.95,
+          "price": 0.95,
+          "country": 0.95,
+          "region": 0.95,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.94,
+        "source_title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ..."
+      }
+    },
+    {
+      "index": 2,
+      "name": "Adelphi Private Stock Blend",
+      "brand": "Adelphi",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "price",
+        "country",
+        "source_title"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Adelphi Private Stock Blend",
+        "brand": "Adelphi",
+        "description": "This blend is approachable, beautifully balanced, and an absolute steal at $35–40. It’s the perfect opener: reliable, nuanced, and never boring.",
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": null,
+        "price": 37.5,
+        "country": "Scotland",
+        "region": null,
+        "source_url": "https://flavorcamp.org/goto-scotches/",
+        "field_confidences": {
+          "name": 0.95,
+          "brand": 0.95,
+          "description": 0.95,
+          "abv": 0.0,
+          "volume_ml": 0.0,
+          "age_statement": 0.0,
+          "price": 0.95,
+          "country": 0.95,
+          "region": 0.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76,
+        "source_title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ..."
+      }
+    },
+    {
+      "index": 3,
+      "name": "King of Scots",
+      "brand": "King of Scots",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.74,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "country",
+        "source_title"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "King of Scots",
+        "brand": "King of Scots",
+        "description": "A blended Scotch that’s easy to drink, with lovely toffee notes on the nose and palate along with sweet juicy fruits.",
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": null,
+        "price": null,
+        "country": "Scotland",
+        "region": null,
+        "source_url": "https://flavorcamp.org/goto-scotches/",
+        "field_confidences": {
+          "name": 0.95,
+          "brand": 0.95,
+          "description": 0.95,
+          "abv": 0.0,
+          "volume_ml": 0.0,
+          "age_statement": 0.0,
+          "price": 0.0,
+          "country": 0.95,
+          "region": 0.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.74,
+        "source_title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ..."
+      }
+    },
+    {
+      "index": 4,
+      "name": "Waterproof Whisky",
+      "brand": "MacDuff International",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.84,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "abv",
+        "price",
+        "country",
+        "source_title"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Waterproof Whisky",
+        "brand": "MacDuff International",
+        "description": "A lesser-known gem that punches well above its weight in terms of flavor and value. It’s completely free of smoke, making it ideal for those who prefer a cleaner, fruit-forward dram.",
+        "abv": 45.8,
+        "volume_ml": null,
+        "age_statement": null,
+        "price": 37.5,
+        "country": "Scotland",
+        "region": null,
+        "source_url": "https://flavorcamp.org/goto-scotches/",
+        "field_confidences": {
+          "name": 0.95,
+          "brand": 0.95,
+          "description": 0.95,
+          "abv": 0.95,
+          "volume_ml": 0.0,
+          "age_statement": 0.0,
+          "price": 0.95,
+          "country": 0.95,
+          "region": 0.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.84,
+        "source_title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ..."
+      }
+    },
+    {
+      "index": 5,
+      "name": "Timorous Beastie",
+      "brand": "Douglas Laing",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.82,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "country",
+        "region",
+        "source_title"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Timorous Beastie",
+        "brand": "Douglas Laing",
+        "description": "Designed to be the quintessential Highland Scotch, it has rich, saturated cereal flavours and a silky texture that lingers on the palate.",
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": null,
+        "price": null,
+        "country": "Scotland",
+        "region": "Highland",
+        "source_url": "https://flavorcamp.org/goto-scotches/",
+        "field_confidences": {
+          "name": 0.95,
+          "brand": 0.95,
+          "description": 0.95,
+          "abv": 0.0,
+          "volume_ml": 0.0,
+          "age_statement": 0.0,
+          "price": 0.0,
+          "country": 0.95,
+          "region": 0.95,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.82,
+        "source_title": "The Scotch Shortlist: 12 Go-To (Unpeated) Bottles ..."
+      }
+    }
+  ],
+  "summary": {
+    "search_query": "best non-peated single malts in 2025",
+    "products_created": 3,
+    "products_enriched": 3,
+    "sources_created": 1,
+    "duration_seconds": 248.78832149505615,
+    "test_passed": true,
+    "enrichment": {
+      "products_enriched": 3,
+      "total_fields_enriched": 19
+    }
+  },
+  "statistics": {
+    "total_steps": 16,
+    "successful_steps": 16,
+    "failed_steps": 0,
+    "total_products": 6,
+    "valid_products": 6,
+    "rejected_products": 0
+  }
+}
