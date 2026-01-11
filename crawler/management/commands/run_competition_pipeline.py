@@ -20,8 +20,8 @@ from crawler.models import (
     DiscoveredProductStatus,
     SourceCategory,
 )
-from crawler.services.competition_orchestrator import (
-    CompetitionOrchestrator,
+from crawler.services.competition_orchestrator_v2 import (
+    CompetitionOrchestratorV2,
     ensure_competition_sources_exist,
     COMPETITION_SOURCES,
 )
@@ -148,7 +148,7 @@ class Command(BaseCommand):
 
     def _show_statistics(self):
         """Show skeleton product statistics."""
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
         stats = orchestrator.get_skeleton_statistics()
 
         self.stdout.write("\nSkeleton Product Statistics:")
@@ -160,7 +160,7 @@ class Command(BaseCommand):
         if stats["by_competition"]:
             self.stdout.write("\nBy competition:")
             for comp in stats["by_competition"]:
-                competition = comp.get("awards__0__competition") or "Unknown"
+                competition = comp.get("competition") or "Unknown"
                 count = comp["count"]
                 self.stdout.write(f"  {competition}: {count}")
 
@@ -239,7 +239,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(f"Fetched {len(fetch_result.content)} bytes"))
 
             # Run discovery
-            orchestrator = CompetitionOrchestrator()
+            orchestrator = CompetitionOrchestratorV2()
             result = loop.run_until_complete(
                 orchestrator.run_competition_discovery(
                     competition_url=competition_url,
@@ -320,7 +320,7 @@ class Command(BaseCommand):
 
     def _run_enrichment(self, limit: int, dry_run: bool):
         """Run enrichment searches for skeleton products."""
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
 
         pending_count = orchestrator.get_pending_skeletons_count()
         self.stdout.write(f"Found {pending_count} skeleton products awaiting enrichment")

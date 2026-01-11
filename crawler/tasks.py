@@ -14,6 +14,10 @@ Task Group 7 Integration:
 Task Group 31 Implementation:
 - archive_to_wayback: Archive CrawledSource to Wayback Machine
 - process_pending_wayback: Batch process pending archives
+
+V2 Migration Update:
+- Uses CompetitionOrchestratorV2 for competition crawling (V2 quality assessment)
+- Uses get_ai_client_v2 for AI Enhancement (V2 extraction schema with tasting notes)
 """
 
 import logging
@@ -39,6 +43,9 @@ from crawler.models import (
     SourceCategory,
     APICrawlJob,
 )
+
+# V2 Components for competition orchestration
+from crawler.services.competition_orchestrator_v2 import CompetitionOrchestratorV2
 
 logger = logging.getLogger(__name__)
 
@@ -177,7 +184,7 @@ def crawl_source(self, source_id: str, job_id: str) -> Dict[str, Any]:
     """
     Crawl worker task - fetches URLs from source via Smart Router.
 
-    Uses ContentProcessor for standard sources, CompetitionOrchestrator for
+    Uses ContentProcessor for standard sources, CompetitionOrchestratorV2 for
     competition sources.
 
     Args:
@@ -286,7 +293,7 @@ def crawl_source(self, source_id: str, job_id: str) -> Dict[str, Any]:
 
 def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str, Any]:
     """
-    Process a competition source using CompetitionOrchestrator.
+    Process a competition source using CompetitionOrchestratorV2.
 
     For IWSC and similar competitions, iterates through whiskey-related keywords
     to filter results. Implements deduplication using product name + year as key.
@@ -302,7 +309,6 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
     import re
     from urllib.parse import urlparse, urlencode, urlunparse
     from crawler.fetchers.smart_router import SmartRouter
-    from crawler.services.competition_orchestrator import CompetitionOrchestrator
 
     logger.info(f"Processing competition source: {source.name}")
 
@@ -333,9 +339,9 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
         # This matches the parser registration key
         competition_key = source.slug.split('-')[-1] if '-' in source.slug else source.slug
 
-        # Initialize router and orchestrator
+        # Initialize router and V2 orchestrator
         router = SmartRouter()
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -364,7 +370,7 @@ def _crawl_competition_source(source: CrawlerSource, job: CrawlJob) -> Dict[str,
                         # Keep the year in the path, only append page number
                         base_path = parsed.path.rstrip('/')
 
-                        # For IWSC: /results/search/2025 → /results/search/2025/1
+                        # For IWSC: /results/search/2025 -> /results/search/2025/1
                         # Don't remove the year! Only add page number
                         page_path = f"{base_path}/{page}"
 
@@ -741,10 +747,9 @@ def enrich_skeletons(self, limit: int = 50) -> Dict[str, Any]:
     logger.info(f"Starting skeleton enrichment, limit={limit}")
 
     import asyncio
-    from crawler.services.competition_orchestrator import CompetitionOrchestrator
 
     try:
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
 
         # Check pending count first
         pending_count = orchestrator.get_pending_skeletons_count()
@@ -1261,7 +1266,7 @@ def run_discovery_flow(schedule, job, enrich: bool = False) -> Dict[str, Any]:
 
 def run_competition_flow(schedule, job) -> Dict[str, Any]:
     """
-    Execute competition crawl flow using CompetitionOrchestrator.
+    Execute competition crawl flow using CompetitionOrchestratorV2.
 
     This flow:
     1. Fetches competition results page
@@ -1276,10 +1281,9 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
         Dict with competition results including enrichment stats
     """
     import asyncio
-    from crawler.services.competition_orchestrator import CompetitionOrchestrator
     from crawler.fetchers.smart_router import SmartRouter
 
-    orchestrator = CompetitionOrchestrator()
+    orchestrator = CompetitionOrchestratorV2()
     results = {
         "products_found": 0,
         "products_new": 0,
@@ -1422,12 +1426,12 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
             logger.info(f"Enrichment search complete: {len(skeletons)} skeletons, {len(url_queue)} URLs found")
 
             # Step 2: Process URLs directly (no Redis queue)
-            # Use AI Enhancement client directly to get enrichment data
+            # Use AI Enhancement client V2 for extraction
             if url_queue:
                 logger.info(f"Step 2: Processing {len(url_queue)} URLs (fetching, extracting data)...")
 
-                from crawler.services.ai_client import get_ai_client
-                ai_client = get_ai_client()
+                from crawler.services.ai_client_v2 import get_ai_client_v2
+                ai_client = get_ai_client_v2()
 
                 urls_processed = 0
                 products_enriched = 0
@@ -1464,18 +1468,18 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
                                 skeleton = DiscoveredProduct.objects.get(id=skeleton_id)
                                 product_type_hint = skeleton.product_type
 
-                                # Call AI Enhancement directly to get extracted data
-                                enhance_result = loop.run_until_complete(
-                                    ai_client.enhance_from_crawler(
+                                # Call AI Enhancement V2 to get extracted data
+                                extract_result = loop.run_until_complete(
+                                    ai_client.extract(
                                         content=extracted_content,
                                         source_url=url,
-                                        product_type_hint=product_type_hint,
+                                        product_type=product_type_hint,
                                     )
                                 )
 
-                                if enhance_result.success:
-                                    # Merge extracted_data and enrichment dicts
-                                    enriched = {**enhance_result.extracted_data, **enhance_result.enrichment}
+                                if extract_result.success and extract_result.products:
+                                    # Get the primary product's extracted data
+                                    enriched = extract_result.products[0].extracted_data
                                     update_fields = []
 
                                     # Map enrichment data to skeleton fields
@@ -1554,7 +1558,7 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
                                     else:
                                         logger.debug(f"Not enough data from {url}: got fields {list(enriched.keys())}")
                                 else:
-                                    logger.debug(f"AI Enhancement failed for {url}: {enhance_result.error}")
+                                    logger.debug(f"AI Enhancement V2 failed for {url}: {extract_result.error}")
 
                             else:
                                 logger.debug(f"Failed to fetch URL {url}: {fetch_result.error}")

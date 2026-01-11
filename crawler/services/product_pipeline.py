@@ -17,6 +17,11 @@ Usage:
     result = await pipeline.process_url(url, context)
     if result.success:
         print(f"Saved product {result.product_id} with status {result.status}")
+
+V2 Migration (2026-01-11):
+    - Updated to use AIExtractorV2 instead of AIExtractor
+    - Updated to use AIClientV2 instead of AIEnhancementClient
+    - V2 components provide field confidence scores and tasting note extraction
 """
 
 import logging
@@ -46,7 +51,7 @@ class UnifiedProductPipeline:
     Unified product pipeline for URL and award page processing.
 
     Integrates:
-    - AI extraction for structured data extraction
+    - AI extraction for structured data extraction (V2)
     - Completeness scoring with 40% tasting profile weight
     - Status determination (requires palate for COMPLETE)
     - Brand resolution
@@ -69,18 +74,18 @@ class UnifiedProductPipeline:
         Initialize the unified product pipeline.
 
         Args:
-            ai_extractor: AI extractor for extraction (created if not provided)
-            smart_crawler: Smart crawler for fetching (created if not provided)
+            ai_extractor: AI extractor for extraction (uses V2 singleton if not provided)
+            smart_crawler: Smart crawler for fetching (created with V2 client if not provided)
         """
         if ai_extractor is None:
-            from crawler.discovery.extractors.ai_extractor import AIExtractor
-            ai_extractor = AIExtractor()
+            from crawler.discovery.extractors.ai_extractor_v2 import get_ai_extractor_v2
+            ai_extractor = get_ai_extractor_v2()
         if smart_crawler is None:
             from crawler.services.smart_crawler import SmartCrawler
             from crawler.services.scrapingbee_client import ScrapingBeeClient
-            from crawler.services.ai_client import AIEnhancementClient
+            from crawler.services.ai_client_v2 import get_ai_client_v2
             scrapingbee = ScrapingBeeClient()
-            ai_client = AIEnhancementClient()
+            ai_client = get_ai_client_v2()
             smart_crawler = SmartCrawler(scrapingbee, ai_client)
 
         self.ai_extractor = ai_extractor
