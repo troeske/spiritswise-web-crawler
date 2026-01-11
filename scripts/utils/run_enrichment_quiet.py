@@ -54,7 +54,7 @@ for s in schedules:
 print("\nAttempting to run enrichment...")
 
 try:
-    from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+    from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2 as DiscoveryOrchestrator
 
     orchestrator = DiscoveryOrchestrator()
 

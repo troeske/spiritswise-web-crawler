@@ -394,11 +394,11 @@ class TestGenericSearchDiscoveryFlow:
         [SPEC Section 7] DiscoveryOrchestrator service exists.
         [STATUS: COMPLETE]
         """
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
         # Verify class exists and has expected methods
-        assert hasattr(DiscoveryOrchestrator, "_get_search_terms")
-        assert hasattr(DiscoveryOrchestrator, "_process_search_term")
+        assert hasattr(DiscoveryOrchestratorV2, "_get_search_terms")
+        assert hasattr(DiscoveryOrchestratorV2, "_process_search_term")
 
     def test_skeleton_product_status_exists(
         self,

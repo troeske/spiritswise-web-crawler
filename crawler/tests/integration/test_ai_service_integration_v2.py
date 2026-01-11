@@ -12,6 +12,8 @@ These tests verify the crawler correctly:
 5. Handles partial/incomplete responses
 
 Uses the `responses` library for HTTP mocking.
+
+Updated 2026-01-11: Migrated from V1 to V2 architecture.
 """
 
 import json
@@ -440,10 +442,10 @@ class TestCrawlerParsesV2ResponseCorrectly:
         - production nested object
         - description, category
         """
-        # Use the DiscoveryOrchestrator's _normalize_data_for_save method
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        # Use the DiscoveryOrchestratorV2's _normalize_data_for_save method
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         # Extract the data portion (what we'd get from AI service)
         extracted_data = mock_v2_whiskey_response["extracted_data"]
@@ -484,9 +486,9 @@ class TestCrawlerParsesV2ResponseCorrectly:
 
     def test_crawler_parses_port_wine_v2_response(self, mock_v2_port_wine_response):
         """Verify parsing of port wine specific V2 fields."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
         extracted_data = mock_v2_port_wine_response["extracted_data"]
 
         result = orchestrator._normalize_data_for_save(extracted_data)
@@ -536,9 +538,9 @@ class TestCrawlerMapsAllNewFieldsToModel:
         - ratings.* -> corresponding fields
         - production.* -> corresponding fields
         """
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
         extracted_data = mock_v2_whiskey_response["extracted_data"]
 
         result = orchestrator._normalize_data_for_save(extracted_data)
@@ -589,9 +591,9 @@ class TestCrawlerMapsAllNewFieldsToModel:
 
     def test_maps_enrichment_data_correctly(self, mock_v2_whiskey_response):
         """Verify that enrichment data is also mapped correctly."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         # Merge extracted_data with enrichment (as orchestrator does)
         data = mock_v2_whiskey_response["extracted_data"].copy()
@@ -812,9 +814,9 @@ class TestCrawlerHandlesPartialResponses:
         - Entire nested objects (appearance, ratings, production)
         - Optional fields (description, category)
         """
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
         extracted_data = mock_partial_response["extracted_data"]
 
         # Should not raise exception
@@ -834,9 +836,9 @@ class TestCrawlerHandlesPartialResponses:
 
     def test_crawler_handles_empty_tasting_notes(self):
         """Verify handling when tasting_notes is empty object."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         data = {
             "name": "Test Product",
@@ -850,9 +852,9 @@ class TestCrawlerHandlesPartialResponses:
 
     def test_crawler_handles_null_nested_objects(self):
         """Verify handling when nested objects are null."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         data = {
             "name": "Test Product",
@@ -870,9 +872,9 @@ class TestCrawlerHandlesPartialResponses:
 
     def test_crawler_handles_missing_critical_arrays(self):
         """Verify handling when critical arrays are missing."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         data = {
             "name": "Test Product",
@@ -893,9 +895,9 @@ class TestCrawlerHandlesPartialResponses:
 
     def test_crawler_handles_partial_ratings(self):
         """Verify handling when only some ratings are present."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         data = {
             "name": "Test Product",
@@ -915,9 +917,9 @@ class TestCrawlerHandlesPartialResponses:
 
     def test_crawler_handles_response_with_only_name(self):
         """Verify handling when response only contains name."""
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
 
         data = {"name": "Minimal Product"}
 

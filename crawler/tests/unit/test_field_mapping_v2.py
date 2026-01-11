@@ -2,45 +2,18 @@
 Unit tests for crawler field mapping - AI Enhancement Service V2.
 
 Task 6.8: Unit Tests - Crawler Field Mapping
-TDD Instruction: Write these tests BEFORE implementing Phase 5
 
-These tests verify that the _normalize_data_for_save() method in discovery_orchestrator.py
+These tests verify that the normalize_extracted_data() function in product_saver.py
 correctly maps AI service response fields to the DiscoveredProduct model fields.
 
-Tests should FAIL initially (red phase of TDD) until the field mapping implementation
-is complete in Phase 5 (Task 5.1).
+Updated 2026-01-11: Migrated from V1 to V2 architecture.
+Uses normalize_extracted_data from product_saver instead of V1's _normalize_data_for_save.
 """
 
 import pytest
 from typing import Dict, Any
 
-
-class MockDiscoveryOrchestrator:
-    """
-    Mock of DiscoveryOrchestrator for testing field mapping.
-
-    This mock provides access to the _normalize_data_for_save method
-    for isolated unit testing without Django dependencies.
-    """
-
-    def _normalize_data_for_save(self, data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Import the real implementation for testing.
-
-        This imports from the actual module to test the real implementation.
-        """
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
-
-        # Create a minimal instance to access the method
-        # We pass None for parameters to avoid external dependencies
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
-        return orchestrator._normalize_data_for_save(data)
-
-
-@pytest.fixture
-def orchestrator():
-    """Fixture providing a mock orchestrator for field mapping tests."""
-    return MockDiscoveryOrchestrator()
+from crawler.services.product_saver import normalize_extracted_data
 
 
 @pytest.fixture
@@ -266,14 +239,14 @@ def mock_ai_response_complete():
 class TestNoseAromasMapping:
     """Tests for tasting_notes.nose_aromas -> primary_aromas mapping."""
 
-    def test_maps_nose_aromas_to_primary_aromas(self, orchestrator, mock_ai_response_with_tasting_notes):
+    def test_maps_nose_aromas_to_primary_aromas(self, mock_ai_response_with_tasting_notes):
         """
         Verify that tasting_notes.nose_aromas is correctly mapped to primary_aromas.
 
         The AI service returns nose_aromas as an array inside tasting_notes,
         which should be mapped to the primary_aromas field on DiscoveredProduct.
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_notes)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_notes)
 
         # primary_aromas should contain the nose_aromas values
         assert "primary_aromas" in result, "primary_aromas field should be present"
@@ -281,7 +254,7 @@ class TestNoseAromasMapping:
         assert isinstance(result["primary_aromas"], list)
         assert len(result["primary_aromas"]) >= 2, "Should have at least 2 aroma items"
 
-    def test_nose_aromas_preserves_array_order(self, orchestrator):
+    def test_nose_aromas_preserves_array_order(self):
         """Verify that the order of nose_aromas is preserved in primary_aromas."""
         data = {
             "name": "Test",
@@ -289,13 +262,13 @@ class TestNoseAromasMapping:
                 "nose_aromas": ["apple", "pear", "honey", "oak"]
             }
         }
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result.get("primary_aromas") == ["apple", "pear", "honey", "oak"]
 
-    def test_nose_description_still_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_notes):
+    def test_nose_description_still_maps_correctly(self, mock_ai_response_with_tasting_notes):
         """Verify nose description still maps to nose_description field."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_notes)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_notes)
 
         assert "nose_description" in result
         assert result["nose_description"] == "Rich honey and vanilla with floral notes"
@@ -304,38 +277,38 @@ class TestNoseAromasMapping:
 class TestPalateFlavorsMapping:
     """Tests for tasting_notes.palate_flavors mapping."""
 
-    def test_maps_palate_flavors_correctly(self, orchestrator, mock_ai_response_with_tasting_notes):
+    def test_maps_palate_flavors_correctly(self, mock_ai_response_with_tasting_notes):
         """
         Verify that tasting_notes.palate_flavors is correctly mapped.
 
         The AI service returns palate_flavors as an array inside tasting_notes,
         which should be mapped to the palate_flavors field on DiscoveredProduct.
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_notes)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_notes)
 
         assert "palate_flavors" in result, "palate_flavors field should be present"
         assert result["palate_flavors"] == ["butterscotch", "oak", "vanilla", "spice", "dried fruit"]
         assert isinstance(result["palate_flavors"], list)
         assert len(result["palate_flavors"]) >= 3, "Should have at least 3 flavor items (CRITICAL)"
 
-    def test_palate_description_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_notes):
+    def test_palate_description_maps_correctly(self, mock_ai_response_with_tasting_notes):
         """Verify palate description maps to palate_description field."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_notes)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_notes)
 
         assert "palate_description" in result
         assert result["palate_description"] == "Smooth with butterscotch and oak flavors"
 
-    def test_finish_flavors_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_notes):
+    def test_finish_flavors_maps_correctly(self, mock_ai_response_with_tasting_notes):
         """Verify finish_flavors array is mapped correctly."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_notes)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_notes)
 
         assert "finish_flavors" in result, "finish_flavors field should be present"
         assert result["finish_flavors"] == ["oak", "spice", "honey"]
         assert len(result["finish_flavors"]) >= 2, "Should have at least 2 finish flavors"
 
-    def test_finish_description_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_notes):
+    def test_finish_description_maps_correctly(self, mock_ai_response_with_tasting_notes):
         """Verify finish description maps to finish_description field."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_notes)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_notes)
 
         assert "finish_description" in result
         assert result["finish_description"] == "Long and warming with lingering oak"
@@ -344,7 +317,7 @@ class TestPalateFlavorsMapping:
 class TestNestedAppearanceFields:
     """Tests for appearance.* field mapping."""
 
-    def test_maps_nested_appearance_fields(self, orchestrator, mock_ai_response_with_appearance):
+    def test_maps_nested_appearance_fields(self, mock_ai_response_with_appearance):
         """
         Verify that all appearance.* fields are correctly mapped.
 
@@ -354,7 +327,7 @@ class TestNestedAppearanceFields:
         - clarity -> clarity
         - viscosity -> viscosity
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_appearance)
+        result = normalize_extracted_data(mock_ai_response_with_appearance)
 
         # All appearance fields should be flattened to top level
         assert "color_description" in result
@@ -370,7 +343,7 @@ class TestNestedAppearanceFields:
         assert "viscosity" in result
         assert result["viscosity"] == "full_bodied"
 
-    def test_appearance_color_intensity_range(self, orchestrator):
+    def test_appearance_color_intensity_range(self):
         """Verify color_intensity is mapped even at boundary values (1-10)."""
         data = {
             "name": "Test",
@@ -378,14 +351,14 @@ class TestNestedAppearanceFields:
                 "color_intensity": 1  # Minimum value
             }
         }
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
         assert result.get("color_intensity") == 1
 
         data["appearance"]["color_intensity"] = 10  # Maximum value
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
         assert result.get("color_intensity") == 10
 
-    def test_appearance_partial_fields(self, orchestrator):
+    def test_appearance_partial_fields(self):
         """Verify partial appearance objects are handled correctly."""
         data = {
             "name": "Test",
@@ -394,7 +367,7 @@ class TestNestedAppearanceFields:
                 # Missing other fields
             }
         }
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result.get("color_description") == "Golden amber"
         # Missing fields should not raise errors
@@ -403,7 +376,7 @@ class TestNestedAppearanceFields:
 class TestNestedRatingsFields:
     """Tests for ratings.* field mapping."""
 
-    def test_maps_nested_ratings_fields(self, orchestrator, mock_ai_response_with_ratings):
+    def test_maps_nested_ratings_fields(self, mock_ai_response_with_ratings):
         """
         Verify that all ratings.* fields are correctly mapped.
 
@@ -417,7 +390,7 @@ class TestNestedRatingsFields:
         - uniqueness -> uniqueness
         - drinkability -> drinkability
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_ratings)
+        result = normalize_extracted_data(mock_ai_response_with_ratings)
 
         # All ratings fields should be flattened to top level
         assert "flavor_intensity" in result
@@ -444,9 +417,9 @@ class TestNestedRatingsFields:
         assert "drinkability" in result
         assert result["drinkability"] == 9
 
-    def test_ratings_are_integers(self, orchestrator, mock_ai_response_with_ratings):
+    def test_ratings_are_integers(self, mock_ai_response_with_ratings):
         """Verify that all ratings are mapped as integers."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_ratings)
+        result = normalize_extracted_data(mock_ai_response_with_ratings)
 
         rating_fields = [
             "flavor_intensity", "complexity", "warmth", "dryness",
@@ -457,14 +430,14 @@ class TestNestedRatingsFields:
             if field in result:
                 assert isinstance(result[field], int), f"{field} should be an integer"
 
-    def test_experience_level_maps_correctly(self, orchestrator, mock_ai_response_with_ratings):
+    def test_experience_level_maps_correctly(self, mock_ai_response_with_ratings):
         """Verify experience_level is mapped to top level."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_ratings)
+        result = normalize_extracted_data(mock_ai_response_with_ratings)
 
         assert "experience_level" in result
         assert result["experience_level"] == "intermediate"
 
-    def test_ratings_partial_fields(self, orchestrator):
+    def test_ratings_partial_fields(self):
         """Verify partial ratings objects are handled correctly."""
         data = {
             "name": "Test",
@@ -474,7 +447,7 @@ class TestNestedRatingsFields:
                 # Missing other rating fields
             }
         }
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result.get("balance") == 7
         assert result.get("drinkability") == 8
@@ -483,7 +456,7 @@ class TestNestedRatingsFields:
 class TestProductionFieldsMapping:
     """Tests for production.* field mapping."""
 
-    def test_maps_production_fields(self, orchestrator, mock_ai_response_with_production):
+    def test_maps_production_fields(self, mock_ai_response_with_production):
         """
         Verify that all production.* fields are correctly mapped.
 
@@ -497,7 +470,7 @@ class TestProductionFieldsMapping:
         - cask_treatment -> cask_treatment (as array)
         - maturation_notes -> maturation_notes
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_production)
+        result = normalize_extracted_data(mock_ai_response_with_production)
 
         # Boolean fields
         assert "natural_color" in result
@@ -529,7 +502,7 @@ class TestProductionFieldsMapping:
         assert "maturation_notes" in result
         assert "12 years" in result["maturation_notes"]
 
-    def test_production_boolean_false_values(self, orchestrator):
+    def test_production_boolean_false_values(self):
         """Verify that False boolean values are preserved."""
         data = {
             "name": "Test",
@@ -540,12 +513,12 @@ class TestProductionFieldsMapping:
                 "single_cask": False
             }
         }
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result.get("natural_color") is False
         assert result.get("non_chill_filtered") is False
 
-    def test_production_cask_arrays_empty(self, orchestrator):
+    def test_production_cask_arrays_empty(self):
         """Verify empty cask arrays are handled correctly."""
         data = {
             "name": "Test",
@@ -554,7 +527,7 @@ class TestProductionFieldsMapping:
                 "wood_type": []
             }
         }
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         # Empty arrays should be preserved or not cause errors
         # Implementation may choose to exclude empty arrays
@@ -564,11 +537,11 @@ class TestProductionFieldsMapping:
 class TestTastingEvolutionMapping:
     """Tests for tasting_evolution.* field mapping."""
 
-    def test_maps_tasting_evolution_fields(self, orchestrator, mock_ai_response_with_tasting_evolution):
+    def test_maps_tasting_evolution_fields(self, mock_ai_response_with_tasting_evolution):
         """
         Verify that all tasting_evolution.* fields are correctly mapped.
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_evolution)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_evolution)
 
         assert "initial_taste" in result
         assert result["initial_taste"] == "Sweet honey and vanilla upfront"
@@ -585,24 +558,24 @@ class TestTastingEvolutionMapping:
         assert "final_notes" in result
         assert "Lingering warmth" in result["final_notes"]
 
-    def test_secondary_aromas_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_evolution):
+    def test_secondary_aromas_maps_correctly(self, mock_ai_response_with_tasting_evolution):
         """Verify secondary_aromas array is mapped correctly."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_evolution)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_evolution)
 
         assert "secondary_aromas" in result
         assert result["secondary_aromas"] == ["citrus", "floral", "heather"]
         assert isinstance(result["secondary_aromas"], list)
 
-    def test_mouthfeel_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_evolution):
+    def test_mouthfeel_maps_correctly(self, mock_ai_response_with_tasting_evolution):
         """Verify mouthfeel is mapped to top level."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_evolution)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_evolution)
 
         assert "mouthfeel" in result
         assert result["mouthfeel"] == "smooth-creamy"
 
-    def test_finish_length_maps_correctly(self, orchestrator, mock_ai_response_with_tasting_evolution):
+    def test_finish_length_maps_correctly(self, mock_ai_response_with_tasting_evolution):
         """Verify finish_length is mapped to top level."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_with_tasting_evolution)
+        result = normalize_extracted_data(mock_ai_response_with_tasting_evolution)
 
         assert "finish_length" in result
         assert result["finish_length"] == 8
@@ -612,7 +585,7 @@ class TestTastingEvolutionMapping:
 class TestMissingNestedObjects:
     """Tests for graceful handling of missing nested objects."""
 
-    def test_handles_missing_nested_objects(self, orchestrator):
+    def test_handles_missing_nested_objects(self):
         """
         Verify graceful handling when nested objects are missing.
 
@@ -627,63 +600,63 @@ class TestMissingNestedObjects:
         }
 
         # Should not raise any exceptions
-        result = orchestrator._normalize_data_for_save(minimal_data)
+        result = normalize_extracted_data(minimal_data)
 
         # Core fields should be preserved
         assert result["name"] == "Basic Product"
         assert result["brand"] == "Test Brand"
         assert result["abv"] == 40.0
 
-    def test_handles_missing_tasting_notes(self, orchestrator):
+    def test_handles_missing_tasting_notes(self):
         """Verify handling when tasting_notes is missing entirely."""
         data = {
             "name": "Test Product",
             "ratings": {"balance": 7}
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         # Should complete without errors
         assert result["name"] == "Test Product"
         # tasting fields should be absent or None, not cause errors
 
-    def test_handles_missing_appearance(self, orchestrator):
+    def test_handles_missing_appearance(self):
         """Verify handling when appearance is missing entirely."""
         data = {
             "name": "Test Product",
             "tasting_notes": {"nose": "Fruity"}
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result["name"] == "Test Product"
         # appearance fields should be absent, not cause errors
 
-    def test_handles_missing_ratings(self, orchestrator):
+    def test_handles_missing_ratings(self):
         """Verify handling when ratings is missing entirely."""
         data = {
             "name": "Test Product",
             "appearance": {"color_description": "Amber"}
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result["name"] == "Test Product"
         # rating fields should be absent, not cause errors
 
-    def test_handles_missing_production(self, orchestrator):
+    def test_handles_missing_production(self):
         """Verify handling when production is missing entirely."""
         data = {
             "name": "Test Product",
             "ratings": {"balance": 7}
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result["name"] == "Test Product"
         # production fields should be absent, not cause errors
 
-    def test_handles_empty_nested_objects(self, orchestrator):
+    def test_handles_empty_nested_objects(self):
         """Verify handling when nested objects are present but empty."""
         data = {
             "name": "Test Product",
@@ -693,12 +666,12 @@ class TestMissingNestedObjects:
             "production": {}
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result["name"] == "Test Product"
         # Empty objects should not cause errors
 
-    def test_handles_null_nested_objects(self, orchestrator):
+    def test_handles_null_nested_objects(self):
         """Verify handling when nested objects are explicitly None."""
         data = {
             "name": "Test Product",
@@ -708,12 +681,12 @@ class TestMissingNestedObjects:
             "production": None
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result["name"] == "Test Product"
         # None values should not cause errors
 
-    def test_handles_partial_nested_objects(self, orchestrator):
+    def test_handles_partial_nested_objects(self):
         """Verify handling when nested objects have only some fields."""
         data = {
             "name": "Test Product",
@@ -731,7 +704,7 @@ class TestMissingNestedObjects:
             }
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         assert result["name"] == "Test Product"
         assert result.get("nose_description") == "Honey and vanilla"
@@ -742,14 +715,14 @@ class TestMissingNestedObjects:
 class TestCompleteFieldMapping:
     """Tests for complete field mapping with all V2 fields."""
 
-    def test_complete_v2_response_mapping(self, orchestrator, mock_ai_response_complete):
+    def test_complete_v2_response_mapping(self, mock_ai_response_complete):
         """
         Verify that a complete V2 AI response is correctly mapped.
 
         This is the comprehensive test ensuring all fields from the
         AI Enhancement Service V2 spec are correctly mapped.
         """
-        result = orchestrator._normalize_data_for_save(mock_ai_response_complete)
+        result = normalize_extracted_data(mock_ai_response_complete)
 
         # Core fields
         assert result["name"] == "Glencadam 10 Year Old"
@@ -814,7 +787,7 @@ class TestCompleteFieldMapping:
         assert result.get("primary_cask") == ["ex-bourbon"]
         assert result.get("wood_type") == ["american_oak"]
 
-    def test_existing_top_level_fields_preserved(self, orchestrator):
+    def test_existing_top_level_fields_preserved(self):
         """Verify that existing top-level fields are not overwritten by nested mapping."""
         data = {
             "name": "Test",
@@ -824,7 +797,7 @@ class TestCompleteFieldMapping:
             }
         }
 
-        result = orchestrator._normalize_data_for_save(data)
+        result = normalize_extracted_data(data)
 
         # Existing top-level should be preserved
         assert result["nose_description"] == "Existing nose description"
@@ -833,9 +806,9 @@ class TestCompleteFieldMapping:
 class TestDataTypePreservation:
     """Tests to verify data types are preserved correctly."""
 
-    def test_array_fields_remain_arrays(self, orchestrator, mock_ai_response_complete):
+    def test_array_fields_remain_arrays(self, mock_ai_response_complete):
         """Verify that array fields remain as arrays after mapping."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_complete)
+        result = normalize_extracted_data(mock_ai_response_complete)
 
         array_fields = [
             "primary_aromas", "secondary_aromas", "palate_flavors",
@@ -846,9 +819,9 @@ class TestDataTypePreservation:
             if field in result:
                 assert isinstance(result[field], list), f"{field} should be a list"
 
-    def test_integer_fields_remain_integers(self, orchestrator, mock_ai_response_complete):
+    def test_integer_fields_remain_integers(self, mock_ai_response_complete):
         """Verify that integer fields remain as integers after mapping."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_complete)
+        result = normalize_extracted_data(mock_ai_response_complete)
 
         integer_fields = [
             "color_intensity", "flavor_intensity", "complexity",
@@ -860,9 +833,9 @@ class TestDataTypePreservation:
             if field in result and result[field] is not None:
                 assert isinstance(result[field], int), f"{field} should be an integer"
 
-    def test_boolean_fields_remain_booleans(self, orchestrator, mock_ai_response_complete):
+    def test_boolean_fields_remain_booleans(self, mock_ai_response_complete):
         """Verify that boolean fields remain as booleans after mapping."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_complete)
+        result = normalize_extracted_data(mock_ai_response_complete)
 
         boolean_fields = ["natural_color", "non_chill_filtered"]
 
@@ -870,9 +843,9 @@ class TestDataTypePreservation:
             if field in result and result[field] is not None:
                 assert isinstance(result[field], bool), f"{field} should be a boolean"
 
-    def test_float_fields_remain_floats(self, orchestrator, mock_ai_response_complete):
+    def test_float_fields_remain_floats(self, mock_ai_response_complete):
         """Verify that float fields remain as floats after mapping."""
-        result = orchestrator._normalize_data_for_save(mock_ai_response_complete)
+        result = normalize_extracted_data(mock_ai_response_complete)
 
         # ABV should remain a float
         if "abv" in result and result["abv"] is not None:

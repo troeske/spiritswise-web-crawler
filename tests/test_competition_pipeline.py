@@ -22,7 +22,7 @@ class TestCompetitionPipelineEndToEnd:
     @pytest.mark.django_db(transaction=True)
     def test_competition_discovery_creates_skeletons(self):
         """Competition discovery parses HTML and creates skeleton products."""
-        from crawler.services.competition_orchestrator import CompetitionOrchestrator
+        from crawler.services.competition_orchestrator_v2 import CompetitionOrchestratorV2
         from crawler.models import (
             CrawlerSource,
             CrawlJob,
@@ -67,7 +67,7 @@ class TestCompetitionPipelineEndToEnd:
         # Run discovery
         import asyncio
 
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -283,10 +283,10 @@ class TestURLQueuingFromEnrichment:
     @pytest.mark.asyncio
     async def test_enrichment_urls_queued_with_high_priority(self):
         """URLs from enrichment are queued with priority 10."""
-        from crawler.services.competition_orchestrator import CompetitionOrchestrator
+        from crawler.services.competition_orchestrator_v2 import CompetitionOrchestratorV2
         from crawler.discovery.competitions.enrichment_searcher import ENRICHMENT_PRIORITY
 
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
 
         # Mock the URL frontier
         with patch.object(orchestrator, "url_frontier") as mock_frontier:
@@ -325,7 +325,7 @@ class TestCompetitionOrchestrator:
     @pytest.mark.django_db
     def test_get_competition_sources(self):
         """Orchestrator returns active competition sources."""
-        from crawler.services.competition_orchestrator import CompetitionOrchestrator
+        from crawler.services.competition_orchestrator_v2 import CompetitionOrchestratorV2
         from crawler.models import CrawlerSource, SourceCategory
 
         # Create test sources
@@ -351,7 +351,7 @@ class TestCompetitionOrchestrator:
             is_active=True,
         )
 
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
         sources = orchestrator.get_competition_sources()
 
         # Should only return active competition sources
@@ -361,7 +361,7 @@ class TestCompetitionOrchestrator:
     @pytest.mark.django_db
     def test_get_skeleton_statistics(self):
         """Orchestrator provides accurate skeleton statistics."""
-        from crawler.services.competition_orchestrator import CompetitionOrchestrator
+        from crawler.services.competition_orchestrator_v2 import CompetitionOrchestratorV2
         from crawler.discovery.competitions.skeleton_manager import SkeletonProductManager
 
         manager = SkeletonProductManager()
@@ -376,7 +376,7 @@ class TestCompetitionOrchestrator:
                 "medal": "Gold",
             })
 
-        orchestrator = CompetitionOrchestrator()
+        orchestrator = CompetitionOrchestratorV2()
         stats = orchestrator.get_skeleton_statistics()
 
         assert stats["total_skeletons"] == 3
@@ -390,7 +390,7 @@ class TestCompetitionSources:
     @pytest.mark.django_db
     def test_ensure_competition_sources_exist(self):
         """Competition sources are created if they don't exist."""
-        from crawler.services.competition_orchestrator import (
+        from crawler.services.competition_orchestrator_v2 import (
             ensure_competition_sources_exist,
             COMPETITION_SOURCES,
         )

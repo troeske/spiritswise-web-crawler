@@ -20,7 +20,7 @@ class TestAIEnhancementClientRequestFormatting:
 
         Request format: { content, source_url, product_type_hint }
         """
-        from crawler.services.ai_client import AIEnhancementClient
+        from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient
 
         client = AIEnhancementClient(
             base_url="https://ai-service.example.com",
@@ -81,7 +81,7 @@ class TestAIEnhancementClientRequestFormatting:
     @pytest.mark.asyncio
     async def test_uses_bearer_token_authentication(self):
         """API client uses Bearer token for authentication."""
-        from crawler.services.ai_client import AIEnhancementClient
+        from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient
 
         client = AIEnhancementClient(
             base_url="https://ai-service.example.com",
@@ -117,7 +117,7 @@ class TestAIEnhancementClientResponseParsing:
     @pytest.mark.asyncio
     async def test_parses_response_into_enhancement_result(self):
         """Response is parsed into EnhancementResult with extracted and enriched data."""
-        from crawler.services.ai_client import AIEnhancementClient
+        from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient
 
         client = AIEnhancementClient(
             base_url="https://ai-service.example.com",
@@ -186,7 +186,7 @@ class TestAIEnhancementClientErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_api_error_response_gracefully(self):
         """API errors return EnhancementResult with success=False and error message."""
-        from crawler.services.ai_client import AIEnhancementClient
+        from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient
 
         client = AIEnhancementClient(
             base_url="https://ai-service.example.com",
@@ -218,7 +218,7 @@ class TestAIEnhancementClientErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_connection_timeout(self):
         """Connection timeouts are handled gracefully with appropriate error message."""
-        from crawler.services.ai_client import AIEnhancementClient
+        from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient
         import httpx
 
         client = AIEnhancementClient(
@@ -247,7 +247,7 @@ class TestAIEnhancementClientErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_invalid_json_response(self):
         """Invalid JSON responses are handled gracefully."""
-        from crawler.services.ai_client import AIEnhancementClient
+        from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient
 
         client = AIEnhancementClient(
             base_url="https://ai-service.example.com",

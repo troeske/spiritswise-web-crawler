@@ -444,9 +444,9 @@ class MockOrchestrator:
         """
         Import and use the real normalization method.
         """
-        from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+        from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2
 
-        orchestrator = DiscoveryOrchestrator.__new__(DiscoveryOrchestrator)
+        orchestrator = DiscoveryOrchestratorV2.__new__(DiscoveryOrchestratorV2)
         result = orchestrator._normalize_data_for_save(data)
         self._normalized_data_calls.append({"input": data, "output": result})
         return result

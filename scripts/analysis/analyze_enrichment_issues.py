@@ -52,7 +52,7 @@ print("\n[3] DISCOVERY ORCHESTRATOR CLIENT CHECK")
 print("-" * 60)
 
 try:
-    from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+    from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2 as DiscoveryOrchestrator
     orch = DiscoveryOrchestrator()
 
     # Check smart_crawler

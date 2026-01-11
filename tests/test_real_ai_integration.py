@@ -51,7 +51,7 @@ from crawler.models import (
     CrawlJob,
 )
 from crawler.services.content_processor import ContentProcessor, ProcessingResult
-from crawler.services.ai_client import AIEnhancementClient, get_ai_client
+from crawler.services.ai_client_v2 import AIClientV2 as AIEnhancementClient, get_ai_client_v2 as get_ai_client
 from crawler.services.product_saver import save_discovered_product, ProductSaveResult
 
 

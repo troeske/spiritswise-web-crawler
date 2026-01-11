@@ -59,7 +59,7 @@ class TestCompetitionSourceDetection:
 
             # Mock the async method
             async def mock_run_discovery(*args, **kwargs):
-                from crawler.services.competition_orchestrator import CompetitionDiscoveryResult
+                from crawler.services.competition_orchestrator_v2 import CompetitionDiscoveryResult
                 return CompetitionDiscoveryResult(
                     competition="IWSC",
                     year=2024,
@@ -186,7 +186,7 @@ class TestEnrichSkeletonsTask:
             mock_orchestrator.get_pending_skeletons_count.return_value = 3
 
             async def mock_enrich(*args, **kwargs):
-                from crawler.services.competition_orchestrator import EnrichmentResult
+                from crawler.services.competition_orchestrator_v2 import EnrichmentResult
                 return EnrichmentResult(
                     skeletons_processed=3,
                     urls_discovered=9,
@@ -214,7 +214,7 @@ class TestEnrichSkeletonsTask:
             mock_orchestrator.get_pending_skeletons_count.return_value = 10
 
             async def mock_enrich(limit=50, **kwargs):
-                from crawler.services.competition_orchestrator import EnrichmentResult
+                from crawler.services.competition_orchestrator_v2 import EnrichmentResult
                 return EnrichmentResult(skeletons_processed=min(limit, 5))
 
             mock_orchestrator.process_skeletons_for_enrichment = AsyncMock(side_effect=mock_enrich)

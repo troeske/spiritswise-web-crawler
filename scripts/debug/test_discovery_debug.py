@@ -21,7 +21,7 @@ orchestrator_logger = logging.getLogger('crawler.services.discovery_orchestrator
 orchestrator_logger.setLevel(logging.DEBUG)
 
 from crawler.models import CrawlSchedule, ScheduleCategory
-from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2 as DiscoveryOrchestrator
 
 
 def run_test():

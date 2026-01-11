@@ -10,7 +10,7 @@ django.setup()
 
 from crawler.models import CrawlerSource, CrawlJob, DiscoveredProduct
 from crawler.services.content_processor import ContentProcessor
-from crawler.services.ai_client import get_ai_client
+from crawler.services.ai_client_v2 import get_ai_client_v2 as get_ai_client
 
 MOCK_CONFUSING_HTML = """
 <!DOCTYPE html>

@@ -14,7 +14,7 @@ import django
 django.setup()
 
 from crawler.models import DiscoveredProduct
-from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
+from crawler.services.discovery_orchestrator_v2 import DiscoveryOrchestratorV2 as DiscoveryOrchestrator
 
 print("=" * 60)
 print("ENRICHMENT DEBUG TEST")
