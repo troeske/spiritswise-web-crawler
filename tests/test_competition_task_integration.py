@@ -166,7 +166,7 @@ class TestEnrichSkeletonsTask:
         )
         from crawler.tasks import enrich_skeletons
 
-        # Create skeleton products
+        # Create skeleton products using individual columns (deprecated JSON fields removed)
         for i in range(3):
             DiscoveredProduct.objects.create(
                 source_url="",
@@ -174,8 +174,7 @@ class TestEnrichSkeletonsTask:
                 product_type=ProductType.WHISKEY,
                 raw_content="",
                 raw_content_hash="abc123",
-                extracted_data={"name": f"Test Product {i}"},
-                enriched_data={},  # Empty = needs enrichment
+                name=f"Test Product {i}",
                 status=DiscoveredProductStatus.SKELETON,
                 discovery_source=DiscoverySource.COMPETITION,
             )

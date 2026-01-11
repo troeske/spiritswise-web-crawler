@@ -42,8 +42,9 @@ class ImageFinder:
             List of image entries with url, thumbnail, source, type, width, height
         """
         try:
-            product_name = product.extracted_data.get("name", "")
-            brand = product.extracted_data.get("brand", "")
+            # Use individual columns instead of extracted_data
+            product_name = product.name or ""
+            brand = product.brand.name if product.brand else ""
             product_type = getattr(product, "product_type", "whisky")
 
             # Build search query

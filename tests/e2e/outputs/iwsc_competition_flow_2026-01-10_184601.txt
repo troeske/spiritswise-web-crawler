@@ -1,0 +1,81 @@
+================================================================================
+TEST: IWSC Competition Flow
+Started: 2026-01-10T18:46:01.781553
+Duration: 58.8s
+================================================================================
+
+STEPS:
+----------------------------------------
+1. [OK] fetch: Fetching competition page (force_tier=2) (5157ms)
+      tier_used: 2
+      tier_name: Playwright
+      content_length_bytes: 996421
+      content_length_kb: 973.1
+      has_product_indicators: True
+2. [OK] ai_extract: AI extraction for whiskey products (52541ms)
+      total_products_from_ai: 10
+      extraction_time_ms: 52541.3
+      ai_success: True
+3. [OK] validate: Validating 10 extracted products (N/A)
+      total_products: 10
+      valid_products: 10
+      rejected_products: 0
+      validation_pass_rate: 100.0%
+4. [OK] db_create_source: Creating CrawledSource record (12ms)
+      source_id: df4839f3-f385-4445-aa75-4a30bb9114e6
+      title: IWSC 2025 - Competition Results Page
+      source_type: award_page
+
+PRODUCTS:
+----------------------------------------
+  1. The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  2. The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  3. Ballantine's 10 YO Blended Scotch Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+  4. Filliers Distillery 10 YO Sherry Cask Single Malt Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+  5. Glencadam Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  6. Laphroaig 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  7. The Benromach Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  8. Ardbeg Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  9. Tomintoul Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  10. Speyburn Distillery 10 YO Single Malt Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+
+SUMMARY:
+----------------------------------------
+  Total Steps: 4
+  Successful Steps: 4
+  Failed Steps: 0
+  Total Products: 10
+  Valid Products: 10
+  Rejected Products: 0
+
+================================================================================

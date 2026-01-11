@@ -161,6 +161,48 @@ CELERY_TASK_ROUTES = {
     "crawler.tasks.keyword_search": {"queue": "search"},
     "crawler.tasks.check_due_sources": {"queue": "crawl"},
     "crawler.tasks.check_due_keywords": {"queue": "search"},
+    "crawler.tasks.check_source_health": {"queue": "crawl"},
+    "crawler.tasks.verify_known_products": {"queue": "crawl"},
+    "crawler.tasks.trigger_award_crawl": {"queue": "crawl"},
+}
+
+# Celery Beat Schedule - Periodic tasks
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    # Check source health every 6 hours
+    "check-source-health": {
+        "task": "crawler.tasks.check_source_health",
+        "schedule": crontab(hour="*/6", minute=0),
+        "args": [],  # Will check all sources
+    },
+    # Verify known products weekly on Sunday at 2 AM
+    "verify-known-products-weekly": {
+        "task": "crawler.tasks.verify_known_products",
+        "schedule": crontab(hour=2, minute=0, day_of_week=0),
+        "args": [],  # Will verify all sources
+    },
+    # Check due sources every 5 minutes
+    "check-due-sources": {
+        "task": "crawler.tasks.check_due_sources",
+        "schedule": crontab(minute="*/5"),
+    },
+    # Check due keywords every 10 minutes
+    "check-due-keywords": {
+        "task": "crawler.tasks.check_due_keywords",
+        "schedule": crontab(minute="*/10"),
+    },
+    # Competition enrichment tasks
+    "enrich-skeletons-every-30-minutes": {
+        "task": "crawler.tasks.enrich_skeletons",
+        "schedule": crontab(minute="*/30"),  # Every 30 minutes
+        "kwargs": {"limit": 50},
+    },
+    "process-enrichment-queue-every-10-minutes": {
+        "task": "crawler.tasks.process_enrichment_queue",
+        "schedule": crontab(minute="*/10"),  # Every 10 minutes
+        "kwargs": {"max_urls": 100},
+    },
 }
 
 

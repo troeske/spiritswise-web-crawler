@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
+from asgiref.sync import sync_to_async
 
 from crawler.models import EnrichmentConfig, ProductTypeConfig
 from crawler.services.ai_client_v2 import AIClientV2, get_ai_client_v2
@@ -150,7 +151,8 @@ class EnrichmentOrchestratorV2:
         )
 
         try:
-            session = self._create_session(
+            # Use sync_to_async for database access
+            session = await sync_to_async(self._create_session, thread_sensitive=True)(
                 product_type,
                 initial_data,
                 initial_confidences or {},
@@ -168,7 +170,8 @@ class EnrichmentOrchestratorV2:
                 len(session.current_data),
             )
 
-            configs = self._load_enrichment_configs(product_type)
+            # Use sync_to_async for database access
+            configs = await sync_to_async(self._load_enrichment_configs, thread_sensitive=True)(product_type)
 
             if not configs:
                 logger.warning(

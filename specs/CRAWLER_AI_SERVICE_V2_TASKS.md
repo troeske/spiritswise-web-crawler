@@ -158,18 +158,18 @@ Each FieldDefinition must include:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 1.1.1 Write unit tests for `ExtractionRequest` schema | [ ] | ai-service-dev | None |
-| 1.1.2 Write unit tests for `ExtractionResponse` schema | [ ] | ai-service-dev | None |
-| 1.1.3 Write unit tests for `ProductType` enum validation | [ ] | ai-service-dev | None |
-| 1.1.4 Write unit tests for `product_category` validation per type | [ ] | ai-service-dev | None |
-| 1.1.5 Write unit tests for `extraction_schema` validation (flat field list) | [ ] | ai-service-dev | None |
-| 1.1.6 Implement `SourceData` Pydantic model | [ ] | ai-service-dev | 1.1.1 |
-| 1.1.7 Implement `extraction_schema` validator (validates field names) | [ ] | ai-service-dev | 1.1.5 |
-| 1.1.8 Implement `ExtractionOptions` Pydantic model | [ ] | ai-service-dev | 1.1.1 |
-| 1.1.9 Implement `ExtractionRequest` Pydantic model | [ ] | ai-service-dev | 1.1.6, 1.1.7, 1.1.8 |
-| 1.1.10 Implement `ExtractedProduct` Pydantic model | [ ] | ai-service-dev | 1.1.2 |
-| 1.1.11 Implement `ExtractionResponse` Pydantic model | [ ] | ai-service-dev | 1.1.10 |
-| 1.1.12 Run schema tests and verify all pass | [ ] | test-runner | 1.1.11 |
+| 1.1.1 Write unit tests for `ExtractionRequest` schema | [X] | ai-service-dev | None |
+| 1.1.2 Write unit tests for `ExtractionResponse` schema | [X] | ai-service-dev | None |
+| 1.1.3 Write unit tests for `ProductType` enum validation | [X] | ai-service-dev | None |
+| 1.1.4 Write unit tests for `product_category` validation per type | [X] | ai-service-dev | None |
+| 1.1.5 Write unit tests for `extraction_schema` validation (flat field list) | [X] | ai-service-dev | None |
+| 1.1.6 Implement `SourceData` DRF serializer | [X] | ai-service-dev | 1.1.1 |
+| 1.1.7 Implement `extraction_schema` validator (validates field names) | [X] | ai-service-dev | 1.1.5 |
+| 1.1.8 Implement `ExtractionOptions` DRF serializer | [X] | ai-service-dev | 1.1.1 |
+| 1.1.9 Implement `ExtractionRequest` DRF serializer | [X] | ai-service-dev | 1.1.6, 1.1.7, 1.1.8 |
+| 1.1.10 Implement `ExtractedProduct` DRF serializer | [X] | ai-service-dev | 1.1.2 |
+| 1.1.11 Implement `ExtractionResponse` DRF serializer | [X] | ai-service-dev | 1.1.10 |
+| 1.1.12 Run schema tests and verify all pass | [X] | test-runner | 1.1.11 |
 
 **Files to create:**
 - `spiritswise-ai-enhancement-service/ai_enhancement_engine/api/v2/__init__.py`
@@ -184,17 +184,17 @@ Each FieldDefinition must include:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 1.2.1 Write unit tests for `build_extraction_prompt()` | [ ] | ai-service-dev | None |
-| 1.2.2 Write unit tests for `get_type_context()` whiskey | [ ] | ai-service-dev | None |
-| 1.2.3 Write unit tests for `get_type_context()` port_wine | [ ] | ai-service-dev | None |
-| 1.2.4 Write unit tests for `get_field_descriptions()` | [ ] | ai-service-dev | None |
-| 1.2.5 Write unit tests for category-specific prompts | [ ] | ai-service-dev | None |
-| 1.2.6 Implement `TYPE_CONTEXTS` configuration | [ ] | ai-service-dev | 1.2.2, 1.2.3 |
-| 1.2.7 Implement `FIELD_DESCRIPTIONS` configuration | [ ] | ai-service-dev | 1.2.4 |
-| 1.2.8 Implement `get_type_context()` function | [ ] | ai-service-dev | 1.2.6 |
-| 1.2.9 Implement `get_field_descriptions()` function | [ ] | ai-service-dev | 1.2.7 |
-| 1.2.10 Implement `build_extraction_prompt()` function | [ ] | ai-service-dev | 1.2.8, 1.2.9 |
-| 1.2.11 Run prompt builder tests and verify all pass | [ ] | test-runner | 1.2.10 |
+| 1.2.1 Write unit tests for `build_extraction_prompt()` | [X] | ai-service-dev | None |
+| 1.2.2 Write unit tests for `get_type_context()` whiskey | [X] | ai-service-dev | None |
+| 1.2.3 Write unit tests for `get_type_context()` port_wine | [X] | ai-service-dev | None |
+| 1.2.4 Write unit tests for `get_field_descriptions()` | [X] | ai-service-dev | None |
+| 1.2.5 Write unit tests for category-specific prompts | [X] | ai-service-dev | None |
+| 1.2.6 Implement `TYPE_CONTEXTS` configuration | [X] | ai-service-dev | 1.2.2, 1.2.3 |
+| 1.2.7 Implement `FIELD_DESCRIPTIONS` configuration | [X] | ai-service-dev | 1.2.4 |
+| 1.2.8 Implement `get_type_context()` function | [X] | ai-service-dev | 1.2.6 |
+| 1.2.9 Implement `get_field_descriptions()` function | [X] | ai-service-dev | 1.2.7 |
+| 1.2.10 Implement `build_extraction_prompt()` function | [X] | ai-service-dev | 1.2.8, 1.2.9 |
+| 1.2.11 Run prompt builder tests and verify all pass | [X] | test-runner | 1.2.10 |
 
 **Files to create:**
 - `spiritswise-ai-enhancement-service/ai_enhancement_engine/prompts/v2_extraction_prompts.py`
@@ -208,20 +208,20 @@ Each FieldDefinition must include:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 1.3.1 Write unit tests for single product extraction | [ ] | ai-service-dev | 1.1.11 |
-| 1.3.2 Write unit tests for multi-product detection | [ ] | ai-service-dev | 1.1.11 |
-| 1.3.3 Write unit tests for field confidence calculation | [ ] | ai-service-dev | 1.1.11 |
-| 1.3.4 Write unit tests for extraction summary generation | [ ] | ai-service-dev | 1.1.11 |
-| 1.3.5 Write unit tests for error handling (invalid content) | [ ] | ai-service-dev | 1.1.11 |
-| 1.3.6 Write unit tests for product type validation | [ ] | ai-service-dev | 1.1.11 |
-| 1.3.7 Implement `ExtractorV2Service` class skeleton | [ ] | ai-service-dev | 1.3.1-1.3.6 |
-| 1.3.8 Implement `extract()` main method | [ ] | ai-service-dev | 1.3.7, 1.2.11 |
-| 1.3.9 Implement `_call_llm()` OpenAI integration | [ ] | ai-service-dev | 1.3.8 |
-| 1.3.10 Implement `_parse_llm_response()` JSON parsing | [ ] | ai-service-dev | 1.3.9 |
-| 1.3.11 Implement `_calculate_confidences()` method | [ ] | ai-service-dev | 1.3.10 |
-| 1.3.12 Implement `_build_extraction_summary()` method | [ ] | ai-service-dev | 1.3.11 |
-| 1.3.13 Implement `_detect_multi_product()` method | [ ] | ai-service-dev | 1.3.12 |
-| 1.3.14 Run extractor service tests and verify all pass | [ ] | test-runner | 1.3.13 |
+| 1.3.1 Write unit tests for single product extraction | [X] | ai-service-dev | 1.1.11 |
+| 1.3.2 Write unit tests for multi-product detection | [X] | ai-service-dev | 1.1.11 |
+| 1.3.3 Write unit tests for field confidence calculation | [X] | ai-service-dev | 1.1.11 |
+| 1.3.4 Write unit tests for extraction summary generation | [X] | ai-service-dev | 1.1.11 |
+| 1.3.5 Write unit tests for error handling (invalid content) | [X] | ai-service-dev | 1.1.11 |
+| 1.3.6 Write unit tests for product type validation | [X] | ai-service-dev | 1.1.11 |
+| 1.3.7 Implement `ExtractorV2Service` class skeleton | [X] | ai-service-dev | 1.3.1-1.3.6 |
+| 1.3.8 Implement `extract()` main method | [X] | ai-service-dev | 1.3.7, 1.2.11 |
+| 1.3.9 Implement `_call_llm()` OpenAI integration | [X] | ai-service-dev | 1.3.8 |
+| 1.3.10 Implement `_parse_llm_response()` JSON parsing | [X] | ai-service-dev | 1.3.9 |
+| 1.3.11 Implement `_calculate_confidences()` method | [X] | ai-service-dev | 1.3.10 |
+| 1.3.12 Implement `_build_extraction_summary()` method | [X] | ai-service-dev | 1.3.11 |
+| 1.3.13 Implement `_detect_multi_product()` method | [X] | ai-service-dev | 1.3.12 |
+| 1.3.14 Run extractor service tests and verify all pass | [X] | test-runner | 1.3.13 |
 
 **Files to create:**
 - `spiritswise-ai-enhancement-service/ai_enhancement_engine/services/extractor_v2.py`
@@ -235,14 +235,14 @@ Each FieldDefinition must include:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 1.4.1 Write integration tests for POST `/api/v2/extract/` | [ ] | ai-service-dev | 1.3.14 |
-| 1.4.2 Write tests for request validation errors | [ ] | ai-service-dev | 1.1.11 |
-| 1.4.3 Write tests for successful single product response | [ ] | ai-service-dev | 1.3.14 |
-| 1.4.4 Write tests for successful multi-product response | [ ] | ai-service-dev | 1.3.14 |
-| 1.4.5 Write tests for error responses | [ ] | ai-service-dev | 1.3.14 |
-| 1.4.6 Implement `extract_v2()` view function | [ ] | ai-service-dev | 1.4.1-1.4.5 |
-| 1.4.7 Add URL routing for `/api/v2/extract/` | [ ] | ai-service-dev | 1.4.6 |
-| 1.4.8 Run API endpoint tests and verify all pass | [ ] | test-runner | 1.4.7 |
+| 1.4.1 Write integration tests for POST `/api/v2/extract/` | [X] | ai-service-dev | 1.3.14 |
+| 1.4.2 Write tests for request validation errors | [X] | ai-service-dev | 1.1.11 |
+| 1.4.3 Write tests for successful single product response | [X] | ai-service-dev | 1.3.14 |
+| 1.4.4 Write tests for successful multi-product response | [X] | ai-service-dev | 1.3.14 |
+| 1.4.5 Write tests for error responses | [X] | ai-service-dev | 1.3.14 |
+| 1.4.6 Implement `ExtractV2View` view class | [X] | ai-service-dev | 1.4.1-1.4.5 |
+| 1.4.7 Add URL routing for `/api/v2/extract/` | [X] | ai-service-dev | 1.4.6 |
+| 1.4.8 Run API endpoint tests and verify all pass | [X] | test-runner | 1.4.7 |
 
 **Files to create:**
 - `spiritswise-ai-enhancement-service/ai_enhancement_engine/api/v2/endpoints.py`
@@ -327,18 +327,18 @@ Each FieldDefinition must include:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 2.5.1.1 Write unit tests for `_extract_clean_text()` method | [ ] | crawler-dev | None |
-| 2.5.1.2 Write unit tests for `_clean_structured_html()` method | [ ] | crawler-dev | None |
-| 2.5.1.3 Write unit tests for `_extract_headings()` helper | [ ] | crawler-dev | None |
-| 2.5.1.4 Write unit tests for `_basic_text_extract()` fallback | [ ] | crawler-dev | None |
-| 2.5.1.5 Write unit tests for content type detection | [ ] | crawler-dev | None |
-| 2.5.1.6 Implement `ContentPreprocessor` class skeleton | [ ] | crawler-dev | 2.5.1.1-2.5.1.5 |
-| 2.5.1.7 Implement `_extract_headings()` method | [ ] | crawler-dev | 2.5.1.6 |
-| 2.5.1.8 Implement `_basic_text_extract()` fallback | [ ] | crawler-dev | 2.5.1.7 |
-| 2.5.1.9 Implement `_extract_clean_text()` with trafilatura | [ ] | crawler-dev | 2.5.1.8 |
-| 2.5.1.10 Implement `_clean_structured_html()` for list pages | [ ] | crawler-dev | 2.5.1.9 |
-| 2.5.1.11 Implement `preprocess()` main method | [ ] | crawler-dev | 2.5.1.10 |
-| 2.5.1.12 Run preprocessor tests and verify all pass | [ ] | test-runner | 2.5.1.11 |
+| 2.5.1.1 Write unit tests for `_extract_clean_text()` method | [X] | crawler-dev | None |
+| 2.5.1.2 Write unit tests for `_clean_structured_html()` method | [X] | crawler-dev | None |
+| 2.5.1.3 Write unit tests for `_extract_headings()` helper | [X] | crawler-dev | None |
+| 2.5.1.4 Write unit tests for `_basic_text_extract()` fallback | [X] | crawler-dev | None |
+| 2.5.1.5 Write unit tests for content type detection | [X] | crawler-dev | None |
+| 2.5.1.6 Implement `ContentPreprocessor` class skeleton | [X] | crawler-dev | 2.5.1.1-2.5.1.5 |
+| 2.5.1.7 Implement `_extract_headings()` method | [X] | crawler-dev | 2.5.1.6 |
+| 2.5.1.8 Implement `_basic_text_extract()` fallback | [X] | crawler-dev | 2.5.1.7 |
+| 2.5.1.9 Implement `_extract_clean_text()` with trafilatura | [X] | crawler-dev | 2.5.1.8 |
+| 2.5.1.10 Implement `_clean_structured_html()` for list pages | [X] | crawler-dev | 2.5.1.9 |
+| 2.5.1.11 Implement `preprocess()` main method | [X] | crawler-dev | 2.5.1.10 |
+| 2.5.1.12 Run preprocessor tests and verify all pass | [X] | test-runner | 2.5.1.11 |
 
 **Files to create:**
 - `spiritswise-web-crawler/crawler/services/content_preprocessor.py`
@@ -352,15 +352,15 @@ Each FieldDefinition must include:
 
 | Task | Status | Subagent | Dependencies |
 |------|--------|----------|--------------|
-| 2.5.2.1 Write unit tests for `cleaned_text` content type | [ ] | crawler-dev | 2.5.1.12 |
-| 2.5.2.2 Write unit tests for `structured_html` content type | [ ] | crawler-dev | 2.5.1.12 |
-| 2.5.2.3 Write unit tests for `raw_html` fallback | [ ] | crawler-dev | 2.5.1.12 |
-| 2.5.2.4 Write unit tests for token estimation | [ ] | crawler-dev | None |
-| 2.5.2.5 Write unit tests for oversized content handling | [ ] | crawler-dev | 2.5.1.12 |
-| 2.5.2.6 Implement `estimate_tokens()` method | [ ] | crawler-dev | 2.5.2.4 |
-| 2.5.2.7 Implement `_should_preserve_structure()` detector | [ ] | crawler-dev | 2.5.2.1-2.5.2.3 |
-| 2.5.2.8 Implement oversized content truncation | [ ] | crawler-dev | 2.5.2.5, 2.5.2.6 |
-| 2.5.2.9 Run content type tests and verify all pass | [ ] | test-runner | 2.5.2.8 |
+| 2.5.2.1 Write unit tests for `cleaned_text` content type | [X] | crawler-dev | 2.5.1.12 |
+| 2.5.2.2 Write unit tests for `structured_html` content type | [X] | crawler-dev | 2.5.1.12 |
+| 2.5.2.3 Write unit tests for `raw_html` fallback | [X] | crawler-dev | 2.5.1.12 |
+| 2.5.2.4 Write unit tests for token estimation | [X] | crawler-dev | None |
+| 2.5.2.5 Write unit tests for oversized content handling | [X] | crawler-dev | 2.5.1.12 |
+| 2.5.2.6 Implement `estimate_tokens()` method | [X] | crawler-dev | 2.5.2.4 |
+| 2.5.2.7 Implement `_should_preserve_structure()` detector | [X] | crawler-dev | 2.5.2.1-2.5.2.3 |
+| 2.5.2.8 Implement oversized content truncation | [X] | crawler-dev | 2.5.2.5, 2.5.2.6 |
+| 2.5.2.9 Run content type tests and verify all pass | [X] | test-runner | 2.5.2.8 |
 
 **Test file:**
 - `spiritswise-web-crawler/crawler/tests/unit/test_content_preprocessor.py` (extend)
@@ -381,11 +381,11 @@ Each FieldDefinition must include:
 | 3.1.4 Write unit tests for retry logic | [ ] | crawler-dev | None |
 | 3.1.5 Write unit tests for timeout handling | [ ] | crawler-dev | None |
 | 3.1.6 Write unit tests for content preprocessing integration | [ ] | crawler-dev | 2.5.2.9 |
-| 3.1.7 Implement `AIClientV2` class skeleton | [ ] | crawler-dev | 3.1.1-3.1.6 |
-| 3.1.8 Implement `extract()` async method | [ ] | crawler-dev | 3.1.7 |
-| 3.1.9 Implement `_build_request()` method with preprocessing | [ ] | crawler-dev | 3.1.8, 2.5.2.9 |
-| 3.1.10 Implement `_parse_response()` method | [ ] | crawler-dev | 3.1.9 |
-| 3.1.11 Implement retry with exponential backoff | [ ] | crawler-dev | 3.1.10 |
+| 3.1.7 Implement `AIClientV2` class skeleton | [X] | crawler-dev | 3.1.1-3.1.6 |
+| 3.1.8 Implement `extract()` async method | [X] | crawler-dev | 3.1.7 |
+| 3.1.9 Implement `_build_request()` method with preprocessing | [X] | crawler-dev | 3.1.8, 2.5.2.9 |
+| 3.1.10 Implement `_parse_response()` method | [X] | crawler-dev | 3.1.9 |
+| 3.1.11 Implement retry with exponential backoff | [X] | crawler-dev | 3.1.10 |
 | 3.1.12 Run client tests and verify all pass | [ ] | test-runner | 3.1.11 |
 
 **Files to create:**
@@ -679,6 +679,23 @@ Each FieldDefinition must include:
 
 ---
 
+### 6.4 Competition E2E Tests (V2)
+
+| Task | Status | Subagent | Dependencies |
+|------|--------|----------|--------------|
+| 6.4.1 Write E2E test for IWSC competition flow with V2 | [ ] | integration-dev | 7.1.6 |
+| 6.4.2 Write E2E test for SFWSC competition flow with V2 | [ ] | integration-dev | 7.1.6 |
+| 6.4.3 Write E2E test for competition batch processing | [ ] | integration-dev | 7.1.6 |
+| 6.4.4 Write E2E test for award data persistence | [ ] | integration-dev | 7.1.6 |
+| 6.4.5 Write E2E test for competition quality assessment | [ ] | integration-dev | 7.1.6 |
+| 6.4.6 Write E2E test for competition enrichment queue | [ ] | integration-dev | 7.1.6, 4.4.11 |
+| 6.4.7 Run competition E2E tests and verify all pass | [ ] | test-runner | 6.4.1-6.4.6 |
+
+**Test file:**
+- `spiritswise-web-crawler/tests/e2e/test_competition_v2_flow.py`
+
+---
+
 ## Phase 7: Competition Flow Update
 
 **Goal**: Update CompetitionOrchestrator to use V2 architecture
@@ -715,9 +732,9 @@ Each FieldDefinition must include:
 | Phase 3: V2 Client | 12 | 6 | 6 | 0 |
 | Phase 4: Enrichment + Source Tracking | 65 | 32 | 29 | 4 |
 | Phase 5: Discovery Integration | 15 | 7 | 8 | 0 |
-| Phase 6: E2E Tests | 18 | 18 | 0 | 0 |
+| Phase 6: E2E Tests | 25 | 25 | 0 | 0 |
 | Phase 7: Competition | 6 | 3 | 3 | 0 |
-| **TOTAL** | **241** | **115** | **119** | **7** |
+| **TOTAL** | **248** | **122** | **119** | **7** |
 
 ### Execution Order
 

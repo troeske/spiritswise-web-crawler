@@ -9,8 +9,9 @@ configurable search terms and the SmartCrawler extraction pipeline.
 import logging
 import os
 import re
+import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from urllib.parse import urlparse
 
 from django.db.models import Q
@@ -29,6 +30,11 @@ from crawler.models import (
 from crawler.services.product_saver import save_discovered_product, ProductSaveResult
 
 logger = logging.getLogger(__name__)
+
+# Safety limits for enrichment (ScrapingBee cost control)
+MAX_URLS_PER_PRODUCT = 5  # Maximum unique URLs to crawl for one product
+MAX_SERPAPI_SEARCHES_PER_PRODUCT = 3  # Maximum SerpAPI searches per product
+MAX_ENRICHMENT_TIME_SECONDS = 120  # 2 minute timeout per product enrichment
 
 
 class SerpAPIClient:
@@ -183,6 +189,11 @@ class DiscoveryOrchestrator:
         self.serpapi_client = serpapi_client or SerpAPIClient()
         self.job: Optional[DiscoveryJob] = None
 
+        # Track enrichment attempts per product (by fingerprint or name)
+        self._product_url_counts: Dict[str, int] = {}
+        self._product_serpapi_counts: Dict[str, int] = {}
+        self._product_start_times: Dict[str, float] = {}
+
         # Initialize SmartCrawler
         if smart_crawler:
             self.smart_crawler = smart_crawler
@@ -202,6 +213,126 @@ class DiscoveryOrchestrator:
         except ImportError as e:
             logger.warning(f"Could not initialize SmartCrawler: {e}")
             self.smart_crawler = None
+
+    # =========================================================================
+    # Search Depth Limit Methods (Safety Switch)
+    # =========================================================================
+
+    def _get_product_key(self, product_name: str, product_info: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Generate a unique key for tracking per-product limits.
+
+        Uses product name normalized for consistent tracking.
+
+        Args:
+            product_name: The product name
+            product_info: Optional product info dict for additional context
+
+        Returns:
+            A normalized key string for tracking
+        """
+        key = product_name.lower().strip()
+        key = re.sub(r'\s+', '_', key)
+        key = re.sub(r'[^a-z0-9_]', '', key)
+        return key[:100]  # Limit key length
+
+    def _can_continue_enrichment(self, product_key: str) -> Tuple[bool, str]:
+        """
+        Check if we can continue enriching a product.
+
+        Enforces safety limits to prevent endless searches and control API costs.
+
+        Args:
+            product_key: The unique key for the product being enriched
+
+        Returns:
+            Tuple of (can_continue, reason_if_not)
+        """
+        # Check URL limit
+        url_count = self._product_url_counts.get(product_key, 0)
+        if url_count >= MAX_URLS_PER_PRODUCT:
+            return False, f"Hit max URLs limit ({MAX_URLS_PER_PRODUCT})"
+
+        # Check SerpAPI limit
+        serpapi_count = self._product_serpapi_counts.get(product_key, 0)
+        if serpapi_count >= MAX_SERPAPI_SEARCHES_PER_PRODUCT:
+            return False, f"Hit max SerpAPI searches ({MAX_SERPAPI_SEARCHES_PER_PRODUCT})"
+
+        # Check time limit
+        start_time = self._product_start_times.get(product_key)
+        if start_time and (time.time() - start_time) > MAX_ENRICHMENT_TIME_SECONDS:
+            return False, f"Hit time limit ({MAX_ENRICHMENT_TIME_SECONDS}s)"
+
+        return True, ""
+
+    def _start_product_enrichment(self, product_key: str) -> None:
+        """
+        Mark the start of enrichment for a product.
+
+        Initializes tracking counters and start time.
+
+        Args:
+            product_key: The unique key for the product
+        """
+        if product_key not in self._product_start_times:
+            self._product_start_times[product_key] = time.time()
+        if product_key not in self._product_url_counts:
+            self._product_url_counts[product_key] = 0
+        if product_key not in self._product_serpapi_counts:
+            self._product_serpapi_counts[product_key] = 0
+
+    def _record_url_crawled(self, product_key: str) -> None:
+        """
+        Record that a URL was crawled for this product.
+
+        Args:
+            product_key: The unique key for the product
+        """
+        self._product_url_counts[product_key] = self._product_url_counts.get(product_key, 0) + 1
+        logger.debug(f"Product '{product_key}': URL crawl #{self._product_url_counts[product_key]}")
+
+    def _record_serpapi_search(self, product_key: str) -> None:
+        """
+        Record that a SerpAPI search was made for this product.
+
+        Args:
+            product_key: The unique key for the product
+        """
+        self._product_serpapi_counts[product_key] = self._product_serpapi_counts.get(product_key, 0) + 1
+        logger.debug(f"Product '{product_key}': SerpAPI search #{self._product_serpapi_counts[product_key]}")
+
+    def _clear_product_tracking(self, product_key: str) -> None:
+        """
+        Clear tracking data for a product after enrichment is complete.
+
+        Args:
+            product_key: The unique key for the product
+        """
+        self._product_url_counts.pop(product_key, None)
+        self._product_serpapi_counts.pop(product_key, None)
+        self._product_start_times.pop(product_key, None)
+
+    def _get_enrichment_stats(self, product_key: str) -> Dict[str, Any]:
+        """
+        Get current enrichment statistics for a product.
+
+        Args:
+            product_key: The unique key for the product
+
+        Returns:
+            Dict with current enrichment statistics
+        """
+        start_time = self._product_start_times.get(product_key)
+        elapsed = time.time() - start_time if start_time else 0
+
+        return {
+            "urls_crawled": self._product_url_counts.get(product_key, 0),
+            "serpapi_searches": self._product_serpapi_counts.get(product_key, 0),
+            "elapsed_seconds": round(elapsed, 2),
+            "max_urls": MAX_URLS_PER_PRODUCT,
+            "max_serpapi": MAX_SERPAPI_SEARCHES_PER_PRODUCT,
+            "max_time": MAX_ENRICHMENT_TIME_SECONDS,
+        }
 
     # =========================================================================
     # Competition Detection Methods
@@ -308,7 +439,7 @@ class DiscoveryOrchestrator:
             base_url=url,
             search_terms=[parser_key] if parser_key else [],
             is_active=False,  # Inactive until human reviews
-            notes=f"Auto-discovered competition site. Parser: {parser_key or 'unknown'}. Original title: {title}",
+            description=f"Auto-discovered competition site. Parser: {parser_key or 'unknown'}. Original title: {title}",
         )
 
         logger.info(f"Created pending competition schedule for review: {domain}")
@@ -413,10 +544,11 @@ class DiscoveryOrchestrator:
             class DirectSearchTerm:
                 """Lightweight wrapper for direct search term strings."""
                 def __init__(self, query: str, priority: int = 100, product_type: str = None):
-                    self.term_template = query
+                    self.search_query = query
                     self.priority = priority
                     self.search_count = 0
                     self.products_discovered = 0
+                    self.max_results = 10  # Default per-term max results
                     # Infer product type from query if not specified
                     self.product_type = product_type or self._infer_product_type(query)
 
@@ -438,11 +570,6 @@ class DiscoveryOrchestrator:
                     elif any(w in query_lower for w in ["cognac", "brandy"]):
                         return "brandy"
                     return "spirits"  # Default
-
-                def get_search_query(self) -> str:
-                    # Replace {year} with current year if present
-                    from django.utils import timezone
-                    return self.term_template.replace("{year}", str(timezone.now().year))
 
                 def save(self, *args, **kwargs):
                     pass  # No-op for direct terms
@@ -482,17 +609,15 @@ class DiscoveryOrchestrator:
         Args:
             term: The SearchTerm to process
         """
-        query = term.get_search_query()
+        query = term.search_query
         logger.info(f"Searching: {query}")
 
         # Execute search
         results = self._search(query)
         self.job.serpapi_calls_used += 1
 
-        # Get max results limit
-        max_results = 10
-        if self.schedule:
-            max_results = self.schedule.max_results_per_term
+        # Get max results limit - per-term setting takes precedence
+        max_results = getattr(term, 'max_results', 10)
 
         # Process each result
         for rank, result in enumerate(results[:max_results], 1):
@@ -542,17 +667,23 @@ class DiscoveryOrchestrator:
             return
 
         self.job.urls_found += 1
+        logger.info(f"DEBUG FLOW: URL #{self.job.urls_found}: {url[:80]}... title: {title[:50]}...")
 
         # STEP 1: Check if this is a competition site
         # If so, route to competition flow or create pending schedule
-        if self._handle_competition_url(url, title, term, rank):
+        is_competition = self._handle_competition_url(url, title, term, rank)
+        logger.info(f"DEBUG FLOW: is_competition={is_competition}")
+        if is_competition:
             return  # Handled by competition logic
 
         # STEP 2: Check if this is a list page with multiple products
-        if self._is_list_page(url, title):
+        is_list = self._is_list_page(url, title)
+        logger.info(f"DEBUG FLOW: is_list_page={is_list}")
+        if is_list:
             self._process_list_page(url, title, term, rank)
             return
 
+        logger.info(f"DEBUG FLOW: Processing as single product page")
         # Create discovery result record for single product page
         domain = self._extract_domain(url)
         # Only assign search_term if it's a real SearchTerm model instance
@@ -601,19 +732,27 @@ class DiscoveryOrchestrator:
             term: The search term
             rank: Search result rank
         """
-        logger.info(f"Processing list page: {title}")
+        logger.info(f"DEBUG LIST: Processing list page: {title}")
 
         # Fetch page content
+        logger.info(f"DEBUG LIST: Fetching content from {url[:80]}...")
         html_content = self._fetch_page_content(url)
+        logger.info(f"DEBUG LIST: Fetched content length: {len(html_content) if html_content else 0}")
         if not html_content:
-            logger.warning(f"Failed to fetch list page content: {url}")
+            logger.warning(f"DEBUG LIST: Failed to fetch list page content: {url}")
             return
+
+        # Track successful crawl of list page
+        self.job.urls_crawled += 1
+        logger.info(f"DEBUG LIST: urls_crawled incremented to {self.job.urls_crawled}")
 
         # Get product type from search term
         product_type = getattr(term, "product_type", "unknown") or "unknown"
 
         # Extract products from list - includes all available data (names, tasting notes, ratings, etc.)
+        logger.info(f"DEBUG: Calling _extract_list_products for {url[:50]}... with product_type={product_type}")
         products = self._extract_list_products(url, html_content, product_type=product_type)
+        logger.info(f"DEBUG: _extract_list_products returned: {products}")
         if not products:
             logger.warning(f"No products found in list page: {url}")
             return
@@ -804,25 +943,48 @@ class DiscoveryOrchestrator:
             url: The URL to crawl
             title: The page title
         """
+        logger.info(f"DEBUG SINGLE: Starting single product extraction for {url[:60]}...")
         if not self.smart_crawler:
+            logger.warning(f"DEBUG SINGLE: SmartCrawler not available!")
             discovery_result.status = DiscoveryResultStatus.FAILED
             discovery_result.error_message = "SmartCrawler not available"
             discovery_result.save()
             self.job.products_failed += 1
             return
 
+        # Initialize tracking for this product
+        product_key = self._get_product_key(title)
+        self._start_product_enrichment(product_key)
+
         try:
+            # Check limits before crawling
+            can_continue, reason = self._can_continue_enrichment(product_key)
+            if not can_continue:
+                logger.warning(f"Enrichment limit reached for {title}: {reason}")
+                discovery_result.status = DiscoveryResultStatus.FAILED
+                discovery_result.error_message = f"Enrichment limit: {reason}"
+                discovery_result.save()
+                self.job.products_failed += 1
+                self._clear_product_tracking(product_key)
+                return
+
             # Determine product type from search term
             product_type = term.product_type
             if product_type == "both":
                 product_type = "whiskey"  # Default
 
             # Call SmartCrawler
+            logger.info(f"DEBUG SINGLE: Calling SmartCrawler.extract_product for {title[:40]}...")
             extraction = self.smart_crawler.extract_product(
                 expected_name=title,
                 product_type=product_type,
                 primary_url=url,
             )
+
+            # Record the URL crawl
+            self._record_url_crawled(product_key)
+
+            logger.info(f"DEBUG SINGLE: SmartCrawler returned success={extraction.success}, errors={extraction.errors}")
 
             # Track API calls
             if hasattr(extraction, "scrapingbee_calls"):
@@ -872,6 +1034,10 @@ class DiscoveryOrchestrator:
             discovery_result.save()
             self.job.products_failed += 1
             self.job.error_count += 1
+
+        finally:
+            # Clean up tracking
+            self._clear_product_tracking(product_key)
 
     def _save_product(
         self,
@@ -939,18 +1105,207 @@ class DiscoveryOrchestrator:
 
     def _normalize_data_for_save(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Normalize extracted data from orchestrator format to save_discovered_product format.
+        Normalize extracted data from AI service V2 format to save_discovered_product format.
 
-        The orchestrator may receive data with JSON-style fields that need to be
-        expanded into the individual column format expected by save_discovered_product.
+        The AI service V2 returns data with nested objects that need to be
+        flattened/expanded into the individual column format expected by save_discovered_product.
+
+        Field mapping for AI Enhancement Service V2:
+        - tasting_notes.nose_aromas -> primary_aromas
+        - tasting_notes.palate_flavors -> palate_flavors
+        - tasting_notes.finish_flavors -> finish_flavors
+        - tasting_evolution.initial_taste -> initial_taste
+        - tasting_evolution.mid_palate_evolution -> mid_palate_evolution
+        - tasting_evolution.aroma_evolution -> aroma_evolution
+        - tasting_evolution.finish_evolution -> finish_evolution
+        - tasting_evolution.final_notes -> final_notes
+        - appearance.color_description -> color_description
+        - appearance.color_intensity -> color_intensity
+        - appearance.clarity -> clarity
+        - appearance.viscosity -> viscosity
+        - ratings.* -> corresponding fields
+        - production.* -> corresponding fields
+        - description -> description
+        - category -> category
+        - mouthfeel -> mouthfeel
+        - finish_length -> finish_length
+        - secondary_aromas -> secondary_aromas
+        - experience_level -> experience_level
 
         Args:
-            data: Raw extracted data dict
+            data: Raw extracted data dict from AI service
 
         Returns:
             Normalized data dict with fields expanded for save_discovered_product
         """
         normalized = data.copy()
+
+        # =========================================================================
+        # Handle tasting_notes nested object (AI Service V2 format)
+        # =========================================================================
+        tasting_notes = data.get("tasting_notes")
+        if isinstance(tasting_notes, dict):
+            # Map nose description
+            if tasting_notes.get("nose") and not normalized.get("nose_description"):
+                normalized["nose_description"] = tasting_notes["nose"]
+
+            # Map nose_aromas -> primary_aromas (V2 CRITICAL field)
+            if tasting_notes.get("nose_aromas") and not normalized.get("primary_aromas"):
+                normalized["primary_aromas"] = tasting_notes["nose_aromas"]
+
+            # Map palate description
+            if tasting_notes.get("palate") and not normalized.get("palate_description"):
+                normalized["palate_description"] = tasting_notes["palate"]
+
+            # Map palate_flavors (V2 CRITICAL field)
+            if tasting_notes.get("palate_flavors") and not normalized.get("palate_flavors"):
+                normalized["palate_flavors"] = tasting_notes["palate_flavors"]
+
+            # Map finish description
+            if tasting_notes.get("finish") and not normalized.get("finish_description"):
+                normalized["finish_description"] = tasting_notes["finish"]
+
+            # Map finish_flavors (V2 CRITICAL field)
+            if tasting_notes.get("finish_flavors") and not normalized.get("finish_flavors"):
+                normalized["finish_flavors"] = tasting_notes["finish_flavors"]
+
+            # Handle flavor_tags for backward compatibility
+            if tasting_notes.get("flavor_tags") and not normalized.get("palate_flavors"):
+                normalized["palate_flavors"] = tasting_notes["flavor_tags"]
+
+            # Handle overall notes for backward compatibility
+            if tasting_notes.get("overall") and not normalized.get("nose_description"):
+                normalized["nose_description"] = tasting_notes["overall"]
+            if tasting_notes.get("notes") and not normalized.get("nose_description"):
+                normalized["nose_description"] = tasting_notes["notes"]
+        elif isinstance(tasting_notes, str) and tasting_notes:
+            if not normalized.get("nose_description"):
+                normalized["nose_description"] = tasting_notes
+
+        # =========================================================================
+        # Handle tasting_evolution nested object (AI Service V2 format)
+        # =========================================================================
+        tasting_evolution = data.get("tasting_evolution")
+        if isinstance(tasting_evolution, dict):
+            # Map initial_taste
+            if tasting_evolution.get("initial_taste") and not normalized.get("initial_taste"):
+                normalized["initial_taste"] = tasting_evolution["initial_taste"]
+
+            # Map mid_palate_evolution
+            if tasting_evolution.get("mid_palate_evolution") and not normalized.get("mid_palate_evolution"):
+                normalized["mid_palate_evolution"] = tasting_evolution["mid_palate_evolution"]
+
+            # Map aroma_evolution
+            if tasting_evolution.get("aroma_evolution") and not normalized.get("aroma_evolution"):
+                normalized["aroma_evolution"] = tasting_evolution["aroma_evolution"]
+
+            # Map finish_evolution
+            if tasting_evolution.get("finish_evolution") and not normalized.get("finish_evolution"):
+                normalized["finish_evolution"] = tasting_evolution["finish_evolution"]
+
+            # Map final_notes
+            if tasting_evolution.get("final_notes") and not normalized.get("final_notes"):
+                normalized["final_notes"] = tasting_evolution["final_notes"]
+
+        # =========================================================================
+        # Handle appearance nested object (AI Service V2 format)
+        # =========================================================================
+        appearance = data.get("appearance")
+        if isinstance(appearance, dict):
+            # Map color_description
+            if appearance.get("color_description") and not normalized.get("color_description"):
+                normalized["color_description"] = appearance["color_description"]
+
+            # Map color_intensity
+            if appearance.get("color_intensity") is not None and normalized.get("color_intensity") is None:
+                normalized["color_intensity"] = appearance["color_intensity"]
+
+            # Map clarity
+            if appearance.get("clarity") and not normalized.get("clarity"):
+                normalized["clarity"] = appearance["clarity"]
+
+            # Map viscosity
+            if appearance.get("viscosity") and not normalized.get("viscosity"):
+                normalized["viscosity"] = appearance["viscosity"]
+
+        # =========================================================================
+        # Handle ratings nested object (AI Service V2 format)
+        # =========================================================================
+        ratings = data.get("ratings")
+        if isinstance(ratings, dict):
+            # Map all rating fields to top level
+            rating_fields = [
+                "flavor_intensity", "complexity", "warmth", "dryness",
+                "balance", "overall_complexity", "uniqueness", "drinkability"
+            ]
+            for field in rating_fields:
+                if ratings.get(field) is not None and normalized.get(field) is None:
+                    normalized[field] = ratings[field]
+
+        # =========================================================================
+        # Handle production nested object (AI Service V2 format)
+        # =========================================================================
+        production = data.get("production")
+        if isinstance(production, dict):
+            # Map distillery
+            if production.get("distillery") and not normalized.get("distillery"):
+                normalized["distillery"] = production["distillery"]
+
+            # Map boolean fields
+            if production.get("natural_color") is not None and normalized.get("natural_color") is None:
+                normalized["natural_color"] = production["natural_color"]
+
+            if production.get("non_chill_filtered") is not None and normalized.get("non_chill_filtered") is None:
+                normalized["non_chill_filtered"] = production["non_chill_filtered"]
+
+            if production.get("cask_strength") is not None and normalized.get("cask_strength") is None:
+                normalized["cask_strength"] = production["cask_strength"]
+
+            if production.get("single_cask") is not None and normalized.get("single_cask") is None:
+                normalized["single_cask"] = production["single_cask"]
+
+            if production.get("peated") is not None and normalized.get("peated") is None:
+                normalized["peated"] = production["peated"]
+
+            # Map integer/string fields
+            if production.get("peat_ppm") is not None and normalized.get("peat_ppm") is None:
+                normalized["peat_ppm"] = production["peat_ppm"]
+
+            if production.get("peat_level") and not normalized.get("peat_level"):
+                normalized["peat_level"] = production["peat_level"]
+
+            # Map array fields
+            if production.get("primary_cask") and not normalized.get("primary_cask"):
+                normalized["primary_cask"] = production["primary_cask"]
+
+            if production.get("finishing_cask") and not normalized.get("finishing_cask"):
+                normalized["finishing_cask"] = production["finishing_cask"]
+
+            if production.get("wood_type") and not normalized.get("wood_type"):
+                normalized["wood_type"] = production["wood_type"]
+
+            if production.get("cask_treatment") and not normalized.get("cask_treatment"):
+                normalized["cask_treatment"] = production["cask_treatment"]
+
+            # Map text fields
+            if production.get("maturation_notes") and not normalized.get("maturation_notes"):
+                normalized["maturation_notes"] = production["maturation_notes"]
+
+        # =========================================================================
+        # Handle top-level V2 fields (already at top level, just ensure they're preserved)
+        # =========================================================================
+
+        # description (V2 CRITICAL field) - already at top level, just pass through
+        # category (V2 CRITICAL field) - already at top level, just pass through
+
+        # mouthfeel - already at top level, just pass through
+        # finish_length - already at top level, just pass through
+        # secondary_aromas - already at top level, just pass through
+        # experience_level - already at top level, just pass through
+
+        # =========================================================================
+        # Handle legacy/backward compatibility fields
+        # =========================================================================
 
         # Handle taste_profile JSON field -> individual tasting fields
         taste_profile = data.get("taste_profile", {})
@@ -966,44 +1321,84 @@ class DiscoveryOrchestrator:
             if taste_profile.get("overall_notes") and not normalized.get("nose_description"):
                 normalized["nose_description"] = taste_profile["overall_notes"]
 
-        # Handle tasting_notes if present (alternate format)
-        tasting_notes = data.get("tasting_notes", {})
-        if isinstance(tasting_notes, dict):
-            if tasting_notes.get("nose") and not normalized.get("nose_description"):
-                normalized["nose_description"] = tasting_notes["nose"]
-            if tasting_notes.get("palate") and not normalized.get("initial_taste"):
-                normalized["initial_taste"] = tasting_notes["palate"]
-            if tasting_notes.get("finish") and not normalized.get("final_notes"):
-                normalized["final_notes"] = tasting_notes["finish"]
-            if tasting_notes.get("flavor_tags") and not normalized.get("palate_flavors"):
-                normalized["palate_flavors"] = tasting_notes["flavor_tags"]
-            if tasting_notes.get("overall") and not normalized.get("nose_description"):
-                normalized["nose_description"] = tasting_notes["overall"]
-            if tasting_notes.get("notes") and not normalized.get("nose_description"):
-                normalized["nose_description"] = tasting_notes["notes"]
-        elif isinstance(tasting_notes, str) and tasting_notes:
-            if not normalized.get("nose_description"):
-                normalized["nose_description"] = tasting_notes
+        # Handle enrichment dict from AI extraction (contains nested tasting data)
+        enrichment = data.get("enrichment", {})
+        if isinstance(enrichment, dict):
+            # Handle enrichment.tasting_notes (nested structure)
+            enrich_tasting = enrichment.get("tasting_notes", {})
+            if isinstance(enrich_tasting, dict):
+                if enrich_tasting.get("nose") and not normalized.get("nose_description"):
+                    normalized["nose_description"] = enrich_tasting["nose"]
+                if enrich_tasting.get("palate"):
+                    # Map to both palate_description AND initial_taste for completeness
+                    if not normalized.get("palate_description"):
+                        normalized["palate_description"] = enrich_tasting["palate"]
+                    if not normalized.get("initial_taste"):
+                        normalized["initial_taste"] = enrich_tasting["palate"]
+                if enrich_tasting.get("finish"):
+                    if not normalized.get("finish_description"):
+                        normalized["finish_description"] = enrich_tasting["finish"]
+                    if not normalized.get("final_notes"):
+                        normalized["final_notes"] = enrich_tasting["finish"]
+
+            # Handle enrichment.flavor_profile -> palate_flavors
+            flavor_profile = enrichment.get("flavor_profile", [])
+            if flavor_profile and isinstance(flavor_profile, list):
+                if not normalized.get("palate_flavors"):
+                    normalized["palate_flavors"] = flavor_profile
+
+            # Handle enrichment.food_pairings -> food_pairings
+            food_pairings = enrichment.get("food_pairings", [])
+            if food_pairings:
+                if isinstance(food_pairings, list):
+                    # Convert list to comma-separated string for TextField
+                    if not normalized.get("food_pairings"):
+                        normalized["food_pairings"] = ", ".join(food_pairings)
+                elif isinstance(food_pairings, str) and not normalized.get("food_pairings"):
+                    normalized["food_pairings"] = food_pairings
+
+            # Handle enrichment.serving_suggestion -> serving_recommendation
+            serving = enrichment.get("serving_suggestion")
+            if serving and not normalized.get("serving_recommendation"):
+                normalized["serving_recommendation"] = serving
+
+        # Handle top-level flavor_profile (alternate format) -> palate_flavors
+        if data.get("flavor_profile") and isinstance(data["flavor_profile"], list):
+            if not normalized.get("palate_flavors"):
+                normalized["palate_flavors"] = data["flavor_profile"]
+
+        # Handle top-level food_pairings
+        if data.get("food_pairings") and not normalized.get("food_pairings"):
+            fp = data["food_pairings"]
+            if isinstance(fp, list):
+                normalized["food_pairings"] = ", ".join(fp)
+            elif isinstance(fp, str):
+                normalized["food_pairings"] = fp
+
+        # Handle top-level serving_suggestion -> serving_recommendation
+        if data.get("serving_suggestion") and not normalized.get("serving_recommendation"):
+            normalized["serving_recommendation"] = data["serving_suggestion"]
 
         # Handle ratings list -> ensure it's in the expected format
-        ratings = data.get("ratings", [])
-        if not isinstance(ratings, list):
-            ratings = []
+        ratings_list = data.get("ratings", [])
+        if isinstance(ratings_list, list):
+            # If there's a single rating/score in the data, add it to ratings
+            if data.get("rating") or data.get("score"):
+                single_rating = {
+                    "source": data.get("rating_source", ""),
+                    "score": data.get("rating") or data.get("score"),
+                    "max_score": data.get("max_score", 100),
+                    "reviewer": data.get("reviewer"),
+                }
+                # Only add if not already in ratings
+                if single_rating not in ratings_list:
+                    ratings_list.append(single_rating)
 
-        # If there's a single rating/score in the data, add it to ratings
-        if data.get("rating") or data.get("score"):
-            single_rating = {
-                "source": data.get("rating_source", source_url if 'source_url' in dir() else ""),
-                "score": data.get("rating") or data.get("score"),
-                "max_score": data.get("max_score", 100),
-                "reviewer": data.get("reviewer"),
-            }
-            # Only add if not already in ratings
-            if single_rating not in ratings:
-                ratings.append(single_rating)
-
-        if ratings:
-            normalized["ratings"] = ratings
+            if ratings_list:
+                normalized["ratings"] = ratings_list
+        elif isinstance(ratings, dict):
+            # Already handled above, but ensure the nested ratings dict doesn't overwrite
+            pass
 
         # Handle images list -> ensure it's in the expected format
         images = data.get("images", [])
@@ -1379,16 +1774,18 @@ class DiscoveryOrchestrator:
             if hasattr(self.smart_crawler, "ai_client"):
                 ai_client = self.smart_crawler.ai_client
 
-                # Trim content to reasonable size for AI processing
+                # Trim content to avoid AI service timeouts (15s limit)
+                # 15000 chars processes in ~10s, leaving headroom
                 content = html_content
-                if len(content) > 80000:
-                    content = content[:80000]
+                if len(content) > 15000:
+                    content = content[:15000]
 
                 # Map product type to valid hint values
                 valid_types = ["whiskey", "gin", "tequila", "rum", "vodka", "sake", "brandy", "port_wine", "unknown"]
                 type_hint = product_type if product_type in valid_types else "unknown"
 
                 # Use enhance_from_crawler with product type hint
+                # AIEnhancementClient.enhance_from_crawler is SYNCHRONOUS and returns a dict
                 result = ai_client.enhance_from_crawler(
                     content=content,
                     source_url=url,
@@ -1399,21 +1796,42 @@ class DiscoveryOrchestrator:
                 if self.job:
                     self.job.ai_calls_used += 1
 
+                # result is a dict with 'success', 'data', 'status_code', 'source_url'
+                logger.info(f"DEBUG: AI result success={result.get('success')}")
                 if result.get("success"):
                     data = result.get("data", {})
-                    # The AI response may contain 'products' list or 'extracted_data'
-                    if "products" in data:
-                        return {"products": data["products"]}
-                    elif "extracted_data" in data:
-                        # Single product extracted - wrap in list
-                        extracted = data["extracted_data"]
-                        if extracted.get("name"):
-                            return {"products": [extracted]}
-                    # Try to parse from response
+                    logger.info(f"DEBUG: data keys: {data.keys() if data else 'None'}")
+
+                    # Check for multi-product response
+                    if data.get("is_multi_product") and data.get("products"):
+                        products = data.get("products", [])
+                        logger.info(f"DEBUG: Found {len(products)} products in multi-product response")
+                        # Extract product data from each product in the response
+                        extracted_products = []
+                        for p in products:
+                            product_data = p.get("extracted_data", {})
+                            if product_data.get("name"):
+                                # Merge enrichment data into product data
+                                enrichment = p.get("enrichment", {})
+                                if enrichment:
+                                    product_data["enrichment"] = enrichment
+                                extracted_products.append(product_data)
+                        logger.info(f"DEBUG: Returning {len(extracted_products)} extracted products")
+                        return {"products": extracted_products}
+
+                    # Single product response - check extracted_data
+                    extracted = data.get("extracted_data", {})
+                    if extracted and extracted.get("name"):
+                        logger.info(f"DEBUG: Returning single product: {extracted.get('name')}")
+                        return {"products": [extracted]}
+
+                    # No product found
+                    logger.info(f"DEBUG: No product name found, returning empty")
                     return {"products": [], "raw_response": data}
                 else:
-                    logger.warning(f"AI list extraction failed: {result.get('error')}")
-                    return {"products": [], "error": result.get("error")}
+                    error = result.get("error", "Unknown error")
+                    logger.warning(f"AI list extraction failed: {error}")
+                    return {"products": [], "error": error}
 
         except Exception as e:
             logger.warning(f"AI list extraction failed: {e}")
@@ -1529,6 +1947,7 @@ class DiscoveryOrchestrator:
         product_name: str,
         brand: Optional[str] = None,
         product_type: str = "whiskey",
+        product_key: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Search for a product by name via SerpAPI and extract full data.
@@ -1542,12 +1961,23 @@ class DiscoveryOrchestrator:
             product_name: The product name to search for
             brand: Optional brand name for better search
             product_type: Type of product (whiskey, port_wine, etc.)
+            product_key: Optional key for tracking enrichment limits
 
         Returns:
             Dict with 'success' and 'data' keys, or None if failed
         """
         if not product_name:
             return None
+
+        # Use provided key or generate one
+        if not product_key:
+            product_key = self._get_product_key(product_name)
+
+        # Check limits before searching
+        can_continue, reason = self._can_continue_enrichment(product_key)
+        if not can_continue:
+            logger.warning(f"Enrichment limit reached for {product_name}: {reason}")
+            return {"success": False, "partial": True, "reason": reason}
 
         # Construct search query - focus on getting product details
         query = product_name
@@ -1563,6 +1993,10 @@ class DiscoveryOrchestrator:
         try:
             # Search via SerpAPI
             results = self._search(query)
+
+            # Record the SerpAPI search
+            self._record_serpapi_search(product_key)
+
             if self.job:
                 self.job.serpapi_calls_used += 1
 
@@ -1601,6 +2035,12 @@ class DiscoveryOrchestrator:
                 logger.info(f"No suitable product URL found for: {product_name}")
                 return None
 
+            # Check limits again before crawling
+            can_continue, reason = self._can_continue_enrichment(product_key)
+            if not can_continue:
+                logger.warning(f"Enrichment limit reached before crawl for {product_name}: {reason}")
+                return {"success": False, "partial": True, "reason": reason}
+
             logger.info(f"Crawling for enrichment: {best_url}")
 
             # Crawl the page and extract data
@@ -1610,6 +2050,9 @@ class DiscoveryOrchestrator:
                     product_type=product_type,
                     primary_url=best_url,
                 )
+
+                # Record the URL crawl
+                self._record_url_crawled(product_key)
 
                 # Track API calls
                 if self.job:
@@ -1663,6 +2106,10 @@ class DiscoveryOrchestrator:
         if not name:
             return {"partial": True, "error": "No product name"}
 
+        # Initialize tracking for this product
+        product_key = self._get_product_key(name, product_info)
+        self._start_product_enrichment(product_key)
+
         result = {
             "name": name,
             "brand": brand,
@@ -1673,111 +2120,148 @@ class DiscoveryOrchestrator:
             "created": False,
         }
 
-        # Check for existing product by name
-        existing = self._find_existing_product("", name)
-        if existing:
-            # Merge any new data from this mention into existing product
-            self._merge_product_data(existing, product_info, source_url)
-            result["is_duplicate"] = True
-            result["existing_product_id"] = existing.id
-            return result
+        try:
+            # Check for existing product by name
+            existing = self._find_existing_product("", name)
+            if existing:
+                # Merge any new data from this mention into existing product
+                self._merge_product_data(existing, product_info, source_url)
+                result["is_duplicate"] = True
+                result["existing_product_id"] = existing.id
+                return result
 
-        # Get product type
-        product_type = getattr(search_term, "product_type", "whiskey")
-        if product_type == "both":
-            product_type = "whiskey"
+            # Get product type
+            product_type = getattr(search_term, "product_type", "whiskey")
+            if product_type == "both":
+                product_type = "whiskey"
 
-        # STRATEGY 1: If we have initial data from the list page, start with that
-        extracted_data = {
-            "name": name,
-            "brand": brand,
-            "product_type": product_type,
-            "tasting_notes": product_info.get("tasting_notes"),
-            "rating": product_info.get("rating"),
-            "price": product_info.get("price"),
-            "abv": product_info.get("abv"),
-            "age_statement": product_info.get("age"),
-            "region": product_info.get("region"),
-            "country": product_info.get("country"),
-        }
+            # STRATEGY 1: If we have initial data from the list page, start with that
+            extracted_data = {
+                "name": name,
+                "brand": brand,
+                "product_type": product_type,
+                "tasting_notes": product_info.get("tasting_notes"),
+                "rating": product_info.get("rating"),
+                "price": product_info.get("price"),
+                "abv": product_info.get("abv"),
+                "age_statement": product_info.get("age") or product_info.get("age_statement"),
+                "region": product_info.get("region"),
+                "country": product_info.get("country"),
+                "whiskey_type": product_info.get("whiskey_type"),
+            }
 
-        # STRATEGY 2: If we have a direct link, use SmartCrawler for full extraction
-        if link and self.smart_crawler:
-            try:
-                extraction = self.smart_crawler.extract_product(
-                    expected_name=name,
-                    product_type=product_type,
-                    primary_url=link,
-                )
+            # Include enrichment data from AI extraction if available
+            enrichment = product_info.get("enrichment", {})
+            if enrichment:
+                if enrichment.get("tasting_notes"):
+                    extracted_data["tasting_notes"] = enrichment["tasting_notes"]
+                if enrichment.get("flavor_profile"):
+                    extracted_data["flavor_profile"] = enrichment["flavor_profile"]
+                if enrichment.get("food_pairings"):
+                    extracted_data["food_pairings"] = enrichment["food_pairings"]
+                if enrichment.get("serving_suggestion"):
+                    extracted_data["serving_suggestion"] = enrichment["serving_suggestion"]
 
-                # Track API calls
-                if self.job:
-                    if hasattr(extraction, "scrapingbee_calls"):
-                        self.job.scrapingbee_calls_used += extraction.scrapingbee_calls
-                    else:
-                        self.job.scrapingbee_calls_used += 1
+            # STRATEGY 2: If we have a direct link, use SmartCrawler for full extraction
+            if link and self.smart_crawler:
+                # Check limits before crawling
+                can_continue, reason = self._can_continue_enrichment(product_key)
+                if can_continue:
+                    try:
+                        extraction = self.smart_crawler.extract_product(
+                            expected_name=name,
+                            product_type=product_type,
+                            primary_url=link,
+                        )
 
-                    if hasattr(extraction, "ai_calls"):
-                        self.job.ai_calls_used += extraction.ai_calls
-                    else:
-                        self.job.ai_calls_used += 1
+                        # Record the URL crawl
+                        self._record_url_crawled(product_key)
 
-                if extraction.success and extraction.data:
-                    # Merge with any data we already have
-                    merged_data = {**extracted_data, **extraction.data}
-                    merged_data["name"] = name  # Keep original name
+                        # Track API calls
+                        if self.job:
+                            if hasattr(extraction, "scrapingbee_calls"):
+                                self.job.scrapingbee_calls_used += extraction.scrapingbee_calls
+                            else:
+                                self.job.scrapingbee_calls_used += 1
+
+                            if hasattr(extraction, "ai_calls"):
+                                self.job.ai_calls_used += extraction.ai_calls
+                            else:
+                                self.job.ai_calls_used += 1
+
+                        if extraction.success and extraction.data:
+                            # Merge with any data we already have
+                            merged_data = {**extracted_data, **extraction.data}
+                            merged_data["name"] = name  # Keep original name
+
+                            # Save the product using unified save function
+                            product = self._save_product(merged_data, link, discovery_source="search", product_type=product_type)
+                            if product:
+                                result["created"] = True
+                                result["data"] = merged_data
+                                result["product_id"] = str(product.id)
+                            else:
+                                result["is_duplicate"] = True
+                            return result
+
+                    except Exception as e:
+                        logger.warning(f"Product enrichment failed for {name}: {e}")
+                else:
+                    logger.info(f"Skipping direct link crawl for {name}: {reason}")
+
+            # STRATEGY 3: No link available - use product NAME to search for details
+            # Check limits before searching
+            can_continue, reason = self._can_continue_enrichment(product_key)
+            if can_continue:
+                logger.info(f"Searching for product details: {name}")
+                search_result = self._search_and_extract_product(name, brand, product_type, product_key)
+
+                if search_result and search_result.get("success"):
+                    # Merge search results with initial data
+                    merged_data = {**extracted_data}
+                    if search_result.get("data"):
+                        for key, value in search_result["data"].items():
+                            if value and not merged_data.get(key):
+                                merged_data[key] = value
 
                     # Save the product using unified save function
-                    product = self._save_product(merged_data, link, discovery_source="search", product_type=product_type)
+                    product = self._save_product(merged_data, source_url, discovery_source="search", product_type=product_type)
                     if product:
                         result["created"] = True
                         result["data"] = merged_data
                         result["product_id"] = str(product.id)
+                        result["enriched_from_search"] = True
                     else:
                         result["is_duplicate"] = True
                     return result
-
-            except Exception as e:
-                logger.warning(f"Product enrichment failed for {name}: {e}")
-
-        # STRATEGY 3: No link available - use product NAME to search for details
-        logger.info(f"Searching for product details: {name}")
-        search_result = self._search_and_extract_product(name, brand, product_type)
-
-        if search_result and search_result.get("success"):
-            # Merge search results with initial data
-            merged_data = {**extracted_data}
-            if search_result.get("data"):
-                for key, value in search_result["data"].items():
-                    if value and not merged_data.get(key):
-                        merged_data[key] = value
-
-            # Save the product using unified save function
-            product = self._save_product(merged_data, source_url, discovery_source="search", product_type=product_type)
-            if product:
-                result["created"] = True
-                result["data"] = merged_data
-                result["product_id"] = str(product.id)
-                result["enriched_from_search"] = True
+                elif search_result and search_result.get("partial"):
+                    # Hit limits during search - mark as partial
+                    logger.info(f"Partial enrichment for {name}: {search_result.get('reason')}")
+                    result["partial"] = True
+                    result["enrichment_stats"] = self._get_enrichment_stats(product_key)
             else:
-                result["is_duplicate"] = True
+                logger.info(f"Skipping search enrichment for {name}: {reason}")
+
+            # STRATEGY 4: Couldn't find additional info or hit limits - create with available data
+            if extracted_data.get("name"):
+                product = self._save_product(extracted_data, source_url, discovery_source="search", product_type=product_type)
+                if product:
+                    result["created"] = True
+                    result["partial"] = True
+                    result["data"] = extracted_data
+                    result["product_id"] = str(product.id)
+                    result["enrichment_stats"] = self._get_enrichment_stats(product_key)
+                else:
+                    result["is_duplicate"] = True
+            else:
+                result["partial"] = True
+                result["needs_review"] = True
+
             return result
 
-        # STRATEGY 4: Couldn't find additional info - create with available data
-        if extracted_data.get("name"):
-            product = self._save_product(extracted_data, source_url, discovery_source="search", product_type=product_type)
-            if product:
-                result["created"] = True
-                result["partial"] = True
-                result["data"] = extracted_data
-                result["product_id"] = str(product.id)
-            else:
-                result["is_duplicate"] = True
-        else:
-            result["partial"] = True
-            result["needs_review"] = True
-
-        return result
+        finally:
+            # Clean up tracking
+            self._clear_product_tracking(product_key)
 
     def _process_list_page_products(
         self,
@@ -1795,9 +2279,22 @@ class DiscoveryOrchestrator:
         """
         for product_info in products:
             link = product_info.get("link")
+            name = product_info.get("name", "")
+
+            # Initialize tracking for this product
+            product_key = self._get_product_key(name) if name else None
 
             # If product has a direct link, use SmartCrawler
             if link and self.smart_crawler:
+                # Check limits before crawling
+                if product_key:
+                    self._start_product_enrichment(product_key)
+                    can_continue, reason = self._can_continue_enrichment(product_key)
+                    if not can_continue:
+                        logger.warning(f"Skipping {name}: {reason}")
+                        self._clear_product_tracking(product_key)
+                        continue
+
                 try:
                     product_type = search_term.product_type
                     if product_type == "both":
@@ -1808,6 +2305,10 @@ class DiscoveryOrchestrator:
                         product_type=product_type,
                         primary_url=link,
                     )
+
+                    # Record the URL crawl
+                    if product_key:
+                        self._record_url_crawled(product_key)
 
                     # Track API calls
                     if hasattr(extraction, "scrapingbee_calls"):
@@ -1833,6 +2334,10 @@ class DiscoveryOrchestrator:
                 except Exception as e:
                     logger.warning(f"Failed to process list product {product_info.get('name')}: {e}")
                     self.job.products_failed += 1
+
+                finally:
+                    if product_key:
+                        self._clear_product_tracking(product_key)
 
     def _create_partial_product(
         self,

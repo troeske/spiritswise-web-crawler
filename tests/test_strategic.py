@@ -11,6 +11,7 @@ These tests cover critical gaps identified in the test coverage review:
 import pytest
 from unittest.mock import MagicMock, patch
 from datetime import timedelta
+from decimal import Decimal
 import asyncio
 
 from django.utils import timezone
@@ -52,28 +53,19 @@ class TestEndToEndCrawlCycle:
         assert job.status == "running"
 
         # Simulate AI extraction result
-        extracted_data = {
-            "name": "Integration Test Whiskey 18 Year Old",
-            "brand": "Test Distillery",
-            "abv": 43.0,
-            "volume_ml": 700,
-            "age_statement": 18,
-        }
-
-        # Create discovered product (as ContentProcessor would)
+        # Create discovered product with individual columns (deprecated JSON fields removed)
         product = DiscoveredProduct.objects.create(
             source=source,
             source_url="https://integration-test.com/product/test-whiskey",
             crawl_job=job,
             product_type="whiskey",
             raw_content="<html><body>Test Whiskey</body></html>",
-            extracted_data=extracted_data,
-            enriched_data={
-                "tasting_notes": "Rich and complex",
-                "flavor_profile": ["vanilla", "oak", "honey"],
-            },
-            extraction_confidence=0.95,
-            status=DiscoveredProductStatus.PENDING,
+            name="Integration Test Whiskey 18 Year Old",
+            abv=Decimal("43.0"),
+            volume_ml=700,
+            age_statement="18",
+            extraction_confidence=Decimal("0.95"),
+            # Note: tasting_notes are now in individual columns like nose_description, palate_description
         )
 
         # Update job metrics (as crawl_source task would)
@@ -87,7 +79,7 @@ class TestEndToEndCrawlCycle:
         assert job.products_found == 1
 
         product.refresh_from_db()
-        assert product.extracted_data["name"] == "Integration Test Whiskey 18 Year Old"
+        assert product.name == "Integration Test Whiskey 18 Year Old"
         assert product.crawl_job == job
 
     @pytest.mark.django_db
@@ -285,38 +277,36 @@ class TestFingerprintDeduplication:
             is_active=True,
         )
 
-        # Create first product
-        extracted_data = {
-            "name": "Duplicate Test Whiskey",
-            "brand": "Test Brand",
-            "product_type": "whiskey",
-            "volume_ml": 700,
-            "abv": 40.0,
-        }
-
+        # Create first product (no brand FK for simpler fingerprint)
         product1 = DiscoveredProduct.objects.create(
             source=source,
             source_url="https://dedup-test.com/product/1",
             product_type="whiskey",
             raw_content="<html>Product 1</html>",
-            extracted_data=extracted_data,
+            name="Duplicate Test Whiskey",
+            volume_ml=700,
+            abv=Decimal("40.0"),
         )
 
-        # Attempt to create duplicate
-        fingerprint = DiscoveredProduct.compute_fingerprint(extracted_data)
+        # Fingerprint is auto-computed on save, verify it exists
+        assert product1.fingerprint is not None
+        assert len(product1.fingerprint) == 64
 
-        # This should be False since we're checking before creating second product
-        assert product1.fingerprint == fingerprint
-
-        # Now create second product and verify it detects the duplicate
+        # Create second product with same identifying data
         product2 = DiscoveredProduct(
             source=source,
             source_url="https://dedup-test.com/product/1-duplicate",
             product_type="whiskey",
             raw_content="<html>Product 1 Duplicate</html>",
-            extracted_data=extracted_data,
+            name="Duplicate Test Whiskey",
+            volume_ml=700,
+            abv=Decimal("40.0"),
         )
-        product2.fingerprint = DiscoveredProduct.compute_fingerprint(extracted_data)
+        # Compute fingerprint from model fields (same as product1)
+        product2.fingerprint = product2.compute_fingerprint_from_fields()
+
+        # Both products should have same fingerprint
+        assert product1.fingerprint == product2.fingerprint
 
         # check_duplicate should find the existing product
         assert product2.check_duplicate() is True
@@ -341,7 +331,7 @@ class TestFingerprintDeduplication:
             "product_type": "whiskey",
             "volume_ml": 700,
             "abv": 40.0,
-            "age_statement": 12,
+            "age_statement": "12",
         }
 
         # Product 2: 18 year old (different age)
@@ -351,7 +341,7 @@ class TestFingerprintDeduplication:
             "product_type": "whiskey",
             "volume_ml": 700,
             "abv": 40.0,
-            "age_statement": 18,
+            "age_statement": "18",
         }
 
         fingerprint1 = DiscoveredProduct.compute_fingerprint(product1_data)
@@ -360,13 +350,16 @@ class TestFingerprintDeduplication:
         # Different age statements should produce different fingerprints
         assert fingerprint1 != fingerprint2
 
-        # Create both products
+        # Create both products with individual columns
         product1 = DiscoveredProduct.objects.create(
             source=source,
             source_url="https://similar-test.com/product/12",
             product_type="whiskey",
             raw_content="<html>12 Year</html>",
-            extracted_data=product1_data,
+            name="Test Whiskey 12 Year Old",
+            volume_ml=700,
+            abv=Decimal("40.0"),
+            age_statement="12",
         )
 
         product2 = DiscoveredProduct.objects.create(
@@ -374,7 +367,10 @@ class TestFingerprintDeduplication:
             source_url="https://similar-test.com/product/18",
             product_type="whiskey",
             raw_content="<html>18 Year</html>",
-            extracted_data=product2_data,
+            name="Test Whiskey 18 Year Old",
+            volume_ml=700,
+            abv=Decimal("40.0"),
+            age_statement="18",
         )
 
         # Neither should detect the other as duplicate

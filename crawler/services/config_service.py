@@ -13,8 +13,10 @@ Used by crawler to:
 Spec Reference: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2
 """
 
+import asyncio
 from typing import Dict, List, Optional
 
+from asgiref.sync import sync_to_async
 from django.core.cache import cache
 from django.db import models
 
@@ -213,6 +215,38 @@ class ConfigService:
         """
         schema = self.build_extraction_schema(product_type)
         return [field['field_name'] for field in schema]
+
+    # Async-safe versions of methods for use in async contexts
+    # These wrap the synchronous methods with sync_to_async to avoid
+    # "You cannot call this from an async context" errors
+
+    def _is_async_context(self) -> bool:
+        """Check if we're in an async context."""
+        try:
+            asyncio.get_running_loop()
+            return True
+        except RuntimeError:
+            return False
+
+    async def aget_product_type_config(self, product_type: str) -> Optional[ProductTypeConfig]:
+        """Async-safe version of get_product_type_config."""
+        return await sync_to_async(self.get_product_type_config, thread_sensitive=True)(product_type)
+
+    async def abuild_extraction_schema(self, product_type: str) -> List[Dict]:
+        """Async-safe version of build_extraction_schema."""
+        return await sync_to_async(self.build_extraction_schema, thread_sensitive=True)(product_type)
+
+    async def aget_quality_gate_config(self, product_type: str) -> Optional[QualityGateConfig]:
+        """Async-safe version of get_quality_gate_config."""
+        return await sync_to_async(self.get_quality_gate_config, thread_sensitive=True)(product_type)
+
+    async def aget_enrichment_templates(self, product_type: str) -> List[EnrichmentConfig]:
+        """Async-safe version of get_enrichment_templates."""
+        return await sync_to_async(self.get_enrichment_templates, thread_sensitive=True)(product_type)
+
+    async def aget_field_names(self, product_type: str) -> List[str]:
+        """Async-safe version of get_field_names."""
+        return await sync_to_async(self.get_field_names, thread_sensitive=True)(product_type)
 
 
 # Module-level singleton for convenience

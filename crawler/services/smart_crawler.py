@@ -8,20 +8,34 @@ This module implements an intelligent crawling strategy:
 4. Preference for official brand websites
 5. CrawledSource cache to avoid redundant API calls
 6. Multi-source extraction with conflict detection
+
+Phase 10 Updates (Unified Pipeline):
+- extract_from_url(url) method for API
+- extract_from_urls_parallel(urls) method for batch processing
+- Auto-detect page type (list vs single)
 """
 
 import hashlib
 import logging
+import os
 import re
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 
+# Content extraction library for cleaner text
+try:
+    import trafilatura
+    TRAFILATURA_AVAILABLE = True
+except ImportError:
+    TRAFILATURA_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
-# SerpAPI configuration
-SERPAPI_KEY = "86dc430939860e8775ca38fe37b279b93b191f560f83b5a9b0b0f37dab3e697d"
+# SerpAPI configuration - Task 3 fix: Use environment variable instead of hardcoded key
+SERPAPI_KEY = os.environ.get('SERPAPI_API_KEY', '')
 
 # Trusted domains ranked by preference (lower index = higher preference)
 # Official brand sites are discovered dynamically and get highest priority
@@ -78,6 +92,29 @@ OFFICIAL_BRAND_DOMAINS = [
     "warre.pt",
 ]
 
+# Patterns for detecting list pages vs single product pages
+LIST_PAGE_INDICATORS = [
+    r'search[-_]?results',
+    r'product[-_]?list',
+    r'product[-_]?grid',
+    r'results[-_]?page',
+    r'category[-_]?page',
+    r'<div[^>]*class="[^"]*product[-_]?card[^"]*"[^>]*>.*<div[^>]*class="[^"]*product[-_]?card',
+    r'pagination',
+    r'page[-_]?nav',
+    r'showing\s+\d+\s+(of|to)\s+\d+',
+]
+
+SINGLE_PAGE_INDICATORS = [
+    r'product[-_]?detail',
+    r'product[-_]?page',
+    r'add[-_]?to[-_]?cart',
+    r'buy[-_]?now',
+    r'<h1[^>]*>.*?(whisky|whiskey|bourbon|port|wine)',
+    r'abv|alcohol\s+by\s+volume',
+    r'tasting[-_]?notes',
+]
+
 
 @dataclass
 class CrawlResult:
@@ -97,13 +134,15 @@ class ExtractionResult:
     success: bool
     data: Optional[Dict[str, Any]] = None
     source_url: str = ""
-    source_type: str = ""
+    source_type: str = ""  # 'single', 'list', 'primary', etc.
     name_match_score: float = 0.0
     needs_review: bool = False
     review_reasons: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
     sources_used: int = 1  # Number of sources merged
     conflicts: List[Dict] = field(default_factory=list)  # Conflict details
+    is_list_page: bool = False  # True if this is a product listing page
+    product_urls: List[str] = field(default_factory=list)  # URLs from list pages
 
 
 class SmartCrawler:
@@ -118,6 +157,8 @@ class SmartCrawler:
     - Partial extraction with review flags
     - CrawledSource caching to avoid redundant API calls
     - Multi-source extraction with conflict detection
+    - Page type auto-detection (list vs single product)
+    - Parallel URL extraction
     """
 
     def __init__(self, scrapingbee_client, ai_client):
@@ -214,6 +255,237 @@ class SmartCrawler:
 
         logger.debug(f"Saved crawled content to CrawledSource: {url[:60]}...")
 
+    # ================================================================
+    # Phase 10: New API Methods
+    # ================================================================
+
+    def extract_from_url(self, url: str, product_type: str = "whiskey") -> ExtractionResult:
+        """
+        Extract product data from a single URL for API use.
+
+        Auto-detects whether the page is a single product page or a listing page.
+        For single pages, extracts product data.
+        For list pages, returns product URLs for batch processing.
+
+        Args:
+            url: URL to extract from
+            product_type: Product type hint ('whiskey', 'port_wine', etc.)
+
+        Returns:
+            ExtractionResult with extracted data or list page info
+        """
+        result = ExtractionResult(
+            success=False,
+            source_url=url,
+            source_type="",
+            errors=[],
+        )
+
+        try:
+            # Step 1: Fetch the page content
+            crawl_result = self.crawler.fetch_page(url, render_js=True)
+
+            if not crawl_result.get("success"):
+                result.errors.append(crawl_result.get("error", "Crawl failed"))
+                return result
+
+            content = crawl_result.get("content", "")
+
+            # Step 2: Detect page type
+            page_type = self.detect_page_type(content)
+            result.source_type = page_type
+
+            if page_type == "list":
+                # List page - extract product URLs
+                result.is_list_page = True
+                result.product_urls = self._extract_product_urls(content, url)
+                result.success = True
+                result.data = {
+                    "is_list_page": True,
+                    "product_urls": result.product_urls,
+                    "url_count": len(result.product_urls),
+                }
+            else:
+                # Single product page - extract data
+                content = self._trim_content(content)
+
+                # Save for cache
+                self._save_to_crawled_source(url, content)
+
+                # Extract via AI
+                enhance_result = self.ai_client.enhance_from_crawler(
+                    content=content,
+                    source_url=url,
+                    product_type_hint=product_type
+                )
+
+                if enhance_result.get("success"):
+                    result.success = True
+                    result.data = enhance_result.get("data", {})
+                    result.source_type = "single"
+                else:
+                    result.errors.append(enhance_result.get("error", "Extraction failed"))
+
+        except Exception as e:
+            logger.error(f"extract_from_url failed for {url}: {e}")
+            result.errors.append(str(e))
+
+        return result
+
+    def extract_from_urls_parallel(
+        self,
+        urls: List[str],
+        product_type: str = "whiskey",
+        max_workers: int = 5,
+    ) -> List[ExtractionResult]:
+        """
+        Extract product data from multiple URLs in parallel.
+
+        Uses ThreadPoolExecutor for concurrent extraction with configurable
+        worker count.
+
+        Args:
+            urls: List of URLs to extract from
+            product_type: Product type hint
+            max_workers: Maximum number of parallel workers (default 5)
+
+        Returns:
+            List of ExtractionResult, one per URL
+        """
+        results = []
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all extraction tasks
+            future_to_url = {
+                executor.submit(self.extract_from_url, url, product_type): url
+                for url in urls
+            }
+
+            # Collect results as they complete
+            for future in as_completed(future_to_url):
+                url = future_to_url[future]
+                try:
+                    result = future.result()
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"Parallel extraction failed for {url}: {e}")
+                    results.append(ExtractionResult(
+                        success=False,
+                        source_url=url,
+                        source_type="error",
+                        errors=[str(e)],
+                    ))
+
+        return results
+
+    def detect_page_type(self, html_content: str) -> str:
+        """
+        Auto-detect whether a page is a product listing or single product page.
+
+        Uses pattern matching on HTML content to determine page type.
+
+        Args:
+            html_content: Raw HTML content of the page
+
+        Returns:
+            'list' for listing/search results pages
+            'single' for single product detail pages
+        """
+        html_lower = html_content.lower()
+
+        # Count matches for each type
+        list_score = 0
+        single_score = 0
+
+        for pattern in LIST_PAGE_INDICATORS:
+            if re.search(pattern, html_lower, re.IGNORECASE | re.DOTALL):
+                list_score += 1
+
+        for pattern in SINGLE_PAGE_INDICATORS:
+            if re.search(pattern, html_lower, re.IGNORECASE | re.DOTALL):
+                single_score += 1
+
+        # Count product cards (strong list indicator)
+        product_cards = len(re.findall(
+            r'<div[^>]*class="[^"]*product[-_]?card[^"]*"',
+            html_content,
+            re.IGNORECASE
+        ))
+        if product_cards >= 3:
+            list_score += 3
+
+        # Check for pagination (strong list indicator)
+        if re.search(r'page\s*\d+\s*of\s*\d+', html_lower):
+            list_score += 2
+
+        # Add to cart button (strong single indicator)
+        if re.search(r'add[-_\s]?to[-_\s]?cart|buy[-_\s]?now', html_lower):
+            single_score += 2
+
+        logger.debug(
+            f"Page type detection: list_score={list_score}, single_score={single_score}"
+        )
+
+        if list_score > single_score:
+            return "list"
+        return "single"
+
+    def _extract_product_urls(self, html_content: str, base_url: str) -> List[str]:
+        """
+        Extract product URLs from a listing page.
+
+        Looks for product links in common listing patterns.
+
+        Args:
+            html_content: HTML content of the listing page
+            base_url: Base URL for resolving relative links
+
+        Returns:
+            List of absolute product URLs
+        """
+        from urllib.parse import urljoin
+
+        urls = []
+        seen = set()
+
+        # Pattern 1: Links inside product cards
+        card_links = re.findall(
+            r'<div[^>]*class="[^"]*product[-_]?card[^"]*"[^>]*>.*?<a[^>]*href="([^"]+)"',
+            html_content,
+            re.IGNORECASE | re.DOTALL
+        )
+        for href in card_links:
+            abs_url = urljoin(base_url, href)
+            if abs_url not in seen:
+                seen.add(abs_url)
+                urls.append(abs_url)
+
+        # Pattern 2: Links with product in class or id
+        product_links = re.findall(
+            r'<a[^>]*(?:class|id)="[^"]*product[^"]*"[^>]*href="([^"]+)"',
+            html_content,
+            re.IGNORECASE
+        )
+        for href in product_links:
+            abs_url = urljoin(base_url, href)
+            if abs_url not in seen:
+                seen.add(abs_url)
+                urls.append(abs_url)
+
+        # Pattern 3: Links with /product/ in URL
+        all_links = re.findall(r'href="([^"]+/product[s]?/[^"]+)"', html_content, re.IGNORECASE)
+        for href in all_links:
+            abs_url = urljoin(base_url, href)
+            if abs_url not in seen:
+                seen.add(abs_url)
+                urls.append(abs_url)
+
+        return urls[:50]  # Limit to 50 products
+
+    # ================================================================
+    # Original Methods (maintained for backward compatibility)
+    # ================================================================
+
     def extract_product(
         self,
         expected_name: str,
@@ -245,7 +517,8 @@ class SmartCrawler:
             urls_tried.append(primary_url)
 
             if extraction["success"]:
-                extracted_name = extraction["data"].get("extracted_data", {}).get("name", "")
+                # Get name from flat structure (individual columns, not extracted_data blob)
+                extracted_name = extraction.get("data", {}).get("name", "")
                 match_score = self._name_similarity(expected_name, extracted_name)
 
                 logger.info(f"Primary extraction: '{extracted_name}' vs expected '{expected_name}' = {match_score:.2f}")
@@ -283,7 +556,8 @@ class SmartCrawler:
             extraction = self._try_extraction(url, product_type)
 
             if extraction["success"]:
-                extracted_name = extraction["data"].get("extracted_data", {}).get("name", "")
+                # Get name from flat structure (individual columns, not extracted_data blob)
+                extracted_name = extraction.get("data", {}).get("name", "")
                 match_score = self._name_similarity(expected_name, extracted_name)
 
                 logger.info(f"Extraction: '{extracted_name}' = {match_score:.2f} match")
@@ -377,7 +651,8 @@ class SmartCrawler:
             extraction = self._try_extraction(url, product_type)
 
             if extraction.get("success"):
-                extracted_name = extraction.get("data", {}).get("extracted_data", {}).get("name", "")
+                # Get name from flat structure (individual columns, not extracted_data blob)
+                extracted_name = extraction.get("data", {}).get("name", "")
                 match_score = self._name_similarity(expected_name, extracted_name)
 
                 if match_score >= name_match_threshold:
@@ -442,7 +717,8 @@ class SmartCrawler:
         if not extractions:
             return {"data": {}, "has_conflicts": False, "conflicts": [], "sources_used": 0}
 
-        merged_data = {"extracted_data": {}}
+        # Use flat structure (individual columns, not extracted_data blob)
+        merged_data = {}
         conflicts = []
 
         # Fields to check for conflicts (scalar fields)
@@ -460,17 +736,18 @@ class SmartCrawler:
         # List fields to merge (combine without duplicates)
         list_fields = ["awards", "ratings", "images", "primary_aromas", "palate_flavors"]
 
-        # Merge scalar fields
+        # Merge scalar fields (using flat structure, not extracted_data blob)
         for field_name in scalar_fields + tasting_fields:
             values = []
             for ext in extractions:
-                val = ext.get("data", {}).get("extracted_data", {}).get(field_name)
+                # Get from flat structure (individual columns)
+                val = ext.get("data", {}).get(field_name)
                 if val is not None and val != "":
                     values.append({"source": ext["url"], "value": val})
 
             if values:
-                # Use first value
-                merged_data["extracted_data"][field_name] = values[0]["value"]
+                # Use first value - store directly in merged_data (flat structure)
+                merged_data[field_name] = values[0]["value"]
 
                 # Check for conflicts
                 unique_values = set(str(v["value"]).lower().strip() for v in values)
@@ -482,13 +759,14 @@ class SmartCrawler:
                         "reason": "Used value from primary source",
                     })
 
-        # Merge list fields (combine without duplicates)
+        # Merge list fields (combine without duplicates, using flat structure)
         for field_name in list_fields:
             combined = []
             seen = set()
 
             for ext in extractions:
-                items = ext.get("data", {}).get("extracted_data", {}).get(field_name, [])
+                # Get from flat structure (individual columns)
+                items = ext.get("data", {}).get(field_name, [])
                 if isinstance(items, list):
                     for item in items:
                         # For dicts, use JSON key for dedup
@@ -502,11 +780,12 @@ class SmartCrawler:
                             combined.append(item)
 
             if combined:
-                merged_data["extracted_data"][field_name] = combined
+                # Store directly in merged_data (flat structure)
+                merged_data[field_name] = combined
 
-        # Copy other fields from first extraction
+        # Copy other fields from first extraction that weren't already merged
         for key, value in extractions[0].get("data", {}).items():
-            if key != "extracted_data":
+            if key not in merged_data:
                 merged_data[key] = value
 
         return {
@@ -633,27 +912,222 @@ class SmartCrawler:
             return {"success": False, "error": str(e)}
 
     def _trim_content(self, content: str) -> str:
-        """Trim content to fit API limits."""
-        if len(content) > 90000:
-            # Remove scripts and styles
-            content = re.sub(
-                r'<script[^>]*>.*?</script>',
-                '',
-                content,
-                flags=re.DOTALL | re.IGNORECASE
-            )
-            content = re.sub(
-                r'<style[^>]*>.*?</style>',
-                '',
-                content,
-                flags=re.DOTALL | re.IGNORECASE
-            )
-            content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+        """
+        Extract clean text content from HTML for AI processing.
 
-            if len(content) > 90000:
-                content = content[:90000]
+        Strategy:
+        1. First try to extract product-specific elements (most reliable)
+        2. Fall back to trafilatura for general content extraction
+        3. Use regex cleaning as last resort
 
+        Target: <30k chars of clean, relevant text for fast AI processing.
+        """
+        original_len = len(content)
+
+        # Step 0: Try to extract product-specific content first (most reliable)
+        # This targets common e-commerce product page structures
+        # Structured data (JSON-LD, OG tags) is high quality even when short
+        product_content = self._extract_product_section(content)
+        if product_content and len(product_content) > 100:
+            # Clean up the product section
+            product_content = re.sub(r'<script[^>]*>.*?</script>', '', product_content, flags=re.DOTALL | re.IGNORECASE)
+            product_content = re.sub(r'<style[^>]*>.*?</style>', '', product_content, flags=re.DOTALL | re.IGNORECASE)
+            product_content = re.sub(r'\s+', ' ', product_content)
+
+            if len(product_content) > 30000:
+                product_content = product_content[:30000]
+
+            logger.debug(f"Product section extraction: {original_len} -> {len(product_content)} chars")
+            return product_content
+
+        # Step 1: Try trafilatura for intelligent extraction
+        if TRAFILATURA_AVAILABLE and len(content) > 10000:
+            try:
+                # Extract main content with trafilatura
+                extracted = trafilatura.extract(
+                    content,
+                    include_comments=False,
+                    include_tables=True,
+                    no_fallback=False,
+                    favor_precision=False,  # Favor recall for product data
+                    include_formatting=False,
+                )
+
+                # Check if extracted content looks like product content (not T&C, privacy policy, etc.)
+                if extracted and len(extracted) > 500:
+                    # Skip if it looks like legal/policy content
+                    legal_patterns = ['terms and conditions', 'privacy policy', 'cookie policy', 'legal notice']
+                    is_legal = any(p in extracted.lower()[:500] for p in legal_patterns)
+
+                    if not is_legal:
+                        logger.debug(
+                            f"Trafilatura extraction: {original_len} -> {len(extracted)} chars"
+                        )
+                        # Add some HTML structure hints for AI
+                        content = f"<extracted_content>\n{extracted}\n</extracted_content>"
+
+                        # If still too large, truncate
+                        if len(content) > 30000:
+                            content = content[:30000]
+
+                        return content
+                    else:
+                        logger.debug("Trafilatura extracted legal content, using fallback")
+                else:
+                    logger.debug("Trafilatura extraction too short, using fallback")
+            except Exception as e:
+                logger.warning(f"Trafilatura extraction failed: {e}")
+
+        # Step 2: Fallback - regex-based cleaning
+        # Remove scripts and styles
+        content = re.sub(
+            r'<script[^>]*>.*?</script>',
+            '',
+            content,
+            flags=re.DOTALL | re.IGNORECASE
+        )
+        content = re.sub(
+            r'<style[^>]*>.*?</style>',
+            '',
+            content,
+            flags=re.DOTALL | re.IGNORECASE
+        )
+        content = re.sub(r'<!--.*?-->', '', content, flags=re.DOTALL)
+
+        # Remove SVG and other noise
+        content = re.sub(r'<svg[^>]*>.*?</svg>', '', content, flags=re.DOTALL | re.IGNORECASE)
+        content = re.sub(r'<noscript[^>]*>.*?</noscript>', '', content, flags=re.DOTALL | re.IGNORECASE)
+
+        # Remove excessive whitespace
+        content = re.sub(r'\s+', ' ', content)
+
+        # Try to extract product-relevant sections
+        product_patterns = [
+            r'<main[^>]*>(.*?)</main>',
+            r'<article[^>]*>(.*?)</article>',
+            r'<div[^>]*class="[^"]*product[^"]*"[^>]*>(.*?)</div>',
+            r'<div[^>]*id="[^"]*product[^"]*"[^>]*>(.*?)</div>',
+        ]
+
+        for pattern in product_patterns:
+            match = re.search(pattern, content, flags=re.DOTALL | re.IGNORECASE)
+            if match and len(match.group(1)) > 500:
+                content = match.group(1)
+                logger.debug(f"Extracted product section: {len(content)} chars")
+                break
+
+        # Final size limit
+        if len(content) > 30000:
+            content = content[:30000]
+
+        logger.debug(f"Content trimmed: {original_len} -> {len(content)} chars")
         return content
+
+    def _extract_product_section(self, html: str) -> Optional[str]:
+        """
+        Extract product-specific content from HTML.
+
+        Strategy (prioritized by reliability):
+        1. JSON-LD structured data (most reliable)
+        2. Open Graph meta tags (very common, reliable)
+        3. Title + meta description
+        4. Product-specific HTML sections
+
+        Returns combined content from multiple sources for best coverage.
+        """
+        parts = []
+
+        # Source 1: Try JSON-LD structured data (most reliable)
+        json_ld_match = re.search(
+            r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>',
+            html,
+            flags=re.DOTALL | re.IGNORECASE
+        )
+        if json_ld_match:
+            try:
+                import json
+                data = json.loads(json_ld_match.group(1))
+                # Handle array of schemas
+                if isinstance(data, list):
+                    for item in data:
+                        if item.get('@type') == 'Product':
+                            data = item
+                            break
+                if data.get('@type') == 'Product':
+                    if data.get('name'):
+                        parts.append(f"Product Name: {data['name']}")
+                    if data.get('brand', {}).get('name'):
+                        parts.append(f"Brand: {data['brand']['name']}")
+                    if data.get('description'):
+                        parts.append(f"Description: {data['description']}")
+                    if data.get('offers'):
+                        offers = data['offers']
+                        if isinstance(offers, list):
+                            offers = offers[0]
+                        if offers.get('price'):
+                            parts.append(f"Price: {offers.get('priceCurrency', '')} {offers['price']}")
+                    logger.debug(f"Extracted {len(parts)} fields from JSON-LD")
+            except (json.JSONDecodeError, KeyError, TypeError):
+                pass
+
+        # Source 2: Open Graph meta tags (very common)
+        og_patterns = [
+            (r'<meta[^>]*property="og:title"[^>]*content="([^"]+)"', 'Product Name'),
+            (r'<meta[^>]*property="og:description"[^>]*content="([^"]+)"', 'Description'),
+            (r'<meta[^>]*property="og:price:amount"[^>]*content="([^"]+)"', 'Price'),
+            (r'<meta[^>]*property="product:price:amount"[^>]*content="([^"]+)"', 'Price'),
+            (r'<meta[^>]*property="product:brand"[^>]*content="([^"]+)"', 'Brand'),
+        ]
+        for pattern, label in og_patterns:
+            match = re.search(pattern, html, flags=re.IGNORECASE)
+            if match:
+                value = match.group(1)
+                # Avoid duplicates
+                if not any(label in p for p in parts):
+                    parts.append(f"{label}: {value}")
+
+        # Source 3: Title tag and meta description (fallback)
+        if not any('Product Name' in p for p in parts):
+            title_match = re.search(r'<title[^>]*>([^<]+)</title>', html, flags=re.IGNORECASE)
+            if title_match:
+                title = title_match.group(1).strip()
+                # Clean common suffixes
+                title = re.sub(r'\s*[\|–-]\s*[^|–-]+$', '', title)
+                parts.append(f"Product Name: {title}")
+
+        if not any('Description' in p for p in parts):
+            meta_desc = re.search(r'<meta[^>]*name="description"[^>]*content="([^"]+)"', html, flags=re.IGNORECASE)
+            if meta_desc:
+                parts.append(f"Description: {meta_desc.group(1)}")
+
+        # If we have structured data, return it (high quality)
+        if len(parts) >= 2:
+            content = '\n'.join(parts)
+            logger.debug(f"Extracted structured product data: {len(content)} chars from {len(parts)} fields")
+            return content
+
+        # Source 4: Product HTML sections (less reliable, may contain noise)
+        product_patterns = [
+            (r'<div[^>]*class="[^"]*product-description[^"]*"[^>]*>(.*?)</div>', 'product-description'),
+            (r'<div[^>]*class="[^"]*product-info[^"]*"[^>]*>(.*?)</div>', 'product-info'),
+            (r'<div[^>]*class="[^"]*product-detail[^"]*"[^>]*>(.*?)</div>', 'product-detail'),
+            (r'<article[^>]*>(.*?)</article>', 'article'),
+        ]
+
+        for pattern, name in product_patterns:
+            match = re.search(pattern, html, flags=re.DOTALL | re.IGNORECASE)
+            if match and len(match.group(1)) > 500:
+                extracted = match.group(1)
+                # Clean it up
+                extracted = re.sub(r'<script[^>]*>.*?</script>', '', extracted, flags=re.DOTALL | re.IGNORECASE)
+                extracted = re.sub(r'<style[^>]*>.*?</style>', '', extracted, flags=re.DOTALL | re.IGNORECASE)
+                # Check it has text content
+                text_only = re.sub(r'<[^>]+>', '', extracted)
+                if len(text_only.strip()) > 200:
+                    logger.debug(f"Found product section via '{name}': {len(extracted)} chars")
+                    return '\n'.join(parts) + '\n\n' + extracted if parts else extracted
+
+        return '\n'.join(parts) if parts else None
 
     def _name_similarity(self, expected: str, extracted: str) -> float:
         """Calculate similarity between expected and extracted names."""
@@ -696,14 +1170,13 @@ class SmartCrawler:
             return ""
 
     def _merge_award_info(self, data: Dict, award_info: Dict) -> Dict:
-        """Merge award information into extracted data."""
+        """Merge award information into extracted data (flat structure)."""
         if not data or not award_info:
             return data
 
-        # Ensure awards list exists
-        extracted = data.get("extracted_data", {})
-        if "awards" not in extracted:
-            extracted["awards"] = []
+        # Ensure awards list exists (flat structure, not nested in extracted_data)
+        if "awards" not in data:
+            data["awards"] = []
 
         # Add award if not already present
         new_award = {
@@ -716,16 +1189,15 @@ class SmartCrawler:
 
         # Check if award already exists
         existing = False
-        for award in extracted["awards"]:
+        for award in data["awards"]:
             if (award.get("competition") == new_award["competition"] and
                 award.get("year") == new_award["year"]):
                 existing = True
                 break
 
         if not existing and new_award["competition"] and new_award["medal"]:
-            extracted["awards"].append(new_award)
+            data["awards"].append(new_award)
 
-        data["extracted_data"] = extracted
         return data
 
 

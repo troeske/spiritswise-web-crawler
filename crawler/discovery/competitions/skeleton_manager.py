@@ -1,7 +1,25 @@
 """
 Skeleton Product Manager - Creates and manages skeleton products from competition data.
 
-Skeleton products are created with status='skeleton' and minimal extracted_data,
+.. deprecated::
+    This module is DEPRECATED as of Phase 11 of the Unified Product Pipeline.
+
+    The skeleton product pattern is being replaced by the unified pipeline which:
+    - Uses `crawler.services.product_saver.save_discovered_product()` directly
+    - Leverages AI extractors for richer data extraction
+    - Uses the verification pipeline for multi-source data merging
+
+    This module is kept for backward compatibility and reference. New code should
+    use the product_saver and verification pipeline directly.
+
+    Migration Guide:
+    - Instead of SkeletonProductManager.create_skeleton_product(), use
+      save_discovered_product() from crawler.services.product_saver
+    - Instead of mark_skeleton_enriched(), use the VerificationPipeline
+      from crawler.services.verification_pipeline
+    - For award data, use the unified save flow with awards parameter
+
+Skeleton products are created with status='skeleton' and minimal product data,
 awaiting enrichment from web crawling. Awards are stored as ProductAward records.
 
 Phase 4 Update: Now uses the unified save_discovered_product() function from
@@ -9,11 +27,16 @@ crawler.services.product_saver for consistent product creation across all flows.
 
 Fix 2 Update: Now checks for existing products regardless of status to prevent
 duplicates when the same award is crawled after a skeleton was enriched.
+
+E2E Bug Fix: _determine_product_type() now returns None for non-MVP types
+(only whiskey and port_wine are supported). create_skeleton_product() raises
+ValueError when product type cannot be determined or is not supported for MVP.
 """
 
 import logging
 import hashlib
 import json
+import warnings
 from typing import Dict, Any, List, Optional
 
 from django.db import transaction
@@ -35,10 +58,25 @@ from crawler.services.product_saver import (
 
 logger = logging.getLogger(__name__)
 
+# Deprecation message for this module
+_DEPRECATION_MESSAGE = (
+    "SkeletonProductManager is deprecated. Use crawler.services.product_saver "
+    "and crawler.services.verification_pipeline instead. "
+    "See module docstring for migration guide."
+)
+
+# MVP supported product types
+MVP_PRODUCT_TYPES = {ProductType.WHISKEY, ProductType.PORT_WINE}
+
 
 class SkeletonProductManager:
     """
     Manager for creating and handling skeleton products from competition data.
+
+    .. deprecated::
+        Use `crawler.services.product_saver.save_discovered_product()` directly
+        and `crawler.services.verification_pipeline.VerificationPipeline` for
+        multi-source verification.
 
     Skeleton products are created with minimal information (name, award data)
     and are later enriched through targeted web crawling.
@@ -52,7 +90,11 @@ class SkeletonProductManager:
 
     def __init__(self):
         """Initialize the skeleton product manager."""
-        pass
+        warnings.warn(
+            _DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2
+        )
 
     def create_skeleton_product(
         self,
@@ -80,13 +122,27 @@ class SkeletonProductManager:
 
         Returns:
             DiscoveredProduct instance (existing or newly created with status='skeleton')
+
+        Raises:
+            ValueError: If product_name is missing or product type is not supported for MVP
         """
         product_name = award_data.get("product_name", "")
         if not product_name:
             raise ValueError("product_name is required in award_data")
 
-        # Determine product type (default to whiskey for now)
+        # Determine product type - returns None for non-MVP types
         product_type = self._determine_product_type(award_data)
+
+        # Reject products with unsupported types for MVP
+        if product_type is None:
+            logger.info(
+                f"Skipping non-MVP product: {product_name} "
+                f"(category: {award_data.get('category', 'unknown')})"
+            )
+            raise ValueError(
+                f"Product type not supported for MVP: '{product_name}'. "
+                "Only whiskey and port_wine products are supported."
+            )
 
         # Generate a preliminary fingerprint for deduplication
         fingerprint = self._compute_skeleton_fingerprint(award_data)
@@ -195,6 +251,7 @@ class SkeletonProductManager:
             List of created DiscoveredProduct instances
         """
         products = []
+        skipped_count = 0
         for award_data in award_data_list:
             try:
                 product = self.create_skeleton_product(
@@ -203,13 +260,28 @@ class SkeletonProductManager:
                     crawl_job=crawl_job,
                 )
                 products.append(product)
+            except ValueError as e:
+                # Expected for non-MVP types - log at debug level
+                if "not supported for MVP" in str(e):
+                    skipped_count += 1
+                    logger.debug(
+                        f"Skipped non-MVP product: {award_data.get('product_name')}"
+                    )
+                else:
+                    logger.error(
+                        f"Failed to create skeleton for {award_data.get('product_name')}: {e}"
+                    )
+                continue
             except Exception as e:
                 logger.error(
                     f"Failed to create skeleton for {award_data.get('product_name')}: {e}"
                 )
                 continue
 
-        logger.info(f"Created {len(products)} skeleton products from batch of {len(award_data_list)}")
+        logger.info(
+            f"Created {len(products)} skeleton products from batch of {len(award_data_list)} "
+            f"(skipped {skipped_count} non-MVP products)"
+        )
         return products
 
     def _add_award_to_existing(
@@ -261,7 +333,7 @@ class SkeletonProductManager:
 
         if existing_award:
             logger.debug(
-                f"Award already exists for product: {product.name or product.extracted_data.get('name')}"
+                f"Award already exists for product: {product.name}"
             )
             return product
 
@@ -278,7 +350,7 @@ class SkeletonProductManager:
         if awards_created > 0:
             logger.info(
                 f"Added award to existing product ({product.status}): "
-                f"{product.name or product.extracted_data.get('name')} "
+                f"{product.name} "
                 f"({award_entry['competition']} {award_entry['year']} {award_entry['medal']})"
             )
 
@@ -298,41 +370,120 @@ class SkeletonProductManager:
         """
         return self._add_award_to_existing(skeleton, award_data)
 
-    def _determine_product_type(self, award_data: Dict[str, Any]) -> str:
-        """Determine product type from award data."""
+    def _determine_product_type(self, award_data: Dict[str, Any]) -> Optional[str]:
+        """
+        Determine product type from award data.
+
+        Checks product_name, category, and competition fields for type keywords.
+        For MVP, only returns 'whiskey' or 'port_wine'. Returns None for all
+        other product types (wine, brandy, gin, vodka, rum, tequila, unknown).
+
+        Args:
+            award_data: Dictionary with product_name, category, competition fields
+
+        Returns:
+            ProductType.WHISKEY, ProductType.PORT_WINE, or None if not MVP-supported
+        """
+        # Get all text fields to check
+        product_name = (award_data.get("product_name") or "").lower()
         category = (award_data.get("category") or "").lower()
         competition = (award_data.get("competition") or "").lower()
 
-        # Check for whiskey indicators
-        whiskey_keywords = [
-            "whisky",
-            "whiskey",
-            "scotch",
-            "bourbon",
-            "rye",
-            "malt",
-            "single malt",
-            "blended",
-            "irish whiskey",
-            "japanese whisky",
-        ]
+        # Combine all text for keyword matching
+        all_text = f"{product_name} {category} {competition}"
 
+        # Define keywords for each product type (ordered by specificity)
+        # More specific types should be checked first
+
+        # Port wine indicators (check before generic wine)
+        port_keywords = [
+            "tawny port", "ruby port", "vintage port", "late bottled vintage",
+            "lbv port", "colheita", "white port", "port wine", "porto",
+        ]
+        for keyword in port_keywords:
+            if keyword in all_text:
+                return ProductType.PORT_WINE
+
+        # Also check for just "port" but be more careful (avoid "portobello", "import", etc.)
+        if " port" in all_text or all_text.startswith("port") or "port " in product_name:
+            # Additional check: must not contain wine-unrelated words
+            if "brandy" not in all_text and "cognac" not in all_text:
+                return ProductType.PORT_WINE
+
+        # Whiskey indicators
+        whiskey_keywords = [
+            "whisky", "whiskey", "scotch", "bourbon", "rye whiskey",
+            "single malt", "blended malt", "blended scotch", "irish whiskey",
+            "tennessee whiskey", "canadian whisky", "japanese whisky",
+            "grain whisky", "malt whisky",
+        ]
         for keyword in whiskey_keywords:
-            if keyword in category:
+            if keyword in all_text:
                 return ProductType.WHISKEY
 
-        # Check competition name
+        # Check competition name as fallback for whiskey
         if "whisky" in competition or "whiskey" in competition:
             return ProductType.WHISKEY
 
-        # Check for port wine indicators
-        port_keywords = ["port", "porto", "douro"]
-        for keyword in port_keywords:
-            if keyword in category:
-                return ProductType.PORT_WINE
+        # ========================================
+        # NON-MVP TYPES - Return None to reject
+        # ========================================
 
-        # Default to whiskey (primary focus of current implementation)
-        return ProductType.WHISKEY
+        # Brandy/Cognac indicators (NOT supported for MVP)
+        brandy_keywords = [
+            "brandy", "cognac", "armagnac", "calvados", "pisco",
+            "grappa", "eau de vie", "eau-de-vie", "marc",
+        ]
+        for keyword in brandy_keywords:
+            if keyword in all_text:
+                logger.debug(
+                    f"Skipping brandy/cognac product (not MVP): {product_name}"
+                )
+                return None
+
+        # Wine indicators (NOT supported for MVP - not port wine)
+        wine_keywords = [
+            "chardonnay", "merlot", "cabernet", "sauvignon", "syrah",
+            "shiraz", "pinot", "riesling", "malbec", "tempranillo",
+            "sangiovese", "zinfandel", "grenache", "vineyard", "vintage",
+            "wine", "vino", "vin", "winery",
+        ]
+        for keyword in wine_keywords:
+            if keyword in all_text:
+                logger.debug(f"Skipping wine product (not MVP): {product_name}")
+                return None
+
+        # Gin indicators (NOT supported for MVP)
+        gin_keywords = ["gin", "genever", "london dry"]
+        for keyword in gin_keywords:
+            if keyword in all_text:
+                logger.debug(f"Skipping gin product (not MVP): {product_name}")
+                return None
+
+        # Vodka indicators (NOT supported for MVP)
+        if "vodka" in all_text:
+            logger.debug(f"Skipping vodka product (not MVP): {product_name}")
+            return None
+
+        # Rum indicators (NOT supported for MVP)
+        rum_keywords = ["rum", "rhum", "cachaça", "ron "]
+        for keyword in rum_keywords:
+            if keyword in all_text:
+                logger.debug(f"Skipping rum product (not MVP): {product_name}")
+                return None
+
+        # Tequila/Mezcal indicators (NOT supported for MVP)
+        tequila_keywords = ["tequila", "mezcal", "sotol", "agave"]
+        for keyword in tequila_keywords:
+            if keyword in all_text:
+                logger.debug(f"Skipping tequila product (not MVP): {product_name}")
+                return None
+
+        # If we can't determine type, return None (unknown = not supported for MVP)
+        logger.warning(
+            f"Could not determine product type for: {product_name} - skipping (not MVP)"
+        )
+        return None
 
     def _compute_skeleton_fingerprint(self, award_data: Dict[str, Any]) -> str:
         """
@@ -385,12 +536,13 @@ class SkeletonProductManager:
         """
         Get skeleton products that haven't been processed for enrichment yet.
 
-        These are skeletons with no enriched_data.
+        These are skeletons that still have skeleton status and no source_url
+        (indicating they haven't been enriched from a web source).
         """
         return list(
             DiscoveredProduct.objects.filter(
                 status=DiscoveredProductStatus.SKELETON,
-                enriched_data={},
+                source_url="",
             )
             .order_by("discovered_at")[:limit]
         )
@@ -412,7 +564,8 @@ class SkeletonProductManager:
             skeleton: The skeleton product to update
             enriched_data: Data from web crawling, may include:
                 - name, brand, price, description, volume_ml, abv (basic fields)
-                - taste_profile: dict with nose, palate, finish, flavor_tags
+                - nose_description, palate_description, finish_description (tasting notes)
+                - primary_aromas, palate_flavors, finish_flavors (flavor lists)
                 - images: list of image dicts
                 - ratings: list of rating dicts
             source_url: URL where enriched data was found
@@ -445,12 +598,11 @@ class SkeletonProductManager:
         # If save_discovered_product found the existing skeleton, update its status
         if updated_product.id == skeleton.id:
             updated_product.status = DiscoveredProductStatus.PENDING
-            updated_product.enriched_data = enriched_data
 
             if source_url:
                 updated_product.source_url = source_url
 
-            updated_product.save(update_fields=["status", "enriched_data", "source_url"])
+            updated_product.save(update_fields=["status", "source_url"])
         else:
             # Different product was matched/created - link skeleton to it
             # Mark original skeleton as merged
@@ -459,7 +611,7 @@ class SkeletonProductManager:
             updated_product = result.product
 
         logger.info(
-            f"Enriched skeleton product: {updated_product.name or updated_product.extracted_data.get('name')} "
+            f"Enriched skeleton product: {updated_product.name} "
             f"- status changed to {updated_product.status}"
         )
 
@@ -494,7 +646,7 @@ class SkeletonProductManager:
         if sources_added:
             product.save(update_fields=["discovery_sources"])
             logger.debug(
-                f"Merged discovery sources for {product.name or product.extracted_data.get('name')}: "
+                f"Merged discovery sources for {product.name}: "
                 f"{product.discovery_sources}"
             )
 

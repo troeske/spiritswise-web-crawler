@@ -1,0 +1,178 @@
+================================================================================
+TEST: IWSC Competition Flow
+Started: 2026-01-11T10:23:35.596143
+Duration: 212.2s
+================================================================================
+
+STEPS:
+----------------------------------------
+1. [OK] fetch: Fetching competition page (force_tier=2) (20433ms)
+      tier_used: 2
+      tier_name: Playwright
+      content_length_bytes: 996559
+      content_length_kb: 973.2
+      has_product_indicators: True
+2. [OK] ai_extract: AI extraction for whiskey products (29721ms)
+      total_products_from_ai: 11
+      extraction_time_ms: 29720.6
+      ai_success: True
+3. [OK] validate: Validating 11 extracted products (1ms)
+      total_products: 11
+      valid_products: 11
+      rejected_products: 0
+      validation_pass_rate: 100.0%
+4. [OK] db_create_source: Creating CrawledSource record (5ms)
+      source_id: 642b41c9-5070-422d-8aa8-2ad4c5363a86
+      title: IWSC 2025 - Competition Results Page
+      source_type: award_page
+5. [OK] quality_assess: Quality assessment for The Scotch Malt Whisky Society (N/A)
+      product_name: The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'description', 'nose_description', 'palate_description', 'finish_description']
+      needs_enrichment: True
+6. [OK] enrichment: Enriching The Scotch Malt Whisky Society... via SerpAPI + AI (47744ms)
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_description', 'primary_aromas', 'finish_description', 'age', 'palate_flavors', 'abv', 'cask_type', 'nose_description', 'description', 'packaging_size']
+      sources_used: 2
+      searches_performed: 2
+      time_elapsed_seconds: 47.742889165878296
+7. [OK] enrichment_result: Enrichment complete for The Scotch Malt Whisky Society (N/A)
+      product_name: The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_description', 'primary_aromas', 'finish_description', 'age', 'palate_flavors', 'abv', 'cask_type', 'nose_description', 'description', 'packaging_size']
+      fields_enriched_count: 10
+      sources_used: 2
+      searches_performed: 2
+      time_elapsed_seconds: 47.7
+      status_improved: True
+8. [OK] quality_assess: Quality assessment for The Scotch Malt Whisky Society (N/A)
+      product_name: The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+9. [OK] quality_assess: Quality assessment for The GlenAllachie Distillers Co (N/A)
+      product_name: The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'description', 'nose_description', 'palate_description', 'finish_description']
+      needs_enrichment: True
+10. [OK] enrichment: Enriching The GlenAllachie Distillers Co... via SerpAPI + AI (58815ms)
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_description', 'primary_aromas', 'finish_description', 'palate_flavors', 'abv', 'volume_ml', 'nose_description', 'description']
+      sources_used: 2
+      searches_performed: 2
+      time_elapsed_seconds: 58.81462073326111
+11. [OK] enrichment_result: Enrichment complete for The GlenAllachie Distillers Co (N/A)
+      product_name: The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['palate_description', 'primary_aromas', 'finish_description', 'palate_flavors', 'abv', 'volume_ml', 'nose_description', 'description']
+      fields_enriched_count: 8
+      sources_used: 2
+      searches_performed: 2
+      time_elapsed_seconds: 58.8
+      status_improved: True
+12. [OK] quality_assess: Quality assessment for The GlenAllachie Distillers Co (N/A)
+      product_name: The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+13. [OK] quality_assess: Quality assessment for Ballantine's 10 YO Blended Sco (N/A)
+      product_name: Ballantine's 10 YO Blended Scotch Whisky
+      status: skeleton
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['description', 'abv', 'region']
+      needs_enrichment: True
+14. [OK] enrichment: Enriching Ballantine's 10 YO Blended Sco... via SerpAPI + AI (52375ms)
+      status_before: skeleton
+      status_after: complete
+      fields_enriched: ['palate_description', 'primary_aromas', 'finish_description', 'palate_flavors', 'abv', 'volume_ml', 'nose_description', 'description']
+      sources_used: 2
+      searches_performed: 2
+      time_elapsed_seconds: 52.375375270843506
+15. [OK] enrichment_result: Enrichment complete for Ballantine's 10 YO Blended Sco (N/A)
+      product_name: Ballantine's 10 YO Blended Scotch Whisky
+      status_before: skeleton
+      status_after: complete
+      fields_enriched: ['palate_description', 'primary_aromas', 'finish_description', 'palate_flavors', 'abv', 'volume_ml', 'nose_description', 'description']
+      fields_enriched_count: 8
+      sources_used: 2
+      searches_performed: 2
+      time_elapsed_seconds: 52.4
+      status_improved: True
+16. [OK] quality_assess: Quality assessment for Ballantine's 10 YO Blended Sco (N/A)
+      product_name: Ballantine's 10 YO Blended Scotch Whisky (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+
+PRODUCTS:
+----------------------------------------
+  1. The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  2. The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  3. Ballantine's 10 YO Blended Scotch Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+  4. Filliers Distillery 10 YO Sherry Cask Single Malt Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+  5. Speyburn Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  6. Glencadam Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  7. Laphroaig 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  8. The Benromach Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  9. Ardbeg Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  10. Tomintoul Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  11. Belgian Owl 10 YO Single Malt Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+
+SUMMARY:
+----------------------------------------
+  Total Steps: 16
+  Successful Steps: 16
+  Failed Steps: 0
+  Total Products: 11
+  Valid Products: 11
+  Rejected Products: 0
+
+================================================================================

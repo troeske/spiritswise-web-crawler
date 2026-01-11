@@ -379,30 +379,20 @@ class TestDiscoveredProductFingerprintCompatibility:
             region="Speyside",
         )
 
-        # Create product with extracted_data (legacy approach)
-        extracted_data = {
-            "name": "Macallan 18",
-            "brand": "Macallan",
-            "product_type": "whiskey",
-            "volume_ml": 700,
-            "abv": 43.0,
-            "age_statement": 18,
-        }
-
+        # Create product with individual columns (extracted_data JSON removed)
         product = DiscoveredProduct.objects.create(
             source=source,
             source_url="https://example.com/product/fingerprint",
             product_type=ProductType.WHISKEY,
             raw_content="<html>Test</html>",
-            extracted_data=extracted_data,
-            # New fields
             name="Macallan 18",
             brand=brand,
             abv=Decimal("43.0"),
-            age_statement=18,
+            age_statement="18",
+            volume_ml=700,
         )
 
-        # Fingerprint should be computed from extracted_data
+        # Fingerprint should be computed from individual fields
         assert product.fingerprint is not None
         assert len(product.fingerprint) == 64
 
@@ -410,6 +400,7 @@ class TestDiscoveredProductFingerprintCompatibility:
         """Duplicate detection works with expanded model."""
         from crawler.models import (
             DiscoveredProduct,
+            DiscoveredBrand,
             CrawlerSource,
             ProductType,
         )
@@ -421,33 +412,38 @@ class TestDiscoveredProductFingerprintCompatibility:
             category="retailer",
         )
 
-        extracted_data = {
-            "name": "Duplicate Test Product",
-            "brand": "TestBrand",
-            "product_type": "whiskey",
-            "volume_ml": 700,
-            "abv": 40.0,
-        }
+        brand = DiscoveredBrand.objects.create(
+            name="TestBrand",
+        )
 
+        # Create first product with individual columns
         product1 = DiscoveredProduct.objects.create(
             source=source,
             source_url="https://example.com/product/dup1",
             product_type=ProductType.WHISKEY,
             raw_content="<html>Test 1</html>",
-            extracted_data=extracted_data,
             name="Duplicate Test Product",
+            brand=brand,
+            volume_ml=700,
+            abv=Decimal("40.0"),
         )
 
+        # Create second product with same data
         product2 = DiscoveredProduct(
             source=source,
             source_url="https://example.com/product/dup2",
             product_type=ProductType.WHISKEY,
             raw_content="<html>Test 2</html>",
-            extracted_data=extracted_data,
             name="Duplicate Test Product",
+            brand=brand,
+            volume_ml=700,
+            abv=Decimal("40.0"),
         )
-        # Compute fingerprint for unsaved product
-        product2.fingerprint = DiscoveredProduct.compute_fingerprint(extracted_data)
+        # Compute fingerprint from model fields (same method as product1)
+        product2.fingerprint = product2.compute_fingerprint_from_fields()
+
+        # Fingerprints should match since all identifying fields are the same
+        assert product1.fingerprint == product2.fingerprint
 
         # Check for duplicate
         assert product2.check_duplicate() is True

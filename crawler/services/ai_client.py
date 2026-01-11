@@ -196,9 +196,27 @@ class AIEnhancementClient:
         # Extract response fields
         product_type = data.get("product_type", "unknown")
         confidence = data.get("confidence", 0.0)
-        extracted_data = data.get("extracted_data", {})
-        enrichment = data.get("enrichment", {})
         processing_time_ms = data.get("processing_time_ms", 0.0)
+
+        # Handle multi-product responses
+        # When is_multi_product is true, the data is in products[0] instead of extracted_data
+        is_multi_product = data.get("is_multi_product", False)
+        products = data.get("products", [])
+
+        if is_multi_product and products:
+            # Extract first product as the main product
+            first_product = products[0]
+            extracted_data = first_product.get("extracted_data", {})
+            enrichment = first_product.get("enrichment", {})
+            # Use product-specific type if available
+            if first_product.get("product_type"):
+                product_type = first_product.get("product_type")
+            logger.info(f"Multi-product response: extracting first of {len(products)} products")
+        else:
+            # Single product response
+            extracted_data = data.get("extracted_data", {})
+            enrichment = data.get("enrichment", {})
+
         # RECT-006: Extract field-level confidences if provided by AI service
         field_confidences = data.get("field_confidences", None)
 

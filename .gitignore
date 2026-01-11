@@ -68,5 +68,13 @@ Thumbs.db
 playwright-report/
 test-results/
 test_db.sqlite3
-data/
+
+# Data - keep structure but ignore generated files
+data/test_results/
+data/debug_images/
+
+# Backup files
 crawler/tasks_backup.py
+
+# Log files
+*.log

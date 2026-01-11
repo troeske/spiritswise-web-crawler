@@ -11,10 +11,11 @@ JSON Format:
 {
     "terms": [
         {
-            "term_template": "best whiskey {year}",
+            "search_query": "best whiskey 2026",
             "category": "best_lists",
             "product_type": "whiskey",
             "priority": 100,
+            "max_results": 10,
             "is_active": true,
             "seasonal_start_month": null,
             "seasonal_end_month": null
@@ -32,89 +33,89 @@ from crawler.models import SearchTerm, SearchTermCategory, SearchTermProductType
 # Preset search terms for whiskey
 WHISKEY_SEARCH_TERMS = [
     # Best Lists - High Priority
-    {"term_template": "best whiskey {year}", "category": "best_lists", "priority": 100},
-    {"term_template": "best bourbon {year}", "category": "best_lists", "priority": 100},
-    {"term_template": "best scotch {year}", "category": "best_lists", "priority": 100},
-    {"term_template": "best rye whiskey {year}", "category": "best_lists", "priority": 100},
-    {"term_template": "best irish whiskey {year}", "category": "best_lists", "priority": 95},
-    {"term_template": "best japanese whisky {year}", "category": "best_lists", "priority": 95},
-    {"term_template": "top rated whiskey {year}", "category": "best_lists", "priority": 90},
-    {"term_template": "whiskey of the year {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best whiskey {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best bourbon {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best scotch {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best rye whiskey {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best irish whiskey {year}", "category": "best_lists", "priority": 95},
+    {"search_query": "best japanese whisky {year}", "category": "best_lists", "priority": 95},
+    {"search_query": "top rated whiskey {year}", "category": "best_lists", "priority": 90},
+    {"search_query": "whiskey of the year {year}", "category": "best_lists", "priority": 100},
     # Awards
-    {"term_template": "whiskey awards {year} winners", "category": "awards", "priority": 95},
-    {"term_template": "IWSC whiskey {year}", "category": "awards", "priority": 90},
-    {"term_template": "San Francisco World Spirits whiskey {year}", "category": "awards", "priority": 90},
-    {"term_template": "World Whiskies Awards {year}", "category": "awards", "priority": 90},
+    {"search_query": "whiskey awards {year} winners", "category": "awards", "priority": 95},
+    {"search_query": "IWSC whiskey {year}", "category": "awards", "priority": 90},
+    {"search_query": "San Francisco World Spirits whiskey {year}", "category": "awards", "priority": 90},
+    {"search_query": "World Whiskies Awards {year}", "category": "awards", "priority": 90},
     # New Releases
-    {"term_template": "new whiskey releases {year}", "category": "new_releases", "priority": 85},
-    {"term_template": "new bourbon releases {year}", "category": "new_releases", "priority": 85},
-    {"term_template": "limited edition whiskey {year}", "category": "new_releases", "priority": 80},
-    {"term_template": "whiskey new arrivals {year}", "category": "new_releases", "priority": 75},
+    {"search_query": "new whiskey releases {year}", "category": "new_releases", "priority": 85},
+    {"search_query": "new bourbon releases {year}", "category": "new_releases", "priority": 85},
+    {"search_query": "limited edition whiskey {year}", "category": "new_releases", "priority": 80},
+    {"search_query": "whiskey new arrivals {year}", "category": "new_releases", "priority": 75},
     # Style & Flavor
-    {"term_template": "best peated whiskey", "category": "style", "priority": 70},
-    {"term_template": "best cask strength bourbon", "category": "style", "priority": 70},
-    {"term_template": "best single malt whiskey", "category": "style", "priority": 75},
-    {"term_template": "best sherry cask whiskey", "category": "style", "priority": 65},
-    {"term_template": "best smoky whiskey", "category": "style", "priority": 65},
-    {"term_template": "best sweet bourbon", "category": "style", "priority": 60},
+    {"search_query": "best peated whiskey", "category": "style", "priority": 70},
+    {"search_query": "best cask strength bourbon", "category": "style", "priority": 70},
+    {"search_query": "best single malt whiskey", "category": "style", "priority": 75},
+    {"search_query": "best sherry cask whiskey", "category": "style", "priority": 65},
+    {"search_query": "best smoky whiskey", "category": "style", "priority": 65},
+    {"search_query": "best sweet bourbon", "category": "style", "priority": 60},
     # Value
-    {"term_template": "best whiskey under $50", "category": "value", "priority": 80},
-    {"term_template": "best bourbon under $30", "category": "value", "priority": 80},
-    {"term_template": "best cheap whiskey {year}", "category": "value", "priority": 75},
-    {"term_template": "best value whiskey {year}", "category": "value", "priority": 75},
-    {"term_template": "best affordable scotch", "category": "value", "priority": 70},
+    {"search_query": "best whiskey under $50", "category": "value", "priority": 80},
+    {"search_query": "best bourbon under $30", "category": "value", "priority": 80},
+    {"search_query": "best cheap whiskey {year}", "category": "value", "priority": 75},
+    {"search_query": "best value whiskey {year}", "category": "value", "priority": 75},
+    {"search_query": "best affordable scotch", "category": "value", "priority": 70},
     # Regional
-    {"term_template": "best Kentucky bourbon", "category": "regional", "priority": 65},
-    {"term_template": "best Islay whisky", "category": "regional", "priority": 65},
-    {"term_template": "best Speyside whisky", "category": "regional", "priority": 60},
-    {"term_template": "best Texas whiskey", "category": "regional", "priority": 55},
-    {"term_template": "best Tennessee whiskey", "category": "regional", "priority": 55},
+    {"search_query": "best Kentucky bourbon", "category": "regional", "priority": 65},
+    {"search_query": "best Islay whisky", "category": "regional", "priority": 65},
+    {"search_query": "best Speyside whisky", "category": "regional", "priority": 60},
+    {"search_query": "best Texas whiskey", "category": "regional", "priority": 55},
+    {"search_query": "best Tennessee whiskey", "category": "regional", "priority": 55},
     # Seasonal
-    {"term_template": "best whiskey gifts {year}", "category": "seasonal", "priority": 85, "seasonal_start_month": 11, "seasonal_end_month": 12},
-    {"term_template": "holiday whiskey {year}", "category": "seasonal", "priority": 80, "seasonal_start_month": 11, "seasonal_end_month": 12},
-    {"term_template": "whiskey gift guide {year}", "category": "seasonal", "priority": 80, "seasonal_start_month": 10, "seasonal_end_month": 12},
-    {"term_template": "Father's Day whiskey {year}", "category": "seasonal", "priority": 75, "seasonal_start_month": 5, "seasonal_end_month": 6},
+    {"search_query": "best whiskey gifts {year}", "category": "seasonal", "priority": 85, "seasonal_start_month": 11, "seasonal_end_month": 12},
+    {"search_query": "holiday whiskey {year}", "category": "seasonal", "priority": 80, "seasonal_start_month": 11, "seasonal_end_month": 12},
+    {"search_query": "whiskey gift guide {year}", "category": "seasonal", "priority": 80, "seasonal_start_month": 10, "seasonal_end_month": 12},
+    {"search_query": "Father's Day whiskey {year}", "category": "seasonal", "priority": 75, "seasonal_start_month": 5, "seasonal_end_month": 6},
 ]
 
 # Preset search terms for port wine
 PORT_SEARCH_TERMS = [
     # Best Lists - High Priority
-    {"term_template": "best port wine {year}", "category": "best_lists", "priority": 100},
-    {"term_template": "best vintage port {year}", "category": "best_lists", "priority": 100},
-    {"term_template": "best tawny port {year}", "category": "best_lists", "priority": 95},
-    {"term_template": "best ruby port {year}", "category": "best_lists", "priority": 95},
-    {"term_template": "best LBV port {year}", "category": "best_lists", "priority": 90},
-    {"term_template": "top rated port wine {year}", "category": "best_lists", "priority": 90},
+    {"search_query": "best port wine {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best vintage port {year}", "category": "best_lists", "priority": 100},
+    {"search_query": "best tawny port {year}", "category": "best_lists", "priority": 95},
+    {"search_query": "best ruby port {year}", "category": "best_lists", "priority": 95},
+    {"search_query": "best LBV port {year}", "category": "best_lists", "priority": 90},
+    {"search_query": "top rated port wine {year}", "category": "best_lists", "priority": 90},
     # Awards
-    {"term_template": "port wine awards {year} winners", "category": "awards", "priority": 95},
-    {"term_template": "IWSC port wine {year}", "category": "awards", "priority": 90},
-    {"term_template": "Decanter port wine awards {year}", "category": "awards", "priority": 90},
-    {"term_template": "Wines of Portugal awards port {year}", "category": "awards", "priority": 85},
+    {"search_query": "port wine awards {year} winners", "category": "awards", "priority": 95},
+    {"search_query": "IWSC port wine {year}", "category": "awards", "priority": 90},
+    {"search_query": "Decanter port wine awards {year}", "category": "awards", "priority": 90},
+    {"search_query": "Wines of Portugal awards port {year}", "category": "awards", "priority": 85},
     # New Releases
-    {"term_template": "new vintage port releases {year}", "category": "new_releases", "priority": 85},
-    {"term_template": "declared vintage port {year}", "category": "new_releases", "priority": 90},
-    {"term_template": "port wine new arrivals {year}", "category": "new_releases", "priority": 75},
+    {"search_query": "new vintage port releases {year}", "category": "new_releases", "priority": 85},
+    {"search_query": "declared vintage port {year}", "category": "new_releases", "priority": 90},
+    {"search_query": "port wine new arrivals {year}", "category": "new_releases", "priority": 75},
     # Style
-    {"term_template": "best aged tawny port 20 year", "category": "style", "priority": 70},
-    {"term_template": "best colheita port", "category": "style", "priority": 70},
-    {"term_template": "best single quinta port", "category": "style", "priority": 65},
-    {"term_template": "best white port", "category": "style", "priority": 60},
-    {"term_template": "best rose port", "category": "style", "priority": 55},
+    {"search_query": "best aged tawny port 20 year", "category": "style", "priority": 70},
+    {"search_query": "best colheita port", "category": "style", "priority": 70},
+    {"search_query": "best single quinta port", "category": "style", "priority": 65},
+    {"search_query": "best white port", "category": "style", "priority": 60},
+    {"search_query": "best rose port", "category": "style", "priority": 55},
     # Value
-    {"term_template": "best port wine under $50", "category": "value", "priority": 80},
-    {"term_template": "best affordable port wine", "category": "value", "priority": 75},
-    {"term_template": "best value tawny port", "category": "value", "priority": 70},
-    {"term_template": "best cheap port wine", "category": "value", "priority": 65},
+    {"search_query": "best port wine under $50", "category": "value", "priority": 80},
+    {"search_query": "best affordable port wine", "category": "value", "priority": 75},
+    {"search_query": "best value tawny port", "category": "value", "priority": 70},
+    {"search_query": "best cheap port wine", "category": "value", "priority": 65},
     # Producers
-    {"term_template": "best Taylor's port wines", "category": "regional", "priority": 60},
-    {"term_template": "best Graham's port wines", "category": "regional", "priority": 60},
-    {"term_template": "best Fonseca port wines", "category": "regional", "priority": 55},
-    {"term_template": "best Dow's port wines", "category": "regional", "priority": 55},
-    {"term_template": "best Niepoort port wines", "category": "regional", "priority": 50},
+    {"search_query": "best Taylor's port wines", "category": "regional", "priority": 60},
+    {"search_query": "best Graham's port wines", "category": "regional", "priority": 60},
+    {"search_query": "best Fonseca port wines", "category": "regional", "priority": 55},
+    {"search_query": "best Dow's port wines", "category": "regional", "priority": 55},
+    {"search_query": "best Niepoort port wines", "category": "regional", "priority": 50},
     # Seasonal
-    {"term_template": "port wine gifts {year}", "category": "seasonal", "priority": 85, "seasonal_start_month": 11, "seasonal_end_month": 12},
-    {"term_template": "holiday port wine {year}", "category": "seasonal", "priority": 80, "seasonal_start_month": 11, "seasonal_end_month": 12},
-    {"term_template": "port wine for christmas", "category": "seasonal", "priority": 80, "seasonal_start_month": 11, "seasonal_end_month": 12},
+    {"search_query": "port wine gifts {year}", "category": "seasonal", "priority": 85, "seasonal_start_month": 11, "seasonal_end_month": 12},
+    {"search_query": "holiday port wine {year}", "category": "seasonal", "priority": 80, "seasonal_start_month": 11, "seasonal_end_month": 12},
+    {"search_query": "port wine for christmas", "category": "seasonal", "priority": 80, "seasonal_start_month": 11, "seasonal_end_month": 12},
 ]
 
 
@@ -246,26 +247,26 @@ class Command(BaseCommand):
 
     def _import_term(self, term_data, dry_run, update):
         """Import a single search term."""
-        term_template = term_data.get("term_template")
-        if not term_template:
+        search_query = term_data.get("search_query")
+        if not search_query:
             self.stdout.write(self.style.ERROR(f"  Skipping term without template"))
             return "skipped"
 
         # Validate category
         category = term_data.get("category", "best_lists")
         if category not in SearchTermCategory.values:
-            self.stdout.write(self.style.ERROR(f"  Invalid category '{category}' for: {term_template}"))
+            self.stdout.write(self.style.ERROR(f"  Invalid category '{category}' for: {search_query}"))
             return "skipped"
 
         # Validate product type
         product_type = term_data.get("product_type", "whiskey")
         if product_type not in SearchTermProductType.values:
-            self.stdout.write(self.style.ERROR(f"  Invalid product_type '{product_type}' for: {term_template}"))
+            self.stdout.write(self.style.ERROR(f"  Invalid product_type '{product_type}' for: {search_query}"))
             return "skipped"
 
         # Check for existing
         existing = SearchTerm.objects.filter(
-            term_template=term_template,
+            search_query=search_query,
             product_type=product_type,
         ).first()
 
@@ -277,19 +278,19 @@ class Command(BaseCommand):
                 existing.seasonal_start_month = term_data.get("seasonal_start_month")
                 existing.seasonal_end_month = term_data.get("seasonal_end_month")
                 existing.save()
-                self.stdout.write(f"  Updated: {term_template}")
+                self.stdout.write(f"  Updated: {search_query}")
                 return "updated"
             else:
-                self.stdout.write(f"  Skipped (exists): {term_template}")
+                self.stdout.write(f"  Skipped (exists): {search_query}")
                 return "skipped"
 
         # Create new term
         if dry_run:
-            self.stdout.write(f"  Would create: {term_template} ({category}/{product_type})")
+            self.stdout.write(f"  Would create: {search_query} ({category}/{product_type})")
             return "created"
 
         SearchTerm.objects.create(
-            term_template=term_template,
+            search_query=search_query,
             category=category,
             product_type=product_type,
             priority=term_data.get("priority", 100),
@@ -297,5 +298,5 @@ class Command(BaseCommand):
             seasonal_start_month=term_data.get("seasonal_start_month"),
             seasonal_end_month=term_data.get("seasonal_end_month"),
         )
-        self.stdout.write(f"  Created: {term_template}")
+        self.stdout.write(f"  Created: {search_query}")
         return "created"

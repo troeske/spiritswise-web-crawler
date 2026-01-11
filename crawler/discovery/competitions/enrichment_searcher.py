@@ -1,6 +1,25 @@
 """
 Enrichment Searcher - SerpAPI triple search for skeleton product enrichment.
 
+.. deprecated::
+    This module is DEPRECATED as of Phase 11 of the Unified Product Pipeline.
+
+    The enrichment searcher is being replaced by:
+    - `crawler.services.verification_pipeline.VerificationPipeline` - For multi-source verification
+    - `crawler.services.smart_crawler.SmartCrawler` - For search-based extraction
+
+    The new approach integrates search and extraction in the unified pipeline,
+    providing better data quality through AI extraction and multi-source verification.
+
+    This module is kept for backward compatibility and reference. New code should
+    use the verification pipeline or SmartCrawler instead.
+
+    Migration Guide:
+    - Instead of EnrichmentSearcher.search_for_enrichment(), use
+      SmartCrawler.extract_product_multi_source() for extraction
+    - For multi-source verification, use VerificationPipeline.verify_product()
+    - For URL discovery, the collectors now handle this internally
+
 For each skeleton product, triggers 3 SerpAPI searches:
 1. "{Product Name} price buy online" - Find retail sources
 2. "{Product Name} review tasting notes" - Find review content
@@ -10,6 +29,7 @@ Discovered URLs are queued with priority=10 (highest) for immediate processing.
 """
 
 import logging
+import warnings
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 
@@ -19,6 +39,13 @@ logger = logging.getLogger(__name__)
 
 # Priority level for URLs discovered through skeleton enrichment
 ENRICHMENT_PRIORITY = 10  # Highest priority
+
+# Deprecation message for this module
+_DEPRECATION_MESSAGE = (
+    "EnrichmentSearcher is deprecated. Use crawler.services.verification_pipeline "
+    "or crawler.services.smart_crawler.SmartCrawler instead. "
+    "See module docstring for migration guide."
+)
 
 
 @dataclass
@@ -49,6 +76,10 @@ class EnrichmentSearchResult:
 class EnrichmentSearcher:
     """
     Searcher for enriching skeleton products via SerpAPI.
+
+    .. deprecated::
+        Use `crawler.services.verification_pipeline.VerificationPipeline` or
+        `crawler.services.smart_crawler.SmartCrawler` instead.
 
     Triggers 3 targeted searches per skeleton product to find:
     - Retail/pricing information
@@ -91,6 +122,11 @@ class EnrichmentSearcher:
             api_key: SerpAPI API key (defaults to settings.SERPAPI_API_KEY)
             results_per_search: Number of results per search query
         """
+        warnings.warn(
+            _DEPRECATION_MESSAGE,
+            DeprecationWarning,
+            stacklevel=2
+        )
         self.serpapi_client = SerpAPIClient(api_key=api_key)
         self.results_per_search = results_per_search
 
@@ -280,6 +316,9 @@ async def enrich_skeleton_from_competition(
     """
     Convenience function to enrich a skeleton product.
 
+    .. deprecated::
+        Use VerificationPipeline.verify_product() instead.
+
     Args:
         skeleton: DiscoveredProduct with status='skeleton'
         searcher: Optional EnrichmentSearcher instance
@@ -288,10 +327,17 @@ async def enrich_skeleton_from_competition(
     Returns:
         List of discovered URLs for queuing
     """
+    warnings.warn(
+        "enrich_skeleton_from_competition is deprecated. "
+        "Use VerificationPipeline.verify_product() instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     if searcher is None:
         searcher = EnrichmentSearcher()
 
-    product_name = skeleton.extracted_data.get("name", "")
+    product_name = skeleton.name or ""
     if not product_name:
         logger.warning(f"Skeleton {skeleton.id} has no product name")
         return []

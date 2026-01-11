@@ -10,10 +10,13 @@ Status Levels (ascending):
     REJECTED < SKELETON < PARTIAL < COMPLETE < ENRICHED
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Any, Set, Tuple
+
+from asgiref.sync import sync_to_async
 
 from crawler.models import QualityGateConfig, ProductTypeConfig
 from crawler.services.config_service import get_config_service
@@ -199,7 +202,7 @@ class QualityGateV2:
 
         filtered = {
             k: v for k, v in data.items()
-            if confidences.get(k, 1.0) >= self.CONFIDENCE_THRESHOLD
+            if (confidences.get(k) or 1.0) >= self.CONFIDENCE_THRESHOLD
         }
 
         removed_count = len(data) - len(filtered)
@@ -433,8 +436,134 @@ class QualityGateV2:
 
         return [
             field_name for field_name, conf in confidences.items()
-            if conf < self.CONFIDENCE_THRESHOLD
+            if conf is not None and conf < self.CONFIDENCE_THRESHOLD
         ]
+
+    # Async-safe methods for use in async contexts
+
+    async def aassess(
+        self,
+        extracted_data: Dict[str, Any],
+        product_type: str,
+        field_confidences: Optional[Dict[str, float]] = None,
+        product_category: Optional[str] = None
+    ) -> QualityAssessment:
+        """
+        Async-safe version of assess().
+
+        Uses sync_to_async to wrap database calls, allowing this method
+        to be called from async contexts without "You cannot call this
+        from an async context" errors.
+
+        Args:
+            extracted_data: Dict of field_name -> value
+            product_type: Product type (whiskey, port_wine)
+            field_confidences: Optional dict of field_name -> confidence (0-1)
+            product_category: Optional product category
+
+        Returns:
+            QualityAssessment with status, score, and recommendations
+        """
+        logger.debug(
+            "Assessing quality (async) for product_type=%s with %d fields",
+            product_type,
+            len(extracted_data)
+        )
+
+        confident_data = self._filter_by_confidence(extracted_data, field_confidences)
+        populated = self._get_populated_fields(confident_data)
+
+        logger.debug("Populated fields after confidence filter: %s", populated)
+
+        # Use async-safe config loading
+        config = await self._aget_quality_gate_config(product_type)
+        if config:
+            logger.debug("Using database config for product_type=%s", product_type)
+        else:
+            logger.debug("Using default config for product_type=%s", product_type)
+
+        # Check rejection condition: no name means reject
+        if "name" not in populated:
+            logger.info("Product rejected: missing required field 'name'")
+            return QualityAssessment(
+                status=ProductStatus.REJECTED,
+                completeness_score=0.0,
+                populated_fields=list(populated),
+                missing_required_fields=["name"],
+                rejection_reason="Missing required field: name",
+                needs_enrichment=False
+            )
+
+        status = self._determine_status(populated, config)
+        logger.debug("Determined status: %s", status.value)
+
+        # Use async-safe schema fields loading
+        schema_fields = await self._aget_schema_fields(product_type)
+        completeness = self._calculate_completeness(confident_data, schema_fields)
+
+        missing_required, missing_any_of = self._get_missing_for_upgrade(
+            populated, status, config
+        )
+
+        priority = self._calculate_enrichment_priority(status, completeness)
+        needs_enrichment = status < ProductStatus.COMPLETE
+
+        low_confidence = self._get_low_confidence_fields(field_confidences)
+
+        assessment = QualityAssessment(
+            status=status,
+            completeness_score=completeness,
+            populated_fields=list(populated),
+            missing_required_fields=missing_required,
+            missing_any_of_fields=missing_any_of,
+            enrichment_priority=priority,
+            needs_enrichment=needs_enrichment,
+            low_confidence_fields=low_confidence
+        )
+
+        logger.info(
+            "Quality assessment complete: status=%s, score=%.2f, priority=%d",
+            status.value,
+            completeness,
+            priority
+        )
+
+        return assessment
+
+    async def _aget_quality_gate_config(self, product_type: str) -> Optional[QualityGateConfig]:
+        """Async-safe version of _get_quality_gate_config."""
+        try:
+            config = await self.config_service.aget_quality_gate_config(product_type)
+            if config is None:
+                logger.debug("No quality gate config found for product_type=%s", product_type)
+            return config
+        except Exception as e:
+            logger.warning(
+                "Failed to load quality gate config for %s: %s",
+                product_type,
+                str(e)
+            )
+            return None
+
+    async def _aget_schema_fields(self, product_type: str) -> List[str]:
+        """Async-safe version of _get_schema_fields."""
+        try:
+            schema = await self.config_service.abuild_extraction_schema(product_type)
+            return [f.get('field_name') or f.get('name') for f in schema if f]
+        except Exception as e:
+            logger.warning(
+                "Failed to get schema fields for %s: %s, using defaults",
+                product_type,
+                str(e)
+            )
+            # Return default set of fields
+            return list(set(
+                self.DEFAULT_SKELETON_REQUIRED +
+                self.DEFAULT_PARTIAL_REQUIRED +
+                self.DEFAULT_PARTIAL_ANY_OF +
+                self.DEFAULT_COMPLETE_REQUIRED +
+                self.DEFAULT_COMPLETE_ANY_OF
+            ))
 
 
 # Singleton instance

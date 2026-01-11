@@ -1467,9 +1467,647 @@ The `preprocessed_content` field enables:
 
 ---
 
-## 7. List Page Handling
+## 7. Generic Search Discovery Flow
 
-### 7.1 Detection
+### 7.1 Overview
+
+The Generic Search Discovery flow discovers NEW products by searching the web using configurable search terms stored in the database. This is distinct from the Enrichment flow which finds additional sources for EXISTING products.
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Generic Search Discovery Flow                      │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│   ┌─────────────────┐                                                │
+│   │  SearchTerm     │  Database table with search terms              │
+│   │  (DB Table)     │  e.g., "best whiskey 2026"                     │
+│   └────────┬────────┘                                                │
+│            │                                                          │
+│            ▼                                                          │
+│   ┌─────────────────┐                                                │
+│   │  Discovery      │  1. Load active SearchTerms                    │
+│   │  Orchestrator   │  2. Filter by seasonality                      │
+│   │                 │  3. Order by priority                          │
+│   └────────┬────────┘                                                │
+│            │                                                          │
+│            ▼                                                          │
+│   ┌─────────────────┐                                                │
+│   │  SerpAPI        │  Execute web search                            │
+│   │  Search         │  Returns organic_results only (no ads)         │
+│   └────────┬────────┘                                                │
+│            │                                                          │
+│            ▼                                                          │
+│   ┌─────────────────┐                                                │
+│   │  DiscoveryResult│  Store each search result URL                  │
+│   │  (DB Table)     │  Track: url, search_term, rank, status         │
+│   └────────┬────────┘                                                │
+│            │                                                          │
+│            ▼                                                          │
+│   ┌─────────────────┐                                                │
+│   │  List Page      │  Process discovered URLs                       │
+│   │  Extraction     │  (Section 8)                                   │
+│   └────────┬────────┘                                                │
+│            │                                                          │
+│            ▼                                                          │
+│   ┌─────────────────┐                                                │
+│   │  Detail Page    │  Fetch detail_url for richer data              │
+│   │  Extraction     │  (if product has detail_url)                   │
+│   └────────┬────────┘                                                │
+│            │                                                          │
+│            ▼                                                          │
+│   ┌─────────────────┐                                                │
+│   │  Enrichment     │  Search for additional sources                 │
+│   │  Flow           │  (for skeleton/partial products)               │
+│   └─────────────────┘                                                │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 7.2 SearchTerm Model (Existing)
+
+Search terms are stored in the `SearchTerm` database table, managed via Django Admin:
+
+```python
+class SearchTermCategory(models.TextChoices):
+    """Categories of search terms."""
+    BEST_LISTS = "best_lists", "Best Lists"
+    AWARDS = "awards", "Awards & Recognition"
+    NEW_RELEASES = "new_releases", "New Releases"
+    STYLE = "style", "Style & Flavor"
+    VALUE = "value", "Value & Price"
+    REGIONAL = "regional", "Regional/Type"
+    SEASONAL = "seasonal", "Seasonal"
+
+
+class SearchTermProductType(models.TextChoices):
+    """Product types for search terms."""
+    WHISKEY = "whiskey", "Whiskey"
+    PORT_WINE = "port_wine", "Port Wine"
+    BOTH = "both", "Both"
+
+
+class SearchTerm(models.Model):
+    """
+    Configurable search term for product discovery.
+
+    Each search term is a complete query string used directly with SerpAPI.
+    Admins can add year-specific or evergreen terms as needed.
+
+    Examples:
+    - "best whiskey 2026"
+    - "top bourbon awards 2026"
+    - "best whiskey under $50" (evergreen)
+
+    Managed via Django Admin for easy configuration without code changes.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Core fields
+    search_query = models.CharField(
+        max_length=200,
+        help_text="Complete search query string to use with SerpAPI.",
+    )
+    category = models.CharField(
+        max_length=50,
+        choices=SearchTermCategory.choices,
+    )
+    product_type = models.CharField(
+        max_length=20,
+        choices=SearchTermProductType.choices,
+    )
+
+    # Crawl settings
+    max_results = models.IntegerField(
+        default=10,
+        help_text="Number of search results to crawl (1-20). Higher = more coverage but more API costs.",
+    )
+
+    # Priority and status
+    priority = models.IntegerField(
+        default=100,
+        help_text="Lower number = higher priority. Terms are processed in priority order.",
+    )
+    is_active = models.BooleanField(default=True)
+
+    # Seasonality (optional)
+    seasonal_start_month = models.IntegerField(blank=True, null=True)  # 1-12
+    seasonal_end_month = models.IntegerField(blank=True, null=True)    # 1-12
+```
+
+### 7.3 Example Search Terms
+
+**Whiskey Search Terms:**
+
+| search_query | category | max_results | priority | seasonal |
+|--------------|----------|-------------|----------|----------|
+| `best whiskey 2026` | best_lists | 15 | 100 | - |
+| `best bourbon 2026` | best_lists | 15 | 100 | - |
+| `whiskey of the year 2026` | best_lists | 10 | 100 | - |
+| `IWSC whiskey 2026` | awards | 5 | 90 | - |
+| `new whiskey releases 2026` | new_releases | 10 | 85 | - |
+| `best whiskey gifts 2026` | seasonal | 10 | 85 | Nov-Dec |
+| `best whiskey under $50` | value | 10 | 80 | - |
+| `best peated whiskey` | style | 5 | 70 | - |
+
+**Port Wine Search Terms:**
+
+| search_query | category | max_results | priority | seasonal |
+|--------------|----------|-------------|----------|----------|
+| `best port wine 2026` | best_lists | 15 | 100 | - |
+| `best vintage port 2026` | best_lists | 10 | 100 | - |
+| `Decanter port wine awards 2026` | awards | 5 | 90 | - |
+| `port wine for christmas` | seasonal | 10 | 80 | Nov-Dec |
+| `best tawny port 20 year` | style | 5 | 70 | - |
+
+**Notes:**
+- `max_results`: Number of search result URLs to crawl per term (1-20)
+- Higher `max_results` for broad queries ("best whiskey") to capture more lists
+- Lower `max_results` for specific queries ("IWSC awards") where top results are sufficient
+- Admins add new search terms via Django Admin
+- **Ads excluded**: Only `organic_results` from SerpAPI are used; `ads` and `shopping_results` are ignored
+
+### 7.4 Discovery Orchestrator
+
+```python
+class DiscoveryOrchestrator:
+    """
+    Orchestrates product discovery using database-configured search terms.
+
+    Flow:
+    1. Load active SearchTerms from database
+    2. Apply seasonality filtering
+    3. Order by priority
+    4. Execute SerpAPI searches
+    5. Store results in DiscoveryResult
+    6. Process URLs through List Page Extraction
+    7. Process detail_urls through Detail Page Extraction
+    8. Queue remaining skeleton/partial products for Enrichment
+    """
+
+    def __init__(
+        self,
+        serpapi_client: SerpAPIClient,
+        fetcher: SmartRouter,
+        ai_client: AIClientV2,
+    ):
+        self.serpapi = serpapi_client
+        self.fetcher = fetcher
+        self.ai_client = ai_client
+
+    async def run_discovery(
+        self,
+        product_type: Optional[str] = None,
+        category: Optional[str] = None,
+        max_terms: int = 10,
+    ) -> DiscoveryJobResult:
+        """
+        Run product discovery using search terms from database.
+
+        Args:
+            product_type: Filter to specific product type (whiskey, port_wine)
+            category: Filter to specific category (best_lists, awards, etc.)
+            max_terms: Maximum search terms to process
+
+        Returns:
+            DiscoveryJobResult with discovered products and metrics
+        """
+        # 1. Load active search terms
+        search_terms = self._load_search_terms(product_type, category, max_terms)
+
+        # 2. Create DiscoveryJob to track progress
+        job = await self._create_discovery_job(len(search_terms))
+
+        discovered_urls = []
+
+        # 3. Process each search term
+        for term in search_terms:
+            # 4. Execute SerpAPI search (max_results defined per search term)
+            # Only organic_results are used - ads/sponsored links are excluded
+            search_results = await self.serpapi.search(
+                query=term.search_query,
+                num_results=term.max_results,  # Uses per-term setting
+                include_ads=False,  # Exclude sponsored results
+            )
+
+            # 5. Store each result URL
+            for rank, result in enumerate(search_results):
+                discovery_result = await self._store_discovery_result(
+                    job=job,
+                    search_term=term,
+                    url=result.url,
+                    title=result.title,
+                    snippet=result.snippet,
+                    rank=rank + 1,
+                )
+                discovered_urls.append(discovery_result)
+
+            job.search_terms_processed += 1
+            await self._update_job(job)
+
+        # 6. Process discovered URLs through List Page Extraction
+        products = await self._process_discovered_urls(discovered_urls, job)
+
+        # 7. Process detail_urls through Detail Page Extraction
+        products_with_details = await self._process_detail_urls(products, job)
+
+        # 8. Queue skeleton/partial products for Enrichment
+        await self._queue_for_enrichment(products_with_details, job)
+
+        return DiscoveryJobResult(
+            job_id=job.id,
+            search_terms_processed=job.search_terms_processed,
+            urls_found=len(discovered_urls),
+            products_discovered=len(products),
+        )
+
+    def _load_search_terms(
+        self,
+        product_type: Optional[str],
+        category: Optional[str],
+        limit: int,
+    ) -> List[SearchTerm]:
+        """Load active search terms with filters and seasonality."""
+        queryset = SearchTerm.objects.filter(is_active=True)
+
+        if product_type:
+            queryset = queryset.filter(
+                Q(product_type=product_type) | Q(product_type="both")
+            )
+
+        if category:
+            queryset = queryset.filter(category=category)
+
+        # Apply seasonality filter
+        current_month = timezone.now().month
+        queryset = queryset.filter(
+            Q(seasonal_start_month__isnull=True) |
+            Q(seasonal_start_month__lte=current_month, seasonal_end_month__gte=current_month) |
+            # Handle wrap-around (e.g., Nov-Jan)
+            Q(seasonal_start_month__gt=F('seasonal_end_month'),
+              seasonal_start_month__lte=current_month) |
+            Q(seasonal_start_month__gt=F('seasonal_end_month'),
+              seasonal_end_month__gte=current_month)
+        )
+
+        return list(queryset.order_by('priority')[:limit])
+```
+
+### 7.5 DiscoveryResult Model
+
+Track each URL discovered from search results:
+
+```python
+class DiscoveryResult(models.Model):
+    """
+    Tracks URLs discovered from search results.
+
+    Links search terms to discovered URLs and tracks processing status.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Link to job and search term
+    job = models.ForeignKey(
+        "DiscoveryJob",
+        on_delete=models.CASCADE,
+        related_name="results",
+    )
+    search_term = models.ForeignKey(
+        "SearchTerm",
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="discovery_results",
+    )
+
+    # URL and metadata from search result
+    url = models.URLField(max_length=2000)
+    title = models.CharField(max_length=500, blank=True)
+    snippet = models.TextField(blank=True)
+    rank = models.IntegerField(help_text="Position in search results (1-based)")
+
+    # Processing status
+    status = models.CharField(
+        max_length=20,
+        choices=DiscoveryResultStatus.choices,
+        default=DiscoveryResultStatus.PENDING,
+    )
+
+    # Link to CrawledSource once fetched
+    crawled_source = models.ForeignKey(
+        "CrawledSource",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="discovery_results",
+    )
+
+    # Results
+    products_extracted = models.IntegerField(default=0)
+    error_message = models.TextField(blank=True)
+
+    # Timestamps
+    discovered_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "discovery_result"
+        indexes = [
+            models.Index(fields=["status", "discovered_at"]),
+            models.Index(fields=["url"]),
+        ]
+```
+
+### 7.6 Integration with List Page Extraction
+
+The Generic Search Discovery flow feeds URLs into the List Page Extraction flow (Section 8):
+
+```python
+async def _process_discovered_urls(
+    self,
+    discovery_results: List[DiscoveryResult],
+    job: DiscoveryJob,
+) -> List[DiscoveredProduct]:
+    """
+    Process discovered URLs through List Page Extraction.
+
+    This replaces hardcoded list page URLs with dynamically discovered ones.
+    """
+    all_products = []
+
+    for result in discovery_results:
+        try:
+            # Skip already processed or duplicate URLs
+            if result.status != DiscoveryResultStatus.PENDING:
+                continue
+
+            # Check for existing CrawledSource (deduplication)
+            existing = await self._check_existing_source(result.url)
+            if existing:
+                result.status = DiscoveryResultStatus.DUPLICATE
+                result.crawled_source = existing
+                await self._save_result(result)
+                continue
+
+            # Update status to processing
+            result.status = DiscoveryResultStatus.PROCESSING
+            await self._save_result(result)
+
+            # Fetch page content
+            content = await self.fetcher.fetch(result.url)
+            if not content.success:
+                result.status = DiscoveryResultStatus.FAILED
+                result.error_message = content.error or "Fetch failed"
+                await self._save_result(result)
+                continue
+
+            # Create CrawledSource (stores raw_content for provenance)
+            source = await self._create_crawled_source(
+                url=result.url,
+                title=result.title,
+                raw_content=content.content,
+                source_type="list_page",  # From search discovery
+            )
+            result.crawled_source = source
+
+            # Queue for Wayback Machine archival (async, non-blocking)
+            await self.wayback_service.queue_archive(source)
+
+            # Extract products using AI Service
+            products = await self._extract_list_products(
+                content=content.content,
+                source=source,
+                product_type=result.search_term.product_type,
+            )
+
+            result.products_extracted = len(products)
+            result.status = DiscoveryResultStatus.SUCCESS
+            result.processed_at = timezone.now()
+            await self._save_result(result)
+
+            all_products.extend(products)
+            job.products_found += len(products)
+            await self._update_job(job)
+
+        except Exception as e:
+            result.status = DiscoveryResultStatus.FAILED
+            result.error_message = str(e)
+            await self._save_result(result)
+            logger.exception(f"Error processing {result.url}")
+
+    return all_products
+```
+
+### 7.7 Scheduling Discovery Jobs
+
+Discovery jobs can be scheduled via the unified `CrawlSchedule`:
+
+```python
+# Create a weekly discovery schedule for whiskey
+CrawlSchedule.objects.create(
+    name="Weekly Whiskey Discovery",
+    schedule_type=ScheduleType.DISCOVERY,
+    frequency=ScheduleFrequency.WEEKLY,
+    is_active=True,
+    config={
+        "product_type": "whiskey",
+        "max_terms": 10,  # Max search terms to process per job
+        "categories": ["best_lists", "awards", "new_releases"],
+    }
+)
+# Note: max_results is defined per SearchTerm, not globally
+```
+
+### 7.8 Management Command
+
+Import preset search terms:
+
+```bash
+# Import all preset search terms
+python manage.py import_search_terms --preset all
+
+# Import whiskey-only terms
+python manage.py import_search_terms --preset whiskey
+
+# Import port wine terms
+python manage.py import_search_terms --preset port
+
+# Import from custom JSON file
+python manage.py import_search_terms /path/to/custom_terms.json
+```
+
+### 7.9 Detail Page Extraction
+
+After List Page Extraction, products may have a `detail_url` field pointing to a dedicated product page with richer data.
+
+```python
+async def _process_detail_urls(
+    self,
+    products: List[DiscoveredProduct],
+    job: DiscoveryJob,
+) -> List[DiscoveredProduct]:
+    """
+    Process detail_urls for products that have them.
+
+    List pages often have minimal data (name, brand, brief description).
+    Detail pages typically have full tasting notes, ABV, pricing, etc.
+    """
+    for product in products:
+        if not product.detail_url:
+            continue
+
+        # Skip if already processed this URL
+        existing = await self._check_existing_source(product.detail_url)
+        if existing:
+            continue
+
+        try:
+            # Fetch detail page content
+            content = await self.fetcher.fetch(product.detail_url)
+            if not content.success:
+                logger.warning(f"Failed to fetch detail page: {product.detail_url}")
+                continue
+
+            # Create CrawledSource for detail page
+            source = await self._create_crawled_source(
+                url=product.detail_url,
+                title=product.name,
+                raw_content=content.content,
+                source_type="product_page",
+            )
+
+            # Queue for Wayback Machine archival (async, non-blocking)
+            await self.wayback_service.queue_archive(source)
+
+            # Extract additional data from detail page
+            extraction = await self.ai_client.extract(
+                content=content.content,
+                source_url=product.detail_url,
+                product_type=product.product_type,
+            )
+
+            if extraction.success and extraction.products:
+                # Merge extracted data into existing product
+                await self._merge_product_data(
+                    product=product,
+                    new_data=extraction.products[0].extracted_data,
+                    source=source,
+                    field_confidences=extraction.products[0].field_confidences,
+                )
+
+                # Re-assess quality status
+                assessment = await self.quality_gate.assess(product)
+                product.status = assessment.status
+                await product.asave()
+
+                job.products_enriched += 1
+
+        except Exception as e:
+            logger.exception(f"Error processing detail URL {product.detail_url}: {e}")
+
+    return products
+```
+
+### 7.10 Enrichment Queue
+
+Products that are still skeleton or partial status after List Page and Detail Page extraction are queued for the Enrichment flow (Section 6).
+
+```python
+async def _queue_for_enrichment(
+    self,
+    products: List[DiscoveredProduct],
+    job: DiscoveryJob,
+) -> None:
+    """
+    Queue skeleton/partial products for enrichment.
+
+    Enrichment uses SerpAPI to find additional sources (reviews, articles)
+    that can provide missing fields like tasting notes, ratings, etc.
+    """
+    for product in products:
+        # Only queue products that need enrichment
+        if product.status not in [ProductStatus.SKELETON, ProductStatus.PARTIAL]:
+            continue
+
+        # Create enrichment task
+        await EnrichmentTask.objects.acreate(
+            product=product,
+            discovery_job=job,
+            priority=self._calculate_enrichment_priority(product),
+            status=TaskStatus.PENDING,
+        )
+        job.enrichment_queued += 1
+
+    await job.asave()
+
+def _calculate_enrichment_priority(self, product: DiscoveredProduct) -> int:
+    """
+    Calculate enrichment priority based on product completeness.
+
+    Lower number = higher priority.
+    - SKELETON products: priority 1 (need more data)
+    - PARTIAL products: priority 2 (almost complete)
+    """
+    if product.status == ProductStatus.SKELETON:
+        return 1
+    return 2
+```
+
+### 7.11 Complete Discovery Flow Summary
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    Complete Discovery Flow                           │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  1. SEARCH DISCOVERY                                                  │
+│     SearchTerm (DB) → SerpAPI → DiscoveryResult (URLs)               │
+│                                                                       │
+│  2. LIST PAGE EXTRACTION                                              │
+│     DiscoveryResult URLs → Fetch → CrawledSource → AI Extract        │
+│     - Creates skeleton/partial products                               │
+│     - Captures detail_url if present                                  │
+│     - Queues Wayback archival (async)                                │
+│                                                                       │
+│  3. DETAIL PAGE EXTRACTION                                            │
+│     Products with detail_url → Fetch → CrawledSource → Merge Data    │
+│     - Enriches product with full page data                           │
+│     - May upgrade skeleton → partial → complete                       │
+│     - Queues Wayback archival (async)                                │
+│                                                                       │
+│  4. ENRICHMENT QUEUE                                                  │
+│     Skeleton/Partial products → EnrichmentTask (queued)               │
+│     - Processed by Enrichment Orchestrator (Section 6)               │
+│     - Uses SerpAPI to find reviews/articles                          │
+│     - Merges data from multiple sources                               │
+│     - Each source → CrawledSource + Wayback archival                 │
+│                                                                       │
+│  5. FINAL STATUS                                                      │
+│     Products reach COMPLETE or ENRICHED status                        │
+│     - All available data extracted                                    │
+│     - Sources tracked via ProductSource/ProductFieldSource            │
+│     - All sources archived to Wayback Machine                         │
+│                                                                       │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 8. List Page Handling
+
+### 8.1 Overview
+
+The List Page Handling flow processes URLs discovered by the Generic Search Discovery flow (Section 7). **List page URLs are NOT hardcoded** - they come from search results.
+
+### 8.2 URL Sources
+
+| Source | Description |
+|--------|-------------|
+| Generic Search Discovery | URLs from SerpAPI search results (primary) |
+| Competition Crawlers | Award/competition result pages (IWSC, SFWSC, DWWA) |
+| Manual Queue | Admin-submitted URLs for specific pages |
+
+### 8.3 Detection
 
 The AI Service auto-detects list pages when `detect_multi_product: true`.
 
@@ -1478,23 +2116,31 @@ Indicators:
 - List/table structure with repeated patterns
 - URLs like `/best-*`, `/top-*`, `/awards/*`
 
-### 7.2 Processing Flow
+### 8.4 Processing Flow
 
 ```
-List page URL
+URL from DiscoveryResult
     ↓
-Fetch content
+Fetch content (SmartRouter)
+    ↓
+Create CrawledSource (source_type="list_page")
     ↓
 AI Service extracts all products (up to max_products)
     ↓
 For each extracted product:
     ├── Run through QualityGate
-    ├── If has detail_url → Queue for detailed extraction
-    ├── Else → Save as SKELETON, queue for enrichment
+    ├── Create DiscoveredProduct (skeleton/partial status)
+    ├── Create ProductSource link
     └── Continue
+    ↓
+Update DiscoveryResult with products_extracted count
+    ↓
+Continue to Section 7.9: Detail Page Extraction
+    ↓
+Continue to Section 7.10: Enrichment Queue
 ```
 
-### 7.3 List Types
+### 8.5 List Types
 
 | Type | Example | Expected Fields |
 |------|---------|-----------------|
@@ -1505,9 +2151,9 @@ For each extracted product:
 
 ---
 
-## 8. AI Service Implementation
+## 9. AI Service Implementation
 
-### 8.1 Prompt Strategy
+### 9.1 Prompt Strategy
 
 The AI Service builds prompts based on:
 1. `product_type` - Determines extraction template
@@ -1546,7 +2192,7 @@ Content:
 Return JSON matching the specified schema."""
 ```
 
-### 8.2 Type-Specific Context
+### 9.2 Type-Specific Context
 
 ```python
 TYPE_CONTEXTS = {
@@ -1575,9 +2221,9 @@ TYPE_CONTEXTS = {
 
 ---
 
-## 9. Data Models
+## 10. Data Models
 
-### 9.1 Extraction Request Schema
+### 10.1 Extraction Request Schema
 
 ```python
 class ExtractionRequest(BaseModel):
@@ -1605,7 +2251,7 @@ class ExtractionOptions(BaseModel):
     max_products: int = Field(default=20, ge=1, le=50)
 ```
 
-### 9.2 Extraction Response Schema
+### 10.2 Extraction Response Schema
 
 ```python
 class ExtractionResponse(BaseModel):
@@ -1634,9 +2280,9 @@ class ExtractionSummary(BaseModel):
 
 ---
 
-## 10. Error Handling
+## 11. Error Handling
 
-### 10.1 AI Service Errors
+### 11.1 AI Service Errors
 
 | Error Code | Meaning | Crawler Action |
 |------------|---------|----------------|
@@ -1646,7 +2292,7 @@ class ExtractionSummary(BaseModel):
 | `TIMEOUT` | Processing took too long | Retry or skip |
 | `INVALID_PRODUCT_TYPE` | Unknown product type | Log error, skip |
 
-### 10.2 Crawler Error Handling
+### 11.2 Crawler Error Handling
 
 ```python
 async def extract_with_retry(url: str, max_retries: int = 3):
@@ -1668,7 +2314,7 @@ async def extract_with_retry(url: str, max_retries: int = 3):
 
 ---
 
-## 11. Success Metrics
+## 12. Success Metrics
 
 | Metric | Target | Measurement |
 |--------|--------|-------------|
@@ -1681,15 +2327,15 @@ async def extract_with_retry(url: str, max_retries: int = 3):
 
 ---
 
-## 12. Implementation Notes
+## 13. Implementation Notes
 
-### 12.1 Technology Stack
+### 13.1 Technology Stack
 
 - **AI Service**: FastAPI, Pydantic, OpenAI GPT-4o
 - **Crawler**: Django, asyncio, httpx
 - **Testing**: pytest, pytest-asyncio, TDD approach
 
-### 12.2 Key Files to Create/Modify
+### 13.2 Key Files to Create/Modify
 
 **AI Service:**
 - `ai_enhancement_engine/api/v2/endpoints.py` - New V2 endpoint
@@ -1704,7 +2350,7 @@ async def extract_with_retry(url: str, max_retries: int = 3):
 - `crawler/services/ai_client_v2.py` - V2 API client
 - `crawler/services/discovery_orchestrator.py` - Update to use V2
 
-### 12.3 Testing Strategy
+### 13.3 Testing Strategy
 
 - **Unit tests**: All new classes and functions
 - **Integration tests**: Crawler ↔ AI Service communication

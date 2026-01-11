@@ -1,0 +1,155 @@
+{
+  "export_timestamp": "2026-01-11T10:27:07.821845",
+  "competition": "IWSC",
+  "year": 2025,
+  "total_products": 3,
+  "products": [
+    {
+      "product_id": "f31e64c1-142c-4243-ad95-0aad97fd7d87",
+      "source_id": "642b41c9-5070-422d-8aa8-2ad4c5363a86",
+      "award_id": "6512045d-ec27-4425-8b45-ef9700fb5ee4",
+      "quality_status_before": "partial",
+      "quality_status_after": "complete",
+      "enrichment_success": true,
+      "fields_enriched": [
+        "palate_description",
+        "primary_aromas",
+        "finish_description",
+        "age",
+        "palate_flavors",
+        "abv",
+        "cask_type",
+        "nose_description",
+        "description",
+        "packaging_size"
+      ],
+      "product_data": {
+        "name": "The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky",
+        "brand": "The Scotch Malt Whisky Society",
+        "description": "Bristol by the way of Ben Rinnes is an 11-year-old whisky from the Speyside region, matured in first-fill American oak PX and first-fill Spanish oak Oloroso Hogsheads.",
+        "abv": 59.1,
+        "volume_ml": null,
+        "age_statement": 11,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "nose_description": "Delicious burnt caramel and hints of violets invite you in.",
+        "palate_description": "The palate bursts with anise, spearmint, kumquat, and shortbread, while rich layers of fudge, oak, and vanilla unfold.",
+        "finish_description": "A delightful finish lingers with honey and spice.",
+        "primary_aromas": [
+          "burnt caramel",
+          "violets"
+        ],
+        "palate_flavors": [
+          "anise",
+          "spearmint",
+          "kumquat",
+          "shortbread",
+          "fudge",
+          "oak",
+          "vanilla"
+        ],
+        "age": 11,
+        "cask_type": "Cask Strength",
+        "packaging_size": 700
+      }
+    },
+    {
+      "product_id": "458135aa-a823-4bdc-becb-4fd3a2b643ac",
+      "source_id": "642b41c9-5070-422d-8aa8-2ad4c5363a86",
+      "award_id": "cd2c1db5-ce9a-4c93-978a-75151b8962a3",
+      "quality_status_before": "partial",
+      "quality_status_after": "complete",
+      "enrichment_success": true,
+      "fields_enriched": [
+        "palate_description",
+        "primary_aromas",
+        "finish_description",
+        "palate_flavors",
+        "abv",
+        "volume_ml",
+        "nose_description",
+        "description"
+      ],
+      "product_data": {
+        "name": "The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky",
+        "brand": "The GlenAllachie Distillers Co",
+        "description": "The GlenAllachie 10 Year Old Cask Strength Batch 12 is a powerhouse Speyside single malt Scotch whisky created under the expert guidance of Master Distiller Billy Walker. This limited edition release showcases the intensity and craftsmanship behind its production.",
+        "abv": 59.7,
+        "volume_ml": 700,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "nose_description": "Opening up on slivers of marzipan, marshmallow and mocha, as well as charred oak, peanut skins and a good hit of nougat. Slivers of chestnuts too, but not very fruity, although there is a hint of crème de cassis and oxidized apple parts. Finally a sliver of Demerara sugar.",
+        "palate_description": "The sweet toast of American oak. There’s very much a charred quality alongside oak spices, but then deep notes of butterscotch, toffee and toasted walnuts. Also nutmeg, cloves and molasses. The dried red fruits are outshined a bit.",
+        "finish_description": "Medium to long. Slightly dry. Oak spices linger – there’s a soft herbaceous quality even. Then some dark caramel and mocha.",
+        "primary_aromas": [
+          "marzipan",
+          "mocha",
+          "charred oak",
+          "peanut skins",
+          "nougat",
+          "chestnuts",
+          "crème de cassis",
+          "oxidized apple",
+          "Demerara sugar"
+        ],
+        "palate_flavors": [
+          "American oak",
+          "charred quality",
+          "oak spices",
+          "butterscotch",
+          "toffee",
+          "toasted walnuts",
+          "nutmeg",
+          "cloves",
+          "molasses"
+        ]
+      }
+    },
+    {
+      "product_id": "f09f4403-6498-4d5d-927a-6dab389a0d0a",
+      "source_id": "642b41c9-5070-422d-8aa8-2ad4c5363a86",
+      "award_id": "893ab065-b579-4d44-9eac-bb0151f1c31e",
+      "quality_status_before": "skeleton",
+      "quality_status_after": "complete",
+      "enrichment_success": true,
+      "fields_enriched": [
+        "palate_description",
+        "primary_aromas",
+        "finish_description",
+        "palate_flavors",
+        "abv",
+        "volume_ml",
+        "nose_description",
+        "description"
+      ],
+      "product_data": {
+        "name": "Ballantine's 10 YO Blended Scotch Whisky",
+        "brand": "Ballantine's",
+        "description": "COLOR Golden honey. NOSE Sweet honey with hints of oak and vanilla. TASTE Complex honey and floral flavors with a creamy oak sweetness. FINISH Long lasting, refreshing and sweet.",
+        "abv": 40.0,
+        "volume_ml": 750,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": null,
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "nose_description": "Sweetness of honey and a well-balanced elegance",
+        "palate_description": "Vanilla-like sweetness and a fresh apple-like impression",
+        "finish_description": "A sweet, long aftertaste that continues to be refreshing",
+        "primary_aromas": [
+          "honey",
+          "vanilla"
+        ],
+        "palate_flavors": [
+          "vanilla",
+          "apple"
+        ]
+      }
+    }
+  ]
+}

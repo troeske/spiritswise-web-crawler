@@ -122,10 +122,11 @@ class AIClientV2:
     async def extract(
         self,
         content: str,
-        source_url: str,
-        product_type: str,
+        source_url: str = "",
+        product_type: str = "whiskey",
         product_category: Optional[str] = None,
         extraction_schema: Optional[List[str]] = None,
+        detect_multi_product: bool = False,
     ) -> ExtractionResultV2:
         """
         Extract product data from content using AI Service V2.
@@ -136,6 +137,7 @@ class AIClientV2:
             product_type: Product type (whiskey, port_wine, etc.)
             product_category: Optional category hint (bourbon, tawny, etc.)
             extraction_schema: Optional list of fields to extract (defaults to all)
+            detect_multi_product: Whether to detect if this is a multi-product/list page
 
         Returns:
             ExtractionResultV2 with extracted products or error
@@ -165,8 +167,8 @@ class AIClientV2:
                 preprocessed.token_estimate,
             )
 
-            # Get extraction schema (default if not provided)
-            schema = extraction_schema or self._get_default_schema(product_type)
+            # Get extraction schema (default if not provided) - use async version
+            schema = extraction_schema or await self._aget_default_schema(product_type)
 
             # Build request payload
             payload = self._build_request(
@@ -238,13 +240,12 @@ class AIClientV2:
         payload = {
             "source_data": {
                 "content": preprocessed.content,
-                "url": source_url,
-                "content_type": preprocessed.content_type.value,
+                "source_url": source_url,
+                "type": preprocessed.content_type.value,
             },
             "product_type": product_type,
             "extraction_schema": extraction_schema,
             "options": {
-                "include_confidence": True,
                 "detect_multi_product": True,
                 "max_products": 10,
             },
@@ -381,8 +382,8 @@ class AIClientV2:
                 error=f"Invalid JSON response: {str(e)}",
             )
 
-        # Check for error in response body
-        if "error" in data:
+        # Check for error in response body (only if error is non-null)
+        if data.get("error"):
             return ExtractionResultV2(
                 success=False,
                 error=data["error"],
@@ -391,10 +392,17 @@ class AIClientV2:
         # Parse products from response
         products = []
         for product_data in data.get("products", []):
+            extracted_data = product_data.get("extracted_data", {})
+            api_confidence = product_data.get("confidence", 0.0)
+
+            # If API doesn't return confidence, calculate based on extracted fields
+            if api_confidence == 0.0 and extracted_data:
+                api_confidence = self._calculate_field_confidence(extracted_data)
+
             product = ExtractedProductV2(
-                extracted_data=product_data.get("extracted_data", {}),
+                extracted_data=extracted_data,
                 product_type=product_data.get("product_type", ""),
-                confidence=product_data.get("confidence", 0.0),
+                confidence=api_confidence,
                 field_confidences=product_data.get("field_confidences", {}),
             )
             products.append(product)
@@ -420,6 +428,58 @@ class AIClientV2:
             token_usage=token_usage,
             is_list_page=is_list_page,
         )
+
+    def _calculate_field_confidence(self, extracted_data: Dict[str, Any]) -> float:
+        """
+        Calculate confidence score based on extracted field quality.
+
+        Used when the AI API doesn't return explicit confidence scores.
+        Scores are based on presence and quality of key fields.
+
+        Args:
+            extracted_data: Dictionary of extracted fields
+
+        Returns:
+            Confidence score between 0.0 and 1.0
+        """
+        # Required fields - must have at minimum
+        required_fields = ["name"]
+        # Important fields that significantly boost confidence
+        important_fields = ["brand", "description", "abv", "country", "region"]
+        # Optional fields that add some confidence
+        optional_fields = ["volume_ml", "age_statement", "price", "distillery", "producer"]
+
+        score = 0.0
+
+        # Check required fields (50% of score)
+        for field in required_fields:
+            value = extracted_data.get(field)
+            if value and str(value).strip() and str(value).lower() not in ["unknown", "n/a", "none"]:
+                score += 0.5 / len(required_fields)
+
+        # Check important fields (40% of score)
+        important_count = 0
+        for field in important_fields:
+            value = extracted_data.get(field)
+            if value and str(value).strip() and str(value).lower() not in ["unknown", "n/a", "none"]:
+                important_count += 1
+        if important_fields:
+            score += 0.4 * (important_count / len(important_fields))
+
+        # Check optional fields (10% of score)
+        optional_count = 0
+        for field in optional_fields:
+            value = extracted_data.get(field)
+            if value and str(value).strip():
+                optional_count += 1
+        if optional_fields:
+            score += 0.1 * (optional_count / len(optional_fields))
+
+        # Minimum confidence for having a valid name
+        if extracted_data.get("name") and str(extracted_data["name"]).strip():
+            score = max(score, 0.35)  # Ensure at least 0.35 if name exists
+
+        return round(score, 2)
 
     def _get_default_schema(self, product_type: str) -> List[str]:
         """
@@ -476,6 +536,15 @@ class AIClientV2:
         ]
         logger.debug("Using fallback schema with %d fields", len(fallback_fields))
         return fallback_fields
+
+    async def _aget_default_schema(self, product_type: str) -> List[str]:
+        """
+        Async-safe version of _get_default_schema.
+
+        Uses sync_to_async to wrap database access for async contexts.
+        """
+        from asgiref.sync import sync_to_async
+        return await sync_to_async(self._get_default_schema, thread_sensitive=True)(product_type)
 
     async def health_check(self) -> bool:
         """

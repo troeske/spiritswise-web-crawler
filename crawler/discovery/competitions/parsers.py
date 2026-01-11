@@ -1,6 +1,24 @@
 """
 Competition Result Parsers - Extract award data from competition result pages.
 
+.. deprecated::
+    This module is DEPRECATED as of Phase 11 of the Unified Product Pipeline.
+
+    These BeautifulSoup-based parsers are being replaced by:
+    - `crawler.discovery.collectors.*` - URL collectors for award sites
+    - `crawler.discovery.extractors.ai_extractor` - AI-powered extraction
+
+    The new approach uses AI extraction which is more resilient to HTML structure
+    changes and provides richer data extraction including tasting notes.
+
+    This module is kept for backward compatibility and reference. New code should
+    use the collectors and AI extractors instead.
+
+    Migration Guide:
+    - Instead of IWSCParser, use IWSCCollector + AIExtractor
+    - Instead of SFWSCParser, use SFWSCCollector + AIExtractor
+    - Instead of get_parser(), use get_collector() from collectors module
+
 Supports major spirits competitions:
 - IWSC (International Wine & Spirit Competition): iwsc.net/results/search/{year}
 - SFWSC (San Francisco World Spirits Competition): thetastingalliance.com/results/
@@ -12,6 +30,7 @@ Each parser extracts: product name, medal/award, year, producer, category
 
 import logging
 import re
+import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
@@ -20,6 +39,56 @@ from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
+
+# Deprecation message for this module
+_DEPRECATION_MESSAGE = (
+    "The parsers module is deprecated. Use crawler.discovery.collectors "
+    "and crawler.discovery.extractors.ai_extractor instead. "
+    "See module docstring for migration guide."
+)
+
+# MVP Keywords for product validation
+# Whiskey-related keywords
+MVP_WHISKEY_KEYWORDS = [
+    "whisky",
+    "whiskey",
+    "bourbon",
+    "scotch",
+    "rye",
+    "malt",
+    "single malt",
+    "blended",
+]
+
+# Port wine-related keywords
+MVP_PORT_KEYWORDS = [
+    "port",
+    "porto",
+    "tawny",
+    "ruby",
+    "vintage port",
+    "lbv",
+    "colheita",
+]
+
+# All MVP keywords combined
+MVP_KEYWORDS = MVP_WHISKEY_KEYWORDS + MVP_PORT_KEYWORDS
+
+# Reject patterns - names containing these without MVP keywords are non-products
+REJECT_PATTERNS = [
+    "winery",
+    "vineyard",
+    "wine cellar",
+    "distillery",
+    "company",
+    "ltd",
+    "llc",
+    "inc",
+    "estate",
+    "cellars",
+    "bodega",
+    "chateau",
+]
 
 
 @dataclass
@@ -54,7 +123,12 @@ class CompetitionResult:
 
 
 class BaseCompetitionParser(ABC):
-    """Base class for competition result parsers."""
+    """
+    Base class for competition result parsers.
+
+    .. deprecated::
+        Use collectors and AI extractors instead. See module docstring.
+    """
 
     COMPETITION_NAME: str = "Unknown"
     BASE_URL: str = ""
@@ -124,15 +198,99 @@ class IWSCParser(BaseCompetitionParser):
     Parser for IWSC (International Wine & Spirit Competition) results.
 
     Target URL: iwsc.net/results/search/{year}
+
+    .. deprecated::
+        Use IWSCCollector + AIExtractor instead. See module docstring.
     """
 
     COMPETITION_NAME = "IWSC"
     BASE_URL = "https://iwsc.net/results/search/"
 
+    def _contains_mvp_keywords(self, name: str) -> bool:
+        """
+        Check if the product name contains any MVP keywords (whiskey or port).
+
+        Args:
+            name: The product name to check
+
+        Returns:
+            True if the name contains any MVP keywords, False otherwise
+        """
+        name_lower = name.lower()
+        for keyword in MVP_KEYWORDS:
+            if keyword in name_lower:
+                return True
+        return False
+
+    def _is_valid_product_name(self, name: str, category: str = None) -> bool:
+        """
+        Validate if a name is a valid product name for MVP (whiskey/port only).
+
+        The validation strategy:
+        1. Reject names with reject patterns (winery, company, ltd, etc.) unless
+           they also contain MVP keywords (e.g., "Winery Single Malt" is valid)
+        2. If a category is provided (from IWSC metadata), use it to validate
+        3. Names that are just years or very short are rejected
+
+        Note: We do NOT require MVP keywords in the product name itself because:
+        - IWSC URL already filters by type=3 (spirits) and keyword search
+        - Real whiskey products like "Glenfiddich 12" don't contain "whisky"
+        - The category metadata provides the product type information
+
+        Args:
+            name: The product name to validate
+            category: Optional category from competition metadata (e.g., "Scotch Whisky")
+
+        Returns:
+            True if valid product name, False if should be rejected
+        """
+        if not name or len(name) < 3:
+            return False
+
+        name_lower = name.lower()
+
+        # Reject if name is just a year (e.g., "2024")
+        if re.match(r"^\d{4}$", name.strip()):
+            logger.debug(f"Rejecting product name '{name}': just a year")
+            return False
+
+        # Check if name contains MVP keywords
+        has_mvp_keyword = self._contains_mvp_keywords(name)
+
+        # Check if category indicates whiskey/port (from IWSC metadata)
+        category_indicates_mvp = False
+        if category:
+            cat_lower = category.lower()
+            for keyword in MVP_KEYWORDS:
+                if keyword in cat_lower:
+                    category_indicates_mvp = True
+                    break
+
+        # Check if name contains reject patterns
+        has_reject_pattern = False
+        matched_pattern = None
+        for pattern in REJECT_PATTERNS:
+            if pattern in name_lower:
+                has_reject_pattern = True
+                matched_pattern = pattern
+                break
+
+        # If has reject pattern but no MVP keyword AND no MVP category, reject
+        # This filters out "Winery Gurjaani" but keeps "Highland Park Distillery 12"
+        if has_reject_pattern and not has_mvp_keyword and not category_indicates_mvp:
+            logger.debug(
+                f"Rejecting product name '{name}': contains reject pattern '{matched_pattern}' without MVP indicator"
+            )
+            return False
+
+        # Accept the product - trust IWSC's category filtering
+        return True
+
     def parse(self, html: str, year: int) -> List[Dict[str, Any]]:
         """Parse IWSC results page."""
         soup = BeautifulSoup(html, "lxml")
         results = []
+        filtered_count = 0
 
         # Primary selector: .c-card--listing (IWSC site structure as of Dec 2025)
         cards = soup.select(".c-card--listing")
@@ -148,6 +306,14 @@ class IWSCParser(BaseCompetitionParser):
                     br.replace_with(" ")
                 product_name = self._clean_text(title_elem.get_text())
                 if not product_name or len(product_name) < 3:
+                    continue
+
+                # Validate product name - reject non-product entries
+                if not self._is_valid_product_name(product_name):
+                    filtered_count += 1
+                    logger.info(
+                        f"Filtered non-product entry: '{product_name}'"
+                    )
                     continue
 
                 meta_elem = card.select_one(".c-card--listing__meta")
@@ -166,7 +332,7 @@ class IWSCParser(BaseCompetitionParser):
                 medal = "Award"
                 score = None
                 award_image_url = None
-                
+
                 awards_wrapper = card.select_one(".c-card--listing__awards-wrapper")
                 if awards_wrapper:
                     award_img = awards_wrapper.select_one("img")
@@ -179,7 +345,7 @@ class IWSCParser(BaseCompetitionParser):
                                 award_image_url = f"https://www.iwsc.net{img_src}"
                             else:
                                 award_image_url = img_src
-                            
+
                             # Extract medal type and score from URL
                             # URL pattern: iwsc2025-gold-95-medal or iwsc2025-silver-90-medal
                             medal_match = re.search(r"(gold|silver|bronze)-?(\d+)?-?medal", img_src.lower())
@@ -187,7 +353,7 @@ class IWSCParser(BaseCompetitionParser):
                                 medal = medal_match.group(1).capitalize()
                                 if medal_match.group(2):
                                     score = int(medal_match.group(2))
-                        
+
                         # Also check alt attribute for medal info
                         alt_text = award_img.get("alt", "").lower()
                         if not medal or medal == "Award":
@@ -197,7 +363,7 @@ class IWSCParser(BaseCompetitionParser):
                                 medal = "Silver"
                             elif "bronze" in alt_text:
                                 medal = "Bronze"
-                
+
                 # Build additional_info with all award details
                 additional_info = {}
                 if location:
@@ -224,12 +390,32 @@ class IWSCParser(BaseCompetitionParser):
                     for element in elements:
                         result = self._parse_iwsc_item(element, year)
                         if result:
-                            results.append(result)
+                            # Apply validation to fallback parsing too
+                            if self._is_valid_product_name(result.get("product_name", "")):
+                                results.append(result)
+                            else:
+                                filtered_count += 1
+                                logger.info(
+                                    f"Filtered non-product entry (fallback): '{result.get('product_name', '')}'"
+                                )
                     break
             if not results:
-                results = self._parse_iwsc_fallback(soup, year)
+                fallback_results = self._parse_iwsc_fallback(soup, year)
+                for result in fallback_results:
+                    if self._is_valid_product_name(result.get("product_name", "")):
+                        results.append(result)
+                    else:
+                        filtered_count += 1
+                        logger.info(
+                            f"Filtered non-product entry (table fallback): '{result.get('product_name', '')}'"
+                        )
 
-        logger.info(f"IWSC parser found {len(results)} results for year {year}")
+        if filtered_count > 0:
+            logger.info(
+                f"IWSC parser filtered {filtered_count} non-product entries"
+            )
+
+        logger.info(f"IWSC parser found {len(results)} valid results for year {year}")
         return results
 
     def _parse_iwsc_item(self, element, year: int) -> Optional[Dict[str, Any]]:
@@ -336,6 +522,9 @@ class SFWSCParser(BaseCompetitionParser):
     Parser for SFWSC (San Francisco World Spirits Competition) results.
 
     Target URL: thetastingalliance.com/results/
+
+    .. deprecated::
+        Use SFWSCCollector + AIExtractor instead. See module docstring.
     """
 
     COMPETITION_NAME = "SFWSC"
@@ -471,6 +660,9 @@ class WorldWhiskiesAwardsParser(BaseCompetitionParser):
     Parser for World Whiskies Awards results.
 
     Target URL: worldwhiskiesawards.com/winners
+
+    .. deprecated::
+        Use WWACollector + AIExtractor instead. See module docstring.
     """
 
     COMPETITION_NAME = "World Whiskies Awards"
@@ -594,6 +786,9 @@ class DecanterWWAParser(BaseCompetitionParser):
 
     Target URL: awards.decanter.com (filter by category)
     Note: Primarily for Port wine support (future use)
+
+    .. deprecated::
+        Use DWWACollector + AIExtractor instead. See module docstring.
     """
 
     COMPETITION_NAME = "Decanter WWA"
@@ -717,12 +912,23 @@ def get_parser(competition_name: str) -> Optional[BaseCompetitionParser]:
     """
     Get the appropriate parser for a competition.
 
+    .. deprecated::
+        Use `crawler.discovery.collectors.get_collector()` instead.
+        The collectors + AI extractors approach is more resilient to
+        HTML structure changes.
+
     Args:
         competition_name: Name or key of the competition
 
     Returns:
         Parser instance or None if not found
     """
+    warnings.warn(
+        _DEPRECATION_MESSAGE,
+        DeprecationWarning,
+        stacklevel=2
+    )
+
     parser_class = COMPETITION_PARSERS.get(competition_name.lower())
     if parser_class:
         return parser_class()

@@ -116,8 +116,9 @@ class QueryBuilder:
         Returns:
             Search query string for price discovery
         """
-        name = product.extracted_data.get("name", "").strip()
-        brand = product.extracted_data.get("brand", "").strip()
+        # Use individual columns instead of extracted_data
+        name = (product.name or "").strip()
+        brand = (product.brand.name if product.brand else "").strip()
 
         # Quote product name for exact match
         if name:
@@ -142,7 +143,8 @@ class QueryBuilder:
         Returns:
             Search query string for review discovery
         """
-        name = product.extracted_data.get("name", "").strip()
+        # Use individual column instead of extracted_data
+        name = (product.name or "").strip()
 
         if name:
             return f'"{name}" review tasting notes rating'.strip()
@@ -159,8 +161,9 @@ class QueryBuilder:
         Returns:
             Search query string for image discovery
         """
-        name = product.extracted_data.get("name", "").strip()
-        brand = product.extracted_data.get("brand", "").strip()
+        # Use individual columns instead of extracted_data
+        name = (product.name or "").strip()
+        brand = (product.brand.name if product.brand else "").strip()
 
         parts = []
         if name:
@@ -181,7 +184,8 @@ class QueryBuilder:
         Returns:
             Search query string for news discovery
         """
-        name = product.extracted_data.get("name", "").strip()
+        # Use individual column instead of extracted_data
+        name = (product.name or "").strip()
 
         if name:
             return f'"{name}" whisky news'.strip()

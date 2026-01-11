@@ -264,20 +264,15 @@ class Command(BaseCommand):
                 products.append(existing)
                 continue
 
-            # Create new product
+            # Create new product using individual columns
             try:
                 with transaction.atomic():
                     product = DiscoveredProduct.objects.create(
                         source_url=url,
+                        name=title,
                         product_type="whisky",
                         status=DiscoveredProductStatus.SKELETON,
-                        extracted_data={
-                            "name": title,
-                            "source": source,
-                            "discovery_method": "serpapi_search",
-                            "discovery_query": "2025 bourbon/rye awards",
-                            "priority": target.get("priority", 0),
-                        },
+                        notes=f"Discovery: serpapi_search, query: 2025 bourbon/rye awards, source: {source}, priority: {target.get('priority', 0)}",
                     )
                     products.append(product)
                     created_count += 1
@@ -298,7 +293,8 @@ class Command(BaseCommand):
         enriched_count = 0
 
         for product in products:
-            name = product.extracted_data.get("name", "Unknown")
+            # Use individual column instead of extracted_data
+            name = product.name or "Unknown"
             self.stdout.write(f"Finding prices for: {name[:50]}...")
 
             try:
@@ -337,7 +333,8 @@ class Command(BaseCommand):
         results = []
 
         for product in products:
-            name = product.extracted_data.get("name", "Unknown")
+            # Use individual column instead of extracted_data
+            name = product.name or "Unknown"
             self.stdout.write(f"Enriching: {name[:50]}...")
 
             try:
@@ -394,7 +391,8 @@ class Command(BaseCommand):
         if recent:
             self.stdout.write("\nRecent products:")
             for p in recent:
-                name = p.extracted_data.get("name", "Unknown")[:40]
+                # Use individual column instead of extracted_data
+                name = (p.name or "Unknown")[:40]
                 price_info = f"${p.best_price}" if p.best_price else "no price"
                 self.stdout.write(f"  - {name} ({p.status}, {price_info})")
 

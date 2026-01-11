@@ -1,0 +1,174 @@
+================================================================================
+TEST: IWSC Competition Flow
+Started: 2026-01-10T20:00:34.724746
+Duration: 38.5s
+================================================================================
+
+STEPS:
+----------------------------------------
+1. [OK] fetch: Fetching competition page (force_tier=2) (4763ms)
+      tier_used: 2
+      tier_name: Playwright
+      content_length_bytes: 996557
+      content_length_kb: 973.2
+      has_product_indicators: True
+2. [OK] ai_extract: AI extraction for whiskey products (32594ms)
+      total_products_from_ai: 10
+      extraction_time_ms: 32594.3
+      ai_success: True
+3. [OK] validate: Validating 10 extracted products (1ms)
+      total_products: 10
+      valid_products: 10
+      rejected_products: 0
+      validation_pass_rate: 100.0%
+4. [OK] db_create_source: Creating CrawledSource record (16ms)
+      source_id: df4839f3-f385-4445-aa75-4a30bb9114e6
+      title: IWSC 2025 - Competition Results Page
+      source_type: award_page
+5. [OK] quality_assess: Quality assessment for The Scotch Malt Whisky Society (N/A)
+      product_name: The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'description', 'nose_description', 'palate_flavors']
+      needs_enrichment: True
+6. [OK] enrichment: Enriching The Scotch Malt Whisky Society... via SerpAPI + AI (4ms)
+      status_before: partial
+      status_after: partial
+      fields_enriched: []
+      sources_used: 0
+      searches_performed: 0
+      time_elapsed_seconds: 0.00400090217590332
+7. [OK] enrichment_result: Enrichment complete for The Scotch Malt Whisky Society (N/A)
+      product_name: The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      status_before: partial
+      status_after: partial
+      fields_enriched: []
+      fields_enriched_count: 0
+      sources_used: 0
+      searches_performed: 0
+      time_elapsed_seconds: 0.0
+      status_improved: False
+8. [OK] quality_assess: Quality assessment for The Scotch Malt Whisky Society (N/A)
+      product_name: The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky (post-enrichment)
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'description', 'nose_description', 'palate_flavors']
+      needs_enrichment: True
+9. [OK] quality_assess: Quality assessment for The GlenAllachie Distillers Co (N/A)
+      product_name: The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'description', 'nose_description', 'palate_flavors']
+      needs_enrichment: True
+10. [OK] enrichment: Enriching The GlenAllachie Distillers Co... via SerpAPI + AI (5ms)
+      status_before: partial
+      status_after: partial
+      fields_enriched: []
+      sources_used: 0
+      searches_performed: 0
+      time_elapsed_seconds: 0.0030241012573242188
+11. [OK] enrichment_result: Enrichment complete for The GlenAllachie Distillers Co (N/A)
+      product_name: The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      status_before: partial
+      status_after: partial
+      fields_enriched: []
+      fields_enriched_count: 0
+      sources_used: 0
+      searches_performed: 0
+      time_elapsed_seconds: 0.0
+      status_improved: False
+12. [OK] quality_assess: Quality assessment for The GlenAllachie Distillers Co (N/A)
+      product_name: The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky (post-enrichment)
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['abv', 'description', 'nose_description', 'palate_flavors']
+      needs_enrichment: True
+13. [OK] quality_assess: Quality assessment for Ballantine's 10 YO Blended Sco (N/A)
+      product_name: Ballantine's 10 YO Blended Scotch Whisky
+      status: skeleton
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['description', 'abv', 'region']
+      needs_enrichment: True
+14. [OK] enrichment: Enriching Ballantine's 10 YO Blended Sco... via SerpAPI + AI (4ms)
+      status_before: skeleton
+      status_after: skeleton
+      fields_enriched: []
+      sources_used: 0
+      searches_performed: 0
+      time_elapsed_seconds: 0.002984762191772461
+15. [OK] enrichment_result: Enrichment complete for Ballantine's 10 YO Blended Sco (N/A)
+      product_name: Ballantine's 10 YO Blended Scotch Whisky
+      status_before: skeleton
+      status_after: skeleton
+      fields_enriched: []
+      fields_enriched_count: 0
+      sources_used: 0
+      searches_performed: 0
+      time_elapsed_seconds: 0.0
+      status_improved: False
+16. [OK] quality_assess: Quality assessment for Ballantine's 10 YO Blended Sco (N/A)
+      product_name: Ballantine's 10 YO Blended Scotch Whisky (post-enrichment)
+      status: skeleton
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['description', 'abv', 'region']
+      needs_enrichment: True
+
+PRODUCTS:
+----------------------------------------
+  1. The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  2. The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  3. Ballantine's 10 YO Blended Scotch Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+  4. Filliers Distillery 10 YO Sherry Cask Single Malt Whisky
+      Status: VALID
+      Confidence: 0.68
+      Fields: name, brand, age_statement, country
+  5. Glencadam Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  6. Laphroaig 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  7. The Benromach Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  8. Ardbeg Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  9. Tomintoul Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+  10. Speyburn Distillery 10 YO Single Malt Scotch Whisky
+      Status: VALID
+      Confidence: 0.76
+      Fields: name, brand, age_statement, country, region
+
+SUMMARY:
+----------------------------------------
+  Total Steps: 16
+  Successful Steps: 16
+  Failed Steps: 0
+  Total Products: 10
+  Valid Products: 10
+  Rejected Products: 0
+
+================================================================================

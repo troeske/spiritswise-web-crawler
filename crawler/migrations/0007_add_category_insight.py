@@ -159,7 +159,7 @@ class Migration(migrations.Migration):
                     models.UniqueConstraint(
                         fields=("product_type", "sub_category", "region", "country"),
                         name="unique_category_insight",
-                        nulls_distinct=False,
+                        # nulls_distinct=False requires Django 5.0+
                     )
                 ],
             },

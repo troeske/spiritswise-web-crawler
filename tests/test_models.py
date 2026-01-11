@@ -302,3 +302,152 @@ class TestCrawlCost:
         ).aggregate(total=Sum("cost_cents"))["total"]
 
         assert recent_total == 300  # cost1 (100) + cost2 (200)
+
+
+# ============================================================
+# V2 Implementation Tasks - Model Tests
+# ============================================================
+# Spec Reference: specs/CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md
+
+
+@pytest.mark.django_db
+class TestCrawledSourceListPageType:
+    """
+    Tests for CrawledSourceTypeChoices enum.
+
+    Spec Reference: Section 8.4 - Processing Flow
+    Task: 1.1 - Add "list_page" to CrawledSourceTypeChoices
+    """
+
+    def test_crawled_source_list_page_type_exists(self):
+        """Spec Section 8.4: CrawledSourceTypeChoices should include LIST_PAGE."""
+        from crawler.models import CrawledSourceTypeChoices
+
+        # Verify the LIST_PAGE choice exists in the enum
+        assert hasattr(CrawledSourceTypeChoices, 'LIST_PAGE')
+        assert CrawledSourceTypeChoices.LIST_PAGE.value == "list_page"
+        assert CrawledSourceTypeChoices.LIST_PAGE.label == "List Page"
+
+    def test_crawled_source_accepts_list_page_type(self):
+        """Spec Section 8.4: CrawledSource should accept source_type='list_page'."""
+        from crawler.models import CrawledSource, CrawledSourceTypeChoices
+
+        source = CrawledSource.objects.create(
+            url="https://example.com/best-whiskey-2026",
+            source_type=CrawledSourceTypeChoices.LIST_PAGE,
+            raw_content="<html><body>Best Whiskey List</body></html>",
+        )
+
+        assert source.source_type == "list_page"
+        source.refresh_from_db()
+        assert source.source_type == "list_page"
+
+
+@pytest.mark.django_db
+class TestSearchTermModel:
+    """
+    Tests for SearchTerm model.
+
+    Spec Reference: Section 7.2 - SearchTerm Model
+    Tasks: 1.2 (search_query field), 1.3 (max_results field)
+    """
+
+    def test_search_term_search_query_field(self):
+        """
+        Spec Section 7.2: SearchTerm.search_query should contain the complete query.
+        Task 1.2 - Field should be named 'search_query' not 'term_template'.
+        """
+        from crawler.models import SearchTerm
+
+        term = SearchTerm.objects.create(
+            search_query="best bourbon 2026",
+            category="best_lists",
+            product_type="whiskey",
+        )
+
+        assert term.search_query == "best bourbon 2026"
+        term.refresh_from_db()
+        assert term.search_query == "best bourbon 2026"
+
+    def test_search_term_max_results_field(self):
+        """
+        Spec Section 7.2: SearchTerm.max_results controls per-term crawl limit.
+        Task 1.3 - Field should exist with default=10 and validation 1-20.
+        """
+        from crawler.models import SearchTerm
+
+        term = SearchTerm.objects.create(
+            search_query="best whiskey 2026",
+            category="best_lists",
+            product_type="whiskey",
+            max_results=15,
+        )
+
+        assert term.max_results == 15
+        term.refresh_from_db()
+        assert term.max_results == 15
+
+    def test_search_term_max_results_default(self):
+        """
+        Spec Section 7.2: max_results should default to 10.
+        """
+        from crawler.models import SearchTerm
+
+        term = SearchTerm.objects.create(
+            search_query="best scotch 2026",
+            category="best_lists",
+            product_type="whiskey",
+        )
+
+        assert term.max_results == 10
+
+    def test_search_term_max_results_validation_min(self):
+        """
+        Spec Section 7.2: max_results minimum should be 1.
+        """
+        from django.core.exceptions import ValidationError
+        from crawler.models import SearchTerm
+
+        term = SearchTerm(
+            search_query="invalid min results",
+            category="best_lists",
+            product_type="whiskey",
+            max_results=0,  # Below minimum
+        )
+
+        with pytest.raises(ValidationError):
+            term.full_clean()
+
+    def test_search_term_max_results_validation_max(self):
+        """
+        Spec Section 7.2: max_results maximum should be 20.
+        """
+        from django.core.exceptions import ValidationError
+        from crawler.models import SearchTerm
+
+        term = SearchTerm(
+            search_query="invalid max results",
+            category="best_lists",
+            product_type="whiskey",
+            max_results=21,  # Above maximum
+        )
+
+        with pytest.raises(ValidationError):
+            term.full_clean()
+
+    def test_search_term_no_year_substitution_needed(self):
+        """
+        Spec Section 7.2: Admin adds complete queries - no {year} substitution.
+        The search_query field stores the complete query as-is.
+        """
+        from crawler.models import SearchTerm
+
+        # Admin enters complete query with year already included
+        term = SearchTerm.objects.create(
+            search_query="best bourbon whiskey 2026",
+            category="best_lists",
+            product_type="whiskey",
+        )
+
+        # search_query returns exactly what was stored - no transformation
+        assert term.search_query == "best bourbon whiskey 2026"

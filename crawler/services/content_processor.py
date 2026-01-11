@@ -70,6 +70,9 @@ from crawler.services.ai_client import AIEnhancementClient, EnhancementResult, g
 # UNIFIED_PRODUCT_SAVE_REFACTORING - Phase 2: Import unified product saver
 from crawler.services.product_saver import save_discovered_product, ProductSaveResult
 
+# Import whiskey type normalization
+from crawler.validators.whiskey import normalize_whiskey_type
+
 logger = logging.getLogger(__name__)
 
 # Trafilatura import with fallback
@@ -79,6 +82,14 @@ try:
 except ImportError:
     TRAFILATURA_AVAILABLE = False
     logger.warning("trafilatura not available, will use raw content")
+
+# BeautifulSoup for fallback extraction of title/h1
+try:
+    from bs4 import BeautifulSoup
+    BS4_AVAILABLE = True
+except ImportError:
+    BS4_AVAILABLE = False
+    logger.warning("bs4 not available, may miss title/h1 in sparse content")
 
 
 # =============================================================================
@@ -344,10 +355,14 @@ def extract_whiskey_fields(extracted_data: Dict[str, Any]) -> Dict[str, Any]:
 
         # Only include non-None values
         if converted_value is not None:
-            # Validate choice fields
-            if model_field == "whiskey_type" and converted_value not in VALID_WHISKEY_TYPES:
-                logger.warning(f"Invalid whiskey_type '{converted_value}', skipping")
-                continue
+            # Validate and normalize choice fields
+            if model_field == "whiskey_type":
+                # Normalize whiskey_type to handle AI variations like 'single_malt_scotch'
+                normalized = normalize_whiskey_type(converted_value)
+                if normalized not in VALID_WHISKEY_TYPES:
+                    logger.warning(f"Invalid whiskey_type '{converted_value}' (normalized: '{normalized}'), skipping")
+                    continue
+                converted_value = normalized
             if model_field == "peat_level" and converted_value not in VALID_PEAT_LEVELS:
                 logger.warning(f"Invalid peat_level '{converted_value}', skipping")
                 continue
@@ -1581,13 +1596,37 @@ class ContentProcessor:
         """
         Extract main content from raw HTML using trafilatura.
 
+        SPARSE_CONTENT_FIX: When trafilatura strips headings from sparse main content
+        (e.g., when sidebar has more detailed content), we manually extract and prepend
+        the title and h1 to ensure the product name is always present.
+
         Args:
             raw_html: Raw HTML content from crawler
 
         Returns:
-            Cleaned text content
+            Cleaned text content with title/h1 preserved
         """
-        if not TRAFILATURA_AVAILABLE or not raw_html:
+        if not raw_html:
+            return raw_html or ""
+
+        # SPARSE_CONTENT_FIX: Extract title and h1 using BeautifulSoup before trafilatura
+        # Trafilatura may strip these when main content is sparse
+        title_text = None
+        h1_text = None
+
+        if BS4_AVAILABLE:
+            try:
+                soup = BeautifulSoup(raw_html, 'html.parser')
+                if soup.title and soup.title.string:
+                    title_text = soup.title.string.strip()
+                if soup.h1:
+                    # Handle h1 with nested elements or direct text
+                    h1_text = soup.h1.get_text(strip=True)
+            except Exception as e:
+                logger.debug(f"BeautifulSoup extraction failed: {e}")
+
+        if not TRAFILATURA_AVAILABLE:
+            # Fall back to raw HTML if trafilatura not available
             return raw_html
 
         try:
@@ -1600,9 +1639,31 @@ class ContentProcessor:
                 output_format="txt",
             )
 
+            # SPARSE_CONTENT_FIX: Check if title/h1 are missing from trafilatura output
+            # If so, prepend them to ensure product name is available to AI
+            prefix_parts = []
+
+            if title_text:
+                # Clean title - remove common suffixes like "| Store Name"
+                clean_title = title_text.split("|")[0].strip()
+                if clean_title and (not extracted or clean_title.lower() not in extracted.lower()):
+                    prefix_parts.append(f"[Page Title: {clean_title}]")
+
+            if h1_text:
+                if h1_text and (not extracted or h1_text.lower() not in extracted.lower()):
+                    prefix_parts.append(f"[Main Heading: {h1_text}]")
+
             if extracted and len(extracted) >= 50:
-                logger.debug(f"Extracted {len(extracted)} chars from {len(raw_html)} char HTML")
-                return extracted
+                if prefix_parts:
+                    # Prepend title/h1 to trafilatura output
+                    combined = "\n".join(prefix_parts) + "\n" + extracted
+                    logger.debug(
+                        f"Extracted {len(extracted)} chars, prepended title/h1 from {len(raw_html)} char HTML"
+                    )
+                    return combined
+                else:
+                    logger.debug(f"Extracted {len(extracted)} chars from {len(raw_html)} char HTML")
+                    return extracted
 
             # If extraction is too short, fall back to raw HTML
             logger.debug("Trafilatura extraction too short, using raw HTML")
@@ -1798,19 +1859,6 @@ class ContentProcessor:
             if crawl_job is not None and product.crawl_job != crawl_job:
                 product.crawl_job = crawl_job
                 update_fields.append("crawl_job")
-
-            # For existing products, merge enrichment data
-            if not save_result.created:
-                enriched_data = product.enriched_data or {}
-                enriched_data = {
-                    **enriched_data,
-                    **result.enrichment,
-                    "additional_sources": enriched_data.get(
-                        "additional_sources", []
-                    ) + [url],
-                }
-                product.enriched_data = enriched_data
-                update_fields.append("enriched_data")
 
             if update_fields:
                 product.save(update_fields=update_fields)

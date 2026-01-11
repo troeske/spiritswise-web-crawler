@@ -10,6 +10,19 @@ or updating DiscoveredProduct records across all discovery flows:
 - Hub and Spoke crawling
 - Direct crawling
 
+Phase 10 Updates (Unified Pipeline):
+- Calculates completeness_score on save
+- Updates source_count on multi-source save
+- Tracks verified_fields when multiple sources match
+- Uses new status model (incomplete, partial, complete, verified)
+
+AI Enhancement Service V2 Updates (Task 5.3):
+- Handles nested V2 response structure (appearance.*, tasting_evolution.*, ratings.*, production.*)
+- All new tasting profile fields (array fields, evolution fields, rating fields)
+- WhiskeyDetails V2 fields (peat_ppm, natural_color, non_chill_filtered)
+- PortWineDetails V2 fields (aging_vessel already present)
+- Cask/maturation fields on DiscoveredProduct
+
 The save_discovered_product() function:
 1. Normalizes input data from different source formats
 2. Checks for existing product (deduplication by fingerprint/name)
@@ -19,7 +32,8 @@ The save_discovered_product() function:
 6. Creates WhiskeyDetails/PortWineDetails based on product_type
 7. Creates ProductAward, ProductRating, ProductImage records
 8. Creates ProductSource and ProductFieldSource provenance records
-9. Returns ProductSaveResult
+9. Calculates completeness and updates status
+10. Returns ProductSaveResult
 """
 
 import hashlib
@@ -35,6 +49,7 @@ from django.utils.text import slugify
 
 from crawler.models import (
     CrawledSource,
+    CrawledURL,
     DiscoveredProduct,
     DiscoveredProductStatus,
     DiscoverySource,
@@ -53,9 +68,105 @@ from crawler.models import (
     PortStyleChoices,
     DouroSubregionChoices,
     DiscoveredBrand,
+    CrawlerSource,
 )
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# MVP Product Type Validation
+# =============================================================================
+
+# MVP only supports whiskey and port_wine product types
+# Other product types in the ProductType enum are not yet supported
+MVP_VALID_PRODUCT_TYPES = [
+    ProductType.WHISKEY.value,
+    ProductType.PORT_WINE.value,
+]
+
+
+# =============================================================================
+# Verification Pipeline Helper
+# =============================================================================
+
+
+def _get_verification_pipeline():
+    """
+    Get VerificationPipeline instance (lazy import).
+
+    Returns:
+        VerificationPipeline instance for multi-source verification
+    """
+    from crawler.verification.pipeline import VerificationPipeline
+    return VerificationPipeline()
+
+
+# =============================================================================
+# CrawledURL Tracking Helper
+# =============================================================================
+
+
+def _track_crawled_url(
+    source_url: str,
+    raw_content: str = "",
+    crawler_source: Optional[CrawlerSource] = None,
+    is_product_page: bool = True,
+    processing_status: str = "success",
+) -> CrawledURL:
+    """
+    Track a URL in the CrawledURL table.
+
+    Creates or updates a CrawledURL record to track which URLs have been crawled
+    and processed. This enables:
+    - URL deduplication
+    - Content change detection
+    - Crawl history tracking
+
+    Args:
+        source_url: The URL that was crawled
+        raw_content: The raw content fetched from the URL
+        crawler_source: Optional CrawlerSource this URL belongs to
+        is_product_page: Whether this URL is a product page
+        processing_status: Status of processing (success, failed, etc.)
+
+    Returns:
+        CrawledURL: The created or updated CrawledURL record
+    """
+    url_hash = CrawledURL.compute_url_hash(source_url)
+
+    # Try to get existing record
+    crawled_url = CrawledURL.objects.filter(url_hash=url_hash).first()
+
+    if crawled_url:
+        # Update existing record
+        old_content_hash = crawled_url.content_hash
+        if raw_content:
+            new_content_hash = CrawledURL.compute_content_hash(raw_content)
+            crawled_url.content_changed = old_content_hash != new_content_hash
+            crawled_url.content_hash = new_content_hash
+        crawled_url.last_crawled_at = timezone.now()
+        crawled_url.was_processed = True
+        crawled_url.is_product_page = is_product_page
+        crawled_url.processing_status = processing_status
+        crawled_url.save()
+    else:
+        # Create new record
+        content_hash = CrawledURL.compute_content_hash(raw_content) if raw_content else ""
+        crawled_url = CrawledURL.objects.create(
+            url=source_url,
+            url_hash=url_hash,
+            source=crawler_source,
+            is_product_page=is_product_page,
+            was_processed=True,
+            processing_status=processing_status,
+            first_seen_at=timezone.now(),
+            last_crawled_at=timezone.now(),
+            content_hash=content_hash,
+            content_changed=False,
+        )
+
+    return crawled_url
 
 
 # =============================================================================
@@ -69,9 +180,24 @@ class ProductSaveResult:
     Result of save_discovered_product() operation.
 
     Contains the product and metadata about what was created/updated.
+
+    Attributes:
+        product: The DiscoveredProduct instance (may be None if rejected)
+        created: Whether a new product was created
+        error: Error message if the product was rejected (e.g., invalid product type)
+        whiskey_details_created: Whether WhiskeyDetails was created
+        port_wine_details_created: Whether PortWineDetails was created
+        awards_created: Number of ProductAward records created
+        ratings_created: Number of ProductRating records created
+        images_created: Number of ProductImage records created
+        source_record_created: Whether ProductSource was created
+        provenance_records_created: Number of ProductFieldSource records created
+        brand_created: Whether a new DiscoveredBrand was created
+        brand: The DiscoveredBrand instance
     """
-    product: DiscoveredProduct
+    product: Optional[DiscoveredProduct] = None
     created: bool = False
+    error: Optional[str] = None
     whiskey_details_created: bool = False
     port_wine_details_created: bool = False
     awards_created: int = 0
@@ -266,22 +392,51 @@ FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
     "finish_flavors": ("finish_flavors", _safe_list),
     "finish_evolution": ("finish_evolution", _safe_str),
     "final_notes": ("final_notes", _safe_str),
+
+    # Core description fields (Task 1 fix - previously missing)
+    "description": ("description", _safe_str),
+    "palate_description": ("palate_description", _safe_str),
+    "finish_description": ("finish_description", _safe_str),
+
+    # Recommendations (Task 1 fix - previously missing)
+    "food_pairings": ("food_pairings", _safe_list),
+    "serving_recommendation": ("serving_recommendation", _safe_str),
+
+    # Category (Task 4 fix - previously only in AWARD_FIELD_MAPPING)
+    "category": ("category", _safe_str),
+
+    # ===========================================================
+    # AI Enhancement Service V2 - Overall Assessment Fields
+    # ===========================================================
+    "balance": ("balance", _safe_int),
+    "overall_complexity": ("overall_complexity", _safe_int),
+    "uniqueness": ("uniqueness", _safe_int),
+    "drinkability": ("drinkability", _safe_int),
+    "price_quality_ratio": ("price_quality_ratio", _safe_int),
+    "experience_level": ("experience_level", _safe_str),
+
+    # ===========================================================
+    # AI Enhancement Service V2 - Cask/Maturation Fields
+    # ===========================================================
+    "primary_cask": ("primary_cask", _safe_list),
+    "finishing_cask": ("finishing_cask", _safe_list),
+    "wood_type": ("wood_type", _safe_list),
+    "cask_treatment": ("cask_treatment", _safe_list),
+    "maturation_notes": ("maturation_notes", _safe_str),
 }
 
 # Whiskey-specific fields: AI response key -> (model field name, type converter)
+# Note: whiskey_country/whiskey_region moved to DiscoveredProduct.country/region
+# Note: cask_type/cask_finish moved to DiscoveredProduct.primary_cask/finishing_cask
 WHISKEY_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
     # Classification
     "whiskey_type": ("whiskey_type", _safe_str),
-    "whiskey_country": ("whiskey_country", _safe_str),
-    "whiskey_region": ("whiskey_region", _safe_str),
 
     # Production
     "distillery": ("distillery", _safe_str),
     "mash_bill": ("mash_bill", _safe_str),
 
-    # Cask Information
-    "cask_type": ("cask_type", _safe_str),
-    "cask_finish": ("cask_finish", _safe_str),
+    # Cask Information (cask_type/cask_finish on main product)
     "cask_strength": ("cask_strength", _safe_bool),
     "single_cask": ("single_cask", _safe_bool),
     "cask_number": ("cask_number", _safe_str),
@@ -294,6 +449,13 @@ WHISKEY_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
     # Peat
     "peated": ("peated", _safe_bool),
     "peat_level": ("peat_level", _safe_str),
+
+    # ===========================================================
+    # AI Enhancement Service V2 - New Whiskey Fields
+    # ===========================================================
+    "peat_ppm": ("peat_ppm", _safe_int),
+    "natural_color": ("natural_color", _safe_bool),
+    "non_chill_filtered": ("non_chill_filtered", _safe_bool),
 }
 
 # Valid whiskey type values for validation
@@ -318,7 +480,7 @@ PORT_WINE_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
     "douro_subregion": ("douro_subregion", _safe_str),
     "producer_house": ("producer_house", _safe_str),
 
-    # Aging
+    # Aging (V2 field - already present)
     "aging_vessel": ("aging_vessel", _safe_str),
 
     # Serving
@@ -373,10 +535,42 @@ IMAGE_FIELD_MAPPING: Dict[str, Tuple[str, Callable]] = {
 # Valid image type values for validation
 VALID_IMAGE_TYPES = [choice.value for choice in ImageTypeChoices]
 
+# Fields that can be verified across sources
+VERIFIABLE_FIELDS = [
+    'name', 'brand', 'abv', 'age_statement', 'volume_ml', 'country', 'region',
+    'palate_description', 'nose_description', 'finish_description', 'palate_flavors',
+]
+
 
 # =============================================================================
 # Data Normalization Functions
 # =============================================================================
+
+
+def _flatten_nested_object(data: Dict[str, Any], prefix: str, nested_obj: Dict[str, Any]) -> None:
+    """
+    Flatten a nested object into the main data dict.
+
+    AI Enhancement Service V2 returns nested structures like:
+    - appearance: {color_description, color_intensity, clarity, viscosity}
+    - tasting_evolution: {initial_taste, mid_palate_evolution, aroma_evolution, ...}
+    - ratings: {flavor_intensity, complexity, warmth, dryness, balance, ...}
+    - production: {distillery, cask_strength, peated, primary_cask, ...}
+
+    This function flattens them to top-level keys.
+
+    Args:
+        data: The main data dict to update
+        prefix: The prefix/key of the nested object (for logging)
+        nested_obj: The nested object to flatten
+    """
+    if not isinstance(nested_obj, dict):
+        return
+
+    for key, value in nested_obj.items():
+        # Don't overwrite existing values
+        if key not in data or data.get(key) is None:
+            data[key] = value
 
 
 def normalize_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -385,6 +579,15 @@ def normalize_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
 
     Competition data uses product_name/producer, while discovery data
     uses name/brand. This function normalizes to the canonical format.
+
+    AI Enhancement Service V2 Updates:
+    - Flattens nested appearance object
+    - Flattens nested tasting_evolution object
+    - Flattens nested ratings object
+    - Flattens nested production object
+    - Maps tasting_notes.nose_aromas -> primary_aromas
+    - Maps tasting_notes.palate_flavors -> palate_flavors
+    - Maps tasting_notes.finish_flavors -> finish_flavors
 
     Args:
         data: Raw extracted data dict
@@ -409,6 +612,92 @@ def normalize_extracted_data(data: Dict[str, Any]) -> Dict[str, Any]:
             normalized["brand"] = normalized["producer"]
         # Remove the original key to avoid confusion
         del normalized["producer"]
+
+    # ===========================================================
+    # AI Enhancement Service V2 - Flatten nested objects
+    # ===========================================================
+
+    # Flatten appearance object
+    appearance = normalized.get("appearance", {})
+    if isinstance(appearance, dict):
+        _flatten_nested_object(normalized, "appearance", appearance)
+
+    # Flatten tasting_evolution object
+    tasting_evolution = normalized.get("tasting_evolution", {})
+    if isinstance(tasting_evolution, dict):
+        _flatten_nested_object(normalized, "tasting_evolution", tasting_evolution)
+
+    # Flatten ratings object (AI-generated assessment ratings)
+    ratings_obj = normalized.get("ratings", {})
+    if isinstance(ratings_obj, dict) and not isinstance(ratings_obj, list):
+        # Only flatten if it's an object with rating fields, not an array of external ratings
+        # Check if it has rating-like keys (not source/score/max_score which indicate external rating)
+        rating_keys = {"flavor_intensity", "complexity", "warmth", "dryness", "balance",
+                       "overall_complexity", "uniqueness", "drinkability"}
+        if any(key in ratings_obj for key in rating_keys):
+            _flatten_nested_object(normalized, "ratings", ratings_obj)
+
+    # Flatten production object
+    production = normalized.get("production", {})
+    if isinstance(production, dict):
+        _flatten_nested_object(normalized, "production", production)
+
+    # ===========================================================
+    # AI Enhancement Service V2 - Map tasting_notes nested fields
+    # ===========================================================
+
+    # Task 2 fix: Unpack nested tasting_notes structure (AI service format)
+    # AI returns: {"tasting_notes": {"nose": "...", "palate": "...", "finish": "...",
+    #              "nose_aromas": [...], "palate_flavors": [...], "finish_flavors": [...]}}
+    # Database expects: nose_description, palate_description, finish_description,
+    #                   primary_aromas, palate_flavors, finish_flavors
+    tasting_notes = normalized.get("tasting_notes", {})
+    if isinstance(tasting_notes, dict):
+        # Map nose -> nose_description
+        if tasting_notes.get("nose") and not normalized.get("nose_description"):
+            normalized["nose_description"] = tasting_notes["nose"]
+        # Map palate -> palate_description (consistent mapping)
+        if tasting_notes.get("palate") and not normalized.get("palate_description"):
+            normalized["palate_description"] = tasting_notes["palate"]
+        # Map finish -> finish_description
+        if tasting_notes.get("finish") and not normalized.get("finish_description"):
+            normalized["finish_description"] = tasting_notes["finish"]
+
+        # V2: Map nose_aromas -> primary_aromas
+        if tasting_notes.get("nose_aromas") and not normalized.get("primary_aromas"):
+            normalized["primary_aromas"] = tasting_notes["nose_aromas"]
+
+        # V2: Map palate_flavors directly
+        if tasting_notes.get("palate_flavors") and not normalized.get("palate_flavors"):
+            normalized["palate_flavors"] = tasting_notes["palate_flavors"]
+
+        # V2: Map finish_flavors directly
+        if tasting_notes.get("finish_flavors") and not normalized.get("finish_flavors"):
+            normalized["finish_flavors"] = tasting_notes["finish_flavors"]
+
+    # Task 4 fix: Infer category from whiskey_type if not set
+    if not normalized.get("category") and normalized.get("whiskey_type"):
+        whiskey_type_to_category = {
+            'scotch_single_malt': 'Single Malt Scotch Whisky',
+            'scotch_blend': 'Blended Scotch Whisky',
+            'bourbon': 'Bourbon',
+            'tennessee': 'Tennessee Whiskey',
+            'rye': 'Rye Whiskey',
+            'american_single_malt': 'American Single Malt',
+            'irish_single_pot': 'Irish Single Pot Still',
+            'irish_single_malt': 'Irish Single Malt',
+            'irish_blend': 'Blended Irish Whiskey',
+            'japanese': 'Japanese Whisky',
+            'canadian': 'Canadian Whisky',
+            'indian': 'Indian Whisky',
+            'taiwanese': 'Taiwanese Whisky',
+            'australian': 'Australian Whisky',
+            'world_whiskey': 'World Whisky',
+        }
+        normalized["category"] = whiskey_type_to_category.get(
+            normalized["whiskey_type"],
+            normalized["whiskey_type"].replace('_', ' ').title()
+        )
 
     return normalized
 
@@ -486,6 +775,13 @@ def extract_tasting_fields(data: Dict[str, Any]) -> Dict[str, Any]:
         "finish_flavors": _safe_list,
         "finish_evolution": _safe_str,
         "final_notes": _safe_str,
+        # V2: Overall Assessment
+        "balance": _safe_int,
+        "overall_complexity": _safe_int,
+        "uniqueness": _safe_int,
+        "drinkability": _safe_int,
+        "price_quality_ratio": _safe_int,
+        "experience_level": _safe_str,
     }
 
     for field_name, converter in tasting_fields.items():
@@ -765,31 +1061,19 @@ def _create_whiskey_details(
     # Extract whiskey-specific fields
     whiskey_fields = extract_whiskey_fields(extracted_data)
 
-    # Require at least whiskey_type and whiskey_country
+    # Require at least whiskey_type
+    # Note: whiskey_country/whiskey_region are now on DiscoveredProduct (country/region)
     whiskey_type = whiskey_fields.get("whiskey_type")
-    whiskey_country = whiskey_fields.get("whiskey_country")
 
     if not whiskey_type:
-        # Try to infer whiskey_type from country/region
+        # Try to infer whiskey_type from country/region on the main product
         whiskey_type = _infer_whiskey_type(extracted_data)
         if whiskey_type:
             whiskey_fields["whiskey_type"] = whiskey_type
 
-    if not whiskey_country:
-        # Try to use the product's country field
-        whiskey_country = extracted_data.get("country")
-        if whiskey_country:
-            whiskey_fields["whiskey_country"] = whiskey_country
-
-    # Still no whiskey_type or country? Use defaults
+    # Still no whiskey_type? Use default
     if not whiskey_fields.get("whiskey_type"):
         whiskey_fields["whiskey_type"] = WhiskeyTypeChoices.WORLD_WHISKEY
-    if not whiskey_fields.get("whiskey_country"):
-        whiskey_fields["whiskey_country"] = "Unknown"
-
-    # Also populate whiskey_region from main region if not set
-    if not whiskey_fields.get("whiskey_region") and extracted_data.get("region"):
-        whiskey_fields["whiskey_region"] = extracted_data.get("region")
 
     try:
         details = WhiskeyDetails.objects.create(
@@ -801,6 +1085,53 @@ def _create_whiskey_details(
     except Exception as e:
         logger.error(f"Failed to create WhiskeyDetails for product {product.id}: {e}")
         return None
+
+
+def _update_whiskey_details(
+    product: DiscoveredProduct,
+    extracted_data: Dict[str, Any],
+) -> bool:
+    """
+    Update existing WhiskeyDetails record with new V2 fields.
+
+    AI Enhancement Service V2 adds: peat_ppm, natural_color, non_chill_filtered
+
+    Args:
+        product: The DiscoveredProduct with existing WhiskeyDetails
+        extracted_data: Dict from AI Enhancement Service
+
+    Returns:
+        True if updated, False otherwise
+    """
+    try:
+        details = product.whiskey_details
+    except WhiskeyDetails.DoesNotExist:
+        return False
+
+    # Extract new V2 fields
+    whiskey_fields = extract_whiskey_fields(extracted_data)
+
+    updated = False
+    update_fields = []
+
+    # Only update fields that are currently None/empty
+    for field_name in ["peat_ppm", "natural_color", "non_chill_filtered",
+                       "distillery", "mash_bill", "cask_strength", "single_cask",
+                       "cask_number", "vintage_year", "bottling_year", "batch_number",
+                       "peated", "peat_level"]:
+        if field_name in whiskey_fields:
+            current_value = getattr(details, field_name, None)
+            new_value = whiskey_fields[field_name]
+            if current_value is None and new_value is not None:
+                setattr(details, field_name, new_value)
+                update_fields.append(field_name)
+                updated = True
+
+    if updated:
+        details.save(update_fields=update_fields)
+        logger.info(f"Updated WhiskeyDetails for product {product.id}: {update_fields}")
+
+    return updated
 
 
 # =============================================================================
@@ -871,7 +1202,7 @@ def _infer_port_style(extracted_data: Dict[str, Any]) -> Optional[str]:
     if "white" in name_lower or "branco" in name_lower:
         return PortStyleChoices.WHITE
 
-    if "rose" in name_lower or "rosé" in name_lower or "pink" in name_lower:
+    if "rose" in name_lower or "ros" in name_lower or "pink" in name_lower:
         return PortStyleChoices.ROSE
 
     if "crusted" in name_lower:
@@ -941,6 +1272,58 @@ def _create_port_wine_details(
     except Exception as e:
         logger.error(f"Failed to create PortWineDetails for product {product.id}: {e}")
         return None
+
+
+def _update_port_wine_details(
+    product: DiscoveredProduct,
+    extracted_data: Dict[str, Any],
+) -> bool:
+    """
+    Update existing PortWineDetails record with new V2 fields.
+
+    AI Enhancement Service V2 adds: aging_vessel (already in mapping)
+
+    Args:
+        product: The DiscoveredProduct with existing PortWineDetails
+        extracted_data: Dict from AI Enhancement Service
+
+    Returns:
+        True if updated, False otherwise
+    """
+    try:
+        details = product.port_details
+    except PortWineDetails.DoesNotExist:
+        return False
+
+    # Extract port wine fields
+    port_fields = extract_port_wine_fields(extracted_data)
+
+    updated = False
+    update_fields = []
+
+    # Only update fields that are currently None/empty
+    for field_name in ["aging_vessel", "indication_age", "harvest_year", "bottling_year",
+                       "grape_varieties", "quinta", "douro_subregion", "decanting_required",
+                       "drinking_window"]:
+        if field_name in port_fields:
+            current_value = getattr(details, field_name, None)
+            new_value = port_fields[field_name]
+            # Handle lists specially
+            if isinstance(current_value, list):
+                if not current_value and new_value:
+                    setattr(details, field_name, new_value)
+                    update_fields.append(field_name)
+                    updated = True
+            elif current_value is None and new_value is not None:
+                setattr(details, field_name, new_value)
+                update_fields.append(field_name)
+                updated = True
+
+    if updated:
+        details.save(update_fields=update_fields)
+        logger.info(f"Updated PortWineDetails for product {product.id}: {update_fields}")
+
+    return updated
 
 
 # =============================================================================
@@ -1063,6 +1446,10 @@ def create_product_ratings(
     """
     Create ProductRating records from ratings data.
 
+    Note: This is for external ratings (from critics, aggregators), not the
+    AI-generated assessment ratings (flavor_intensity, complexity, etc.) which
+    are stored directly on DiscoveredProduct.
+
     Args:
         product: The DiscoveredProduct to create ratings for
         ratings_data: List of rating dictionaries
@@ -1076,6 +1463,13 @@ def create_product_ratings(
     ratings_created = 0
 
     for rating_data in ratings_data:
+        # Skip if this looks like AI assessment ratings instead of external ratings
+        if not isinstance(rating_data, dict):
+            continue
+        if "source" not in rating_data and "reviewer" not in rating_data:
+            # This might be AI assessment ratings object, not external ratings
+            continue
+
         # Extract and convert rating fields
         rating_fields = {}
         for ai_key, (model_field, converter) in RATING_FIELD_MAPPING.items():
@@ -1407,6 +1801,139 @@ def create_field_provenance_records(
 
 
 # =============================================================================
+# Phase 10: Completeness and Status Functions
+# =============================================================================
+
+
+def _calculate_and_update_completeness(product: DiscoveredProduct) -> None:
+    """
+    Calculate completeness score and update status for a product.
+
+    Uses the completeness module if available, otherwise uses a simpler calculation.
+
+    Args:
+        product: The DiscoveredProduct to update
+    """
+    try:
+        from crawler.services.completeness import (
+            calculate_completeness_score,
+            determine_status,
+            update_product_completeness,
+        )
+
+        # Use the completeness module
+        update_product_completeness(product, save=False)
+
+    except ImportError:
+        # Fallback: simple completeness calculation
+        score = 0
+
+        # Basic fields (50 points)
+        if product.name:
+            score += 10
+        if product.brand_id:
+            score += 10
+        if product.abv:
+            score += 5
+        if product.nose_description:
+            score += 5
+        if product.palate_flavors and len(product.palate_flavors) > 0:
+            score += 10
+        if product.finish_length:
+            score += 5
+        if product.region:
+            score += 5
+
+        product.completeness_score = min(score, 100)
+
+        # Update status based on score
+        if score >= 80:
+            product.status = DiscoveredProductStatus.COMPLETE
+        elif score >= 50:
+            product.status = DiscoveredProductStatus.PARTIAL
+        else:
+            product.status = DiscoveredProductStatus.INCOMPLETE
+
+
+def _update_verified_fields(
+    product: DiscoveredProduct,
+    new_data: Dict[str, Any],
+) -> List[str]:
+    """
+    Update verified_fields when multiple sources have matching data.
+
+    A field is verified if:
+    1. The product already has a value for that field
+    2. The new data has a matching value for that field
+    3. The values are equivalent (case-insensitive for strings)
+
+    Args:
+        product: The DiscoveredProduct being updated
+        new_data: New extracted data being merged
+
+    Returns:
+        List of newly verified field names
+    """
+    newly_verified = []
+    current_verified = list(product.verified_fields or [])
+
+    for field_name in VERIFIABLE_FIELDS:
+        # Skip if already verified
+        if field_name in current_verified:
+            continue
+
+        # Get current and new values
+        if field_name == 'brand':
+            # Special case for brand FK
+            current_value = product.brand.name if product.brand else None
+            new_value = new_data.get('brand')
+        else:
+            current_value = getattr(product, field_name, None)
+            new_value = new_data.get(field_name)
+
+        # Skip if either is empty
+        if not current_value or not new_value:
+            continue
+
+        # Compare values
+        if isinstance(current_value, str) and isinstance(new_value, str):
+            # Case-insensitive string comparison
+            if current_value.lower().strip() == new_value.lower().strip():
+                newly_verified.append(field_name)
+        elif isinstance(current_value, list) and isinstance(new_value, list):
+            # List comparison - check if same items
+            if set(current_value) == set(new_value):
+                newly_verified.append(field_name)
+        else:
+            # Direct comparison
+            if current_value == new_value:
+                newly_verified.append(field_name)
+
+    # Update product's verified_fields
+    if newly_verified:
+        updated_verified = current_verified + newly_verified
+        product.verified_fields = updated_verified
+        logger.info(f"Product {product.id} newly verified fields: {newly_verified}")
+
+    return newly_verified
+
+
+def _update_source_count(product: DiscoveredProduct) -> int:
+    """
+    Update source_count based on ProductSource records.
+
+    Args:
+        product: The DiscoveredProduct to update
+
+    Returns:
+        Updated source count
+    """
+    count = ProductSource.objects.filter(product=product).count()
+    product.source_count = max(count, 1)  # At least 1
+    return product.source_count
+
+
+# =============================================================================
 # Main Entry Point: save_discovered_product
 # =============================================================================
 
@@ -1421,19 +1948,31 @@ def save_discovered_product(
     field_confidences: Optional[Dict[str, float]] = None,
     extraction_confidence: float = 0.8,
     raw_content: str = "",
+    enrich: bool = False,
 ) -> ProductSaveResult:
     """
     UNIFIED entry point for creating/updating DiscoveredProduct records.
 
     This function handles:
-    1. Normalizing input data
-    2. Checking for existing product (deduplication)
-    3. Extracting individual fields using FIELD_MAPPING
-    4. Getting or creating brand
-    5. Creating DiscoveredProduct with individual columns
-    6. Creating WhiskeyDetails/PortWineDetails based on product_type
-    7. Creating ProductAward, ProductRating, ProductImage records
-    8. Creating ProductSource and ProductFieldSource provenance records
+    1. Validating product_type against MVP allowed types
+    2. Normalizing input data (including V2 nested structures)
+    3. Checking for existing product (deduplication)
+    4. Extracting individual fields using FIELD_MAPPING
+    5. Getting or creating brand
+    6. Creating DiscoveredProduct with individual columns
+    7. Creating WhiskeyDetails/PortWineDetails based on product_type
+    8. Creating ProductAward, ProductRating, ProductImage records
+    9. Creating ProductSource and ProductFieldSource provenance records
+    10. Calculating completeness_score and updating status
+    11. Tracking verified_fields for multi-source validation
+    12. Optionally running VerificationPipeline when enrich=True
+
+    AI Enhancement Service V2 Updates:
+    - Handles nested V2 response structure (appearance.*, tasting_evolution.*, etc.)
+    - All new V2 fields for DiscoveredProduct
+    - WhiskeyDetails V2 fields (peat_ppm, natural_color, non_chill_filtered)
+    - PortWineDetails V2 fields (aging_vessel)
+    - Updates existing type-specific details when updating products
 
     Args:
         extracted_data: Dict of extracted product data
@@ -1445,11 +1984,34 @@ def save_discovered_product(
         field_confidences: Optional dict of per-field confidence scores
         extraction_confidence: Overall extraction confidence (0.0-1.0)
         raw_content: Optional raw HTML content
+        enrich: If True, run VerificationPipeline after save to verify from multiple sources
 
     Returns:
-        ProductSaveResult with product and creation metadata
+        ProductSaveResult with product and creation metadata, or error if rejected
     """
-    # Step 1: Normalize extracted data
+    # ==========================================================================
+    # MVP Product Type Validation (Task 1 Fix)
+    # ==========================================================================
+    # For MVP, only whiskey and port_wine are valid product types.
+    # Reject all other types with a clear error message instead of silently
+    # overriding to whiskey.
+
+    if product_type not in MVP_VALID_PRODUCT_TYPES:
+        error_msg = (
+            f"Invalid product type '{product_type}' for MVP. "
+            f"Only {MVP_VALID_PRODUCT_TYPES} are supported."
+        )
+        logger.warning(
+            f"Rejecting product save: {error_msg} "
+            f"(name={extracted_data.get('name', 'Unknown')}, url={source_url})"
+        )
+        return ProductSaveResult(
+            product=None,
+            created=False,
+            error=error_msg,
+        )
+
+    # Step 1: Normalize extracted data (handles V2 nested structures)
     normalized_data = normalize_extracted_data(extracted_data)
 
     # Add source_url to data for fingerprint computation
@@ -1476,7 +2038,11 @@ def save_discovered_product(
 
     # Step 6: Extract awards, ratings, images data
     awards_data = normalized_data.get("awards", [])
+    # Handle ratings - could be array of external ratings or assessment object
     ratings_data = normalized_data.get("ratings", [])
+    if isinstance(ratings_data, dict):
+        # V2 AI assessment ratings object, not external ratings array
+        ratings_data = []
     images_data = normalized_data.get("images", [])
 
     # Handle competition data where award info is in top-level fields
@@ -1518,7 +2084,16 @@ def save_discovered_product(
             if extraction_confidence > (existing_product.extraction_confidence or 0):
                 existing_product.extraction_confidence = extraction_confidence
 
+            # Phase 10: Update verified_fields for multi-source validation
+            _update_verified_fields(existing_product, normalized_data)
+
             existing_product.save()
+
+            # V2: Update type-specific details with new fields
+            if product_type == ProductType.WHISKEY or product_type == "whiskey":
+                _update_whiskey_details(existing_product, normalized_data)
+            elif product_type == ProductType.PORT_WINE or product_type == "port_wine":
+                _update_port_wine_details(existing_product, normalized_data)
 
             # Create awards, ratings, images for existing product
             awards_created = create_product_awards(existing_product, awards_data)
@@ -1539,9 +2114,39 @@ def save_discovered_product(
                     field_confidences, extraction_confidence
                 )
 
+            # Phase 10: Update source_count
+            _update_source_count(existing_product)
+
+            # Phase 10: Calculate completeness and update status
+            _calculate_and_update_completeness(existing_product)
+
+            # Save the completeness/status updates
+            existing_product.save(update_fields=[
+                'completeness_score', 'status', 'verified_fields', 'source_count'
+            ])
+
+            # Phase 10: Run verification pipeline if enrich=True
+            if enrich:
+                try:
+                    pipeline = _get_verification_pipeline()
+                    pipeline.verify_product(existing_product)
+                    logger.info(f"Existing product {existing_product.id} verified via VerificationPipeline")
+                except Exception as e:
+                    logger.warning(f"Verification failed for existing product {existing_product.id}: {e}")
+
+            # Track CrawledURL for this URL
+            _track_crawled_url(
+                source_url=source_url,
+                raw_content=raw_content,
+                crawler_source=None,  # Could extract from crawled_source if available
+                is_product_page=True,
+                processing_status="success",
+            )
+
             return ProductSaveResult(
                 product=existing_product,
                 created=False,
+                error=None,
                 whiskey_details_created=False,
                 port_wine_details_created=False,
                 awards_created=awards_created,
@@ -1554,10 +2159,7 @@ def save_discovered_product(
             )
 
         # Step 8: Create new product
-        # Validate product type
-        valid_types = [pt.value for pt in ProductType]
-        if product_type not in valid_types:
-            product_type = ProductType.WHISKEY
+        # Product type has already been validated at the start of the function
 
         # Map discovery_source string to enum
         discovery_source_value = discovery_source
@@ -1576,14 +2178,15 @@ def save_discovered_product(
             "product_type": product_type,
             "raw_content": raw_content[:50000] if raw_content else "",
             "raw_content_hash": content_hash,
-            # JSONFields (dual-write for transition)
-            "extracted_data": normalized_data,
-            "enriched_data": {},
+            # Core metadata
             "extraction_confidence": extraction_confidence,
             "fingerprint": fingerprint,
             "status": DiscoveredProductStatus.PENDING,
             "discovery_source": discovery_source_value,
             "brand": brand,
+            # Phase 10: Initialize source tracking
+            "source_count": 1,
+            "verified_fields": [],
         }
 
         # Add individual field values
@@ -1622,6 +2225,28 @@ def save_discovered_product(
                 field_confidences, extraction_confidence
             )
 
+        # Phase 10: Calculate completeness and update status
+        _calculate_and_update_completeness(product)
+        product.save(update_fields=['completeness_score', 'status'])
+
+        # Phase 10: Run verification pipeline if enrich=True
+        if enrich:
+            try:
+                pipeline = _get_verification_pipeline()
+                pipeline.verify_product(product)
+                logger.info(f"Product {product.id} verified via VerificationPipeline")
+            except Exception as e:
+                logger.warning(f"Verification failed for product {product.id}: {e}")
+
+        # Track CrawledURL for this URL
+        _track_crawled_url(
+            source_url=source_url,
+            raw_content=raw_content,
+            crawler_source=None,  # Could extract from crawled_source if available
+            is_product_page=True,
+            processing_status="success",
+        )
+
         logger.info(
             f"Created new product {product.id}: "
             f"{all_fields.get('name', normalized_data.get('name', 'Unknown'))}"
@@ -1630,6 +2255,7 @@ def save_discovered_product(
         return ProductSaveResult(
             product=product,
             created=True,
+            error=None,
             whiskey_details_created=whiskey_details_created,
             port_wine_details_created=port_wine_details_created,
             awards_created=awards_created,

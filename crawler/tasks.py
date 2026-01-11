@@ -37,6 +37,7 @@ from crawler.models import (
     CrawlError,
     ErrorType,
     SourceCategory,
+    APICrawlJob,
 )
 
 logger = logging.getLogger(__name__)
@@ -866,13 +867,24 @@ def process_enrichment_queue(self, max_urls: int = 100) -> Dict[str, Any]:
                         )
 
                         if process_result.success and skeleton_id:
-                            # Update skeleton with enriched data
+                            # Update skeleton with enriched data to individual columns
                             try:
                                 skeleton = DiscoveredProduct.objects.get(id=skeleton_id)
                                 if process_result.enriched_data:
-                                    skeleton.enriched_data.update(process_result.enriched_data)
+                                    # Map enriched data to individual columns
+                                    enriched = process_result.enriched_data
+                                    update_fields = ['status']
+                                    if enriched.get('nose_description') and not skeleton.nose_description:
+                                        skeleton.nose_description = enriched['nose_description']
+                                        update_fields.append('nose_description')
+                                    if enriched.get('palate_description') and not skeleton.palate_description:
+                                        skeleton.palate_description = enriched['palate_description']
+                                        update_fields.append('palate_description')
+                                    if enriched.get('finish_description') and not skeleton.finish_description:
+                                        skeleton.finish_description = enriched['finish_description']
+                                        update_fields.append('finish_description')
                                     skeleton.status = DiscoveredProductStatus.ENRICHED
-                                    skeleton.save()
+                                    skeleton.save(update_fields=update_fields)
                                     skeletons_enriched += 1
                             except DiscoveredProduct.DoesNotExist:
                                 logger.warning(f"Skeleton {skeleton_id} not found for URL {url}")
@@ -1216,20 +1228,22 @@ def run_scheduled_job(self, schedule_id: str, job_id: str) -> Dict[str, Any]:
         raise
 
 
-def run_discovery_flow(schedule, job) -> Dict[str, Any]:
+def run_discovery_flow(schedule, job, enrich: bool = False) -> Dict[str, Any]:
     """
     Execute discovery search flow using DiscoveryOrchestrator.
 
     Args:
         schedule: CrawlSchedule instance
         job: CrawlJob instance (used for tracking, orchestrator creates its own DiscoveryJob)
+        enrich: Whether to run verification pipeline on extracted products
 
     Returns:
         Dict with discovery results
     """
     from crawler.services.discovery_orchestrator import DiscoveryOrchestrator
 
-    # DiscoveryOrchestrator now accepts CrawlSchedule directly
+    # DiscoveryOrchestrator accepts CrawlSchedule directly
+    # Note: enrich parameter is stored on schedule, not passed to __init__
     orchestrator = DiscoveryOrchestrator(schedule=schedule)
 
     # Run discovery - orchestrator creates and manages its own DiscoveryJob
@@ -1249,12 +1263,17 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
     """
     Execute competition crawl flow using CompetitionOrchestrator.
 
+    This flow:
+    1. Fetches competition results page
+    2. Parses awards and creates skeleton products
+    3. If schedule.enrich=True: enriches skeletons with full product data
+
     Args:
         schedule: CrawlSchedule instance
         job: CrawlJob instance
 
     Returns:
-        Dict with competition results
+        Dict with competition results including enrichment stats
     """
     import asyncio
     from crawler.services.competition_orchestrator import CompetitionOrchestrator
@@ -1265,8 +1284,21 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
         "products_found": 0,
         "products_new": 0,
         "products_duplicate": 0,
+        "products_filtered": 0,
         "competitions_processed": [],
+        "product_types_filter": schedule.product_types or [],
+        "enrichment": {
+            "enabled": schedule.enrich,
+            "skeletons_processed": 0,
+            "urls_discovered": 0,
+            "urls_processed": 0,
+            "products_enriched": 0,
+        },
     }
+
+    # Get product types filter from schedule
+    product_types_filter = schedule.product_types or []
+    max_results = schedule.max_results_per_term or 10
 
     # Parse search_terms as "competition:year" format
     for term in schedule.search_terms:
@@ -1280,15 +1312,39 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
         try:
             # Fetch competition page
             router = SmartRouter()
-            url = f"{schedule.base_url}{year}/" if schedule.base_url else None
+
+            # Build URL with filtering params based on competition
+            if schedule.base_url:
+                url = f"{schedule.base_url}{year}/"
+
+                # IWSC-specific: Add type=3 for spirits category
+                if competition_key.lower() == 'iwsc':
+                    # type=3 = Spirits category on IWSC
+                    # Also search for whisky to get relevant results
+                    url = f"{schedule.base_url}{year}/?type=3"
+                    if 'whiskey' in product_types_filter or 'whisky' in product_types_filter:
+                        url += "&q=whisky"
+                    elif 'port_wine' in product_types_filter:
+                        url += "&q=port"
+            else:
+                url = None
 
             if not url:
                 logger.warning(f"No base_url for competition: {competition_key}")
                 continue
 
-            html_content = asyncio.run(router.fetch(url))
+            logger.info(f"Fetching competition URL: {url}")
 
-            # Run competition discovery
+            # router.fetch() returns FetchResult object, extract .content
+            fetch_result = asyncio.run(router.fetch(url))
+            if not fetch_result.success:
+                logger.error(f"Failed to fetch {url}: {fetch_result.error}")
+                results["errors"] = results.get("errors", []) + [f"Fetch failed: {fetch_result.error}"]
+                continue
+
+            html_content = fetch_result.content
+
+            # Run competition discovery with product type filtering
             comp_result = asyncio.run(
                 orchestrator.run_competition_discovery(
                     competition_url=url,
@@ -1296,16 +1352,233 @@ def run_competition_flow(schedule, job) -> Dict[str, Any]:
                     html_content=html_content,
                     competition_key=competition_key,
                     year=year,
+                    product_types=product_types_filter,
+                    max_results=max_results,
                 )
             )
 
             results["products_found"] += comp_result.awards_found
             results["products_new"] += comp_result.skeletons_created
+            results["products_filtered"] += getattr(comp_result, 'products_filtered', 0)
             results["competitions_processed"].append(comp_result.to_dict())
 
         except Exception as e:
             logger.error(f"Error processing competition {competition_key}:{year}: {e}")
             results["errors"] = results.get("errors", []) + [str(e)]
+
+    # ================================================================
+    # ENRICHMENT PHASE: Enrich skeleton products with full data
+    # (Processes URLs directly in memory - no Redis required)
+    # ================================================================
+    if schedule.enrich and results["products_new"] > 0:
+        logger.info(f"Starting enrichment for {results['products_new']} skeleton products...")
+
+        try:
+            # Import required modules
+            from crawler.fetchers.smart_router import SmartRouter
+            from crawler.services.content_processor import ContentProcessor
+            from crawler.models import DiscoveredProduct, DiscoveredProductStatus
+            from crawler.discovery.competitions.enrichment_searcher import EnrichmentSearcher
+
+            # Initialize enrichment components (API key from settings.SERPAPI_API_KEY)
+            enrichment_searcher = EnrichmentSearcher(
+                api_key=None,  # Uses settings.SERPAPI_API_KEY
+                results_per_search=5,
+            )
+            router = SmartRouter()
+            processor = ContentProcessor()
+
+            # Get skeleton products created in this run
+            skeletons = list(DiscoveredProduct.objects.filter(
+                status=DiscoveredProductStatus.SKELETON,
+                crawl_job=job,
+            ).order_by('-discovered_at')[:results["products_new"]])
+
+            logger.info(f"Found {len(skeletons)} skeleton products to enrich")
+
+            # Collect all URLs in memory (no Redis)
+            url_queue = []  # List of (skeleton_id, url, metadata) tuples
+
+            # Step 1: Search SerpAPI for each skeleton
+            logger.info("Step 1: Searching for product information via SerpAPI...")
+
+            async def search_all_skeletons():
+                for skeleton in skeletons:
+                    try:
+                        search_results = await enrichment_searcher.search_for_enrichment(
+                            product_name=skeleton.name,
+                            crawl_job=job,
+                        )
+                        for result in search_results:
+                            url_queue.append((str(skeleton.id), result.get('url'), result))
+                        logger.info(f"  Found {len(search_results)} URLs for '{skeleton.name}'")
+                    except Exception as e:
+                        logger.error(f"  Search failed for '{skeleton.name}': {e}")
+
+            asyncio.run(search_all_skeletons())
+
+            results["enrichment"]["skeletons_processed"] = len(skeletons)
+            results["enrichment"]["urls_discovered"] = len(url_queue)
+            logger.info(f"Enrichment search complete: {len(skeletons)} skeletons, {len(url_queue)} URLs found")
+
+            # Step 2: Process URLs directly (no Redis queue)
+            # Use AI Enhancement client directly to get enrichment data
+            if url_queue:
+                logger.info(f"Step 2: Processing {len(url_queue)} URLs (fetching, extracting data)...")
+
+                from crawler.services.ai_client import get_ai_client
+                ai_client = get_ai_client()
+
+                urls_processed = 0
+                products_enriched = 0
+                enriched_skeleton_ids = set()  # Track which skeletons have been enriched
+
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+                try:
+                    for skeleton_id, url, metadata in url_queue:
+                        # Skip if skeleton already enriched
+                        if skeleton_id in enriched_skeleton_ids:
+                            continue
+
+                        if not url:
+                            continue
+
+                        try:
+                            # Fetch URL content
+                            fetch_result = loop.run_until_complete(router.fetch(url))
+
+                            if fetch_result.success:
+                                urls_processed += 1
+
+                                # Extract content using trafilatura
+                                try:
+                                    import trafilatura
+                                    extracted_content = trafilatura.extract(fetch_result.content) or fetch_result.content[:50000]
+                                except ImportError:
+                                    # Fall back to raw content if trafilatura not available
+                                    extracted_content = fetch_result.content[:50000]
+
+                                # Get skeleton's product type for hint
+                                skeleton = DiscoveredProduct.objects.get(id=skeleton_id)
+                                product_type_hint = skeleton.product_type
+
+                                # Call AI Enhancement directly to get extracted data
+                                enhance_result = loop.run_until_complete(
+                                    ai_client.enhance_from_crawler(
+                                        content=extracted_content,
+                                        source_url=url,
+                                        product_type_hint=product_type_hint,
+                                    )
+                                )
+
+                                if enhance_result.success:
+                                    # Merge extracted_data and enrichment dicts
+                                    enriched = {**enhance_result.extracted_data, **enhance_result.enrichment}
+                                    update_fields = []
+
+                                    # Map enrichment data to skeleton fields
+                                    if enriched.get('abv') and not skeleton.abv:
+                                        skeleton.abv = enriched['abv']
+                                        update_fields.append('abv')
+                                    if enriched.get('age_statement') and not skeleton.age_statement:
+                                        skeleton.age_statement = str(enriched['age_statement'])
+                                        update_fields.append('age_statement')
+                                    if enriched.get('description') and not skeleton.description:
+                                        skeleton.description = enriched['description']
+                                        update_fields.append('description')
+                                    if enriched.get('region') and not skeleton.region:
+                                        skeleton.region = enriched['region']
+                                        update_fields.append('region')
+                                    if enriched.get('country') and not skeleton.country:
+                                        skeleton.country = enriched['country']
+                                        update_fields.append('country')
+
+                                    # Tasting notes - check nested structure first
+                                    tasting_notes = enriched.get('tasting_notes', {})
+                                    if isinstance(tasting_notes, dict):
+                                        if tasting_notes.get('nose') and not skeleton.nose_description:
+                                            skeleton.nose_description = tasting_notes['nose']
+                                            update_fields.append('nose_description')
+                                        if tasting_notes.get('palate') and not skeleton.palate_description:
+                                            skeleton.palate_description = tasting_notes['palate']
+                                            update_fields.append('palate_description')
+                                        if tasting_notes.get('finish') and not skeleton.finish_description:
+                                            skeleton.finish_description = tasting_notes['finish']
+                                            update_fields.append('finish_description')
+
+                                    # Also check top-level tasting note fields
+                                    if enriched.get('nose_description') and not skeleton.nose_description:
+                                        skeleton.nose_description = enriched['nose_description']
+                                        if 'nose_description' not in update_fields:
+                                            update_fields.append('nose_description')
+                                    if enriched.get('palate_description') and not skeleton.palate_description:
+                                        skeleton.palate_description = enriched['palate_description']
+                                        if 'palate_description' not in update_fields:
+                                            update_fields.append('palate_description')
+                                    if enriched.get('finish_description') and not skeleton.finish_description:
+                                        skeleton.finish_description = enriched['finish_description']
+                                        if 'finish_description' not in update_fields:
+                                            update_fields.append('finish_description')
+
+                                    # Flavor arrays from flavor_profile
+                                    flavor_profile = enriched.get('flavor_profile', {})
+                                    if isinstance(flavor_profile, dict):
+                                        if flavor_profile.get('primary_flavors') and not skeleton.palate_flavors:
+                                            skeleton.palate_flavors = flavor_profile['primary_flavors']
+                                            update_fields.append('palate_flavors')
+
+                                    # Update source URL if not set
+                                    if url and not skeleton.source_url:
+                                        skeleton.source_url = url
+                                        update_fields.append('source_url')
+
+                                    # Mark as partial/complete if we got significant data
+                                    if len(update_fields) >= 2:  # At least 2 fields enriched
+                                        # Use PARTIAL for now (COMPLETE requires palate per model docs)
+                                        skeleton.status = DiscoveredProductStatus.PARTIAL
+                                        update_fields.append('status')
+
+                                        # Add serpapi_enrichment to discovery_sources
+                                        sources = skeleton.discovery_sources or []
+                                        if 'serpapi_enrichment' not in sources:
+                                            sources.append('serpapi_enrichment')
+                                            skeleton.discovery_sources = sources
+                                            update_fields.append('discovery_sources')
+
+                                        skeleton.save(update_fields=update_fields)
+                                        products_enriched += 1
+                                        enriched_skeleton_ids.add(skeleton_id)
+                                        logger.info(f"Enriched '{skeleton.name}': {update_fields}")
+                                    else:
+                                        logger.debug(f"Not enough data from {url}: got fields {list(enriched.keys())}")
+                                else:
+                                    logger.debug(f"AI Enhancement failed for {url}: {enhance_result.error}")
+
+                            else:
+                                logger.debug(f"Failed to fetch URL {url}: {fetch_result.error}")
+
+                        except DiscoveredProduct.DoesNotExist:
+                            logger.warning(f"Skeleton {skeleton_id} not found")
+                        except Exception as e:
+                            logger.error(f"Error processing URL {url}: {e}")
+
+                finally:
+                    loop.run_until_complete(router.close())
+                    loop.close()
+
+                results["enrichment"]["urls_processed"] = urls_processed
+                results["enrichment"]["products_enriched"] = products_enriched
+
+                logger.info(
+                    f"Enrichment complete: {urls_processed} URLs processed, "
+                    f"{products_enriched}/{len(skeletons)} products enriched"
+                )
+
+        except Exception as e:
+            logger.error(f"Enrichment failed: {e}")
+            results["enrichment"]["error"] = str(e)
 
     return results
 
@@ -1410,3 +1683,519 @@ def cleanup_raw_content_batch(limit: int = 100) -> Dict[str, Any]:
         "errors": errors,
         "timestamp": timezone.now().isoformat(),
     }
+
+
+# ============================================================
+# Phase 6: API Triggered Award Crawl Task
+# ============================================================
+
+def _get_verification_pipeline():
+    """Get VerificationPipeline instance (lazy import to avoid circular imports)."""
+    from crawler.verification.pipeline import VerificationPipeline
+    return VerificationPipeline()
+
+
+@shared_task(name="crawler.tasks.trigger_award_crawl", bind=True)
+def trigger_award_crawl(
+    self,
+    job_id: str,
+    source: str,
+    year: int,
+    product_types: Optional[List[str]] = None,
+    enrich: bool = False
+) -> Dict[str, Any]:
+    """
+    Celery task to perform award site crawl.
+
+    Unified Pipeline Phase 7: Async award crawl triggered via REST API.
+
+    Args:
+        job_id: APICrawlJob.job_id to update
+        source: Award source identifier (iwsc, dwwa, sfwsc, wwa)
+        year: Competition year to crawl
+        product_types: Optional list of product types to filter
+        enrich: Whether to run verification pipeline on extracted products
+
+    Returns:
+        Dict with crawl results
+    """
+    logger.info(f"Starting award crawl: job_id={job_id}, source={source}, year={year}")
+
+    try:
+        # Update job status to running
+        job = APICrawlJob.objects.get(job_id=job_id)
+        job.status = 'running'
+        job.started_at = timezone.now()
+        job.save(update_fields=['status', 'started_at'])
+
+        # Get the collector for this source
+        from crawler.discovery.collectors import get_collector
+        collector = get_collector(source)
+
+        # Collect award detail URLs
+        detail_urls = collector.collect(
+            year=year,
+            product_types=product_types or [],
+        )
+
+        products_found = 0
+        products_saved = 0
+        errors = []
+
+        # Get AI extractor
+        from crawler.discovery.extractors import AIExtractor
+        extractor = AIExtractor()
+
+        for url_info in detail_urls:
+            try:
+                # Extract product data
+                product_data = extractor.extract(
+                    url=url_info.url,
+                    context={
+                        'source': source,
+                        'year': year,
+                        'medal_hint': getattr(url_info, 'medal_hint', None),
+                        'product_type_hint': getattr(url_info, 'product_type_hint', None),
+                    }
+                )
+
+                if product_data:
+                    products_found += 1
+
+                    # Save to database using individual columns
+                    try:
+                        product = DiscoveredProduct.objects.create(
+                            name=product_data.get('name'),
+                            source_url=url_info.url,
+                            product_type=product_data.get('product_type', 'whiskey'),
+                            status='partial',
+                            abv=product_data.get('abv'),
+                            age_statement=product_data.get('age_statement'),
+                            country=product_data.get('country'),
+                            region=product_data.get('region'),
+                            nose_description=product_data.get('nose_description'),
+                            palate_description=product_data.get('palate_description'),
+                            finish_description=product_data.get('finish_description'),
+                        )
+                        products_saved += 1
+
+                        # Run verification if enrich=True
+                        if enrich:
+                            try:
+                                pipeline = _get_verification_pipeline()
+                                pipeline.verify_product(product)
+                            except Exception as e:
+                                logger.error(f"Verification failed for {product.name}: {e}")
+
+                    except Exception as e:
+                        errors.append({
+                            'url': url_info.url,
+                            'error': f'Save failed: {str(e)}'
+                        })
+
+                # Update progress
+                job.progress = {
+                    'products_found': products_found,
+                    'products_saved': products_saved,
+                    'errors_count': len(errors),
+                }
+                job.save(update_fields=['progress'])
+
+            except Exception as e:
+                errors.append({
+                    'url': url_info.url,
+                    'error': str(e)
+                })
+                logger.error(f"Failed to extract from {url_info.url}: {e}")
+
+        # Mark job as completed
+        job.status = 'completed'
+        job.completed_at = timezone.now()
+        job.progress = {
+            'products_found': products_found,
+            'products_saved': products_saved,
+            'errors_count': len(errors),
+        }
+        job.save(update_fields=['status', 'completed_at', 'progress'])
+
+        logger.info(
+            f"Award crawl completed: job_id={job_id}, "
+            f"products_found={products_found}, products_saved={products_saved}"
+        )
+
+        return {
+            'status': 'completed',
+            'job_id': job_id,
+            'source': source,
+            'year': year,
+            'products_found': products_found,
+            'products_saved': products_saved,
+            'errors': errors,
+        }
+
+    except Exception as e:
+        logger.error(f"Award crawl failed: job_id={job_id}, error={e}")
+
+        # Mark job as failed
+        try:
+            job = APICrawlJob.objects.get(job_id=job_id)
+            job.status = 'failed'
+            job.error = str(e)
+            job.completed_at = timezone.now()
+            job.save(update_fields=['status', 'error', 'completed_at'])
+        except APICrawlJob.DoesNotExist:
+            pass
+
+        return {
+            'status': 'failed',
+            'job_id': job_id,
+            'error': str(e),
+        }
+
+
+# ============================================================
+# Phase 7: Health Check Tasks
+# ============================================================
+
+# Known sources for health checking
+HEALTH_CHECK_SOURCES = ['iwsc', 'dwwa', 'sfwsc', 'wwa']
+
+
+def _get_selector_health_checker():
+    """Lazy load SelectorHealthChecker to avoid circular imports."""
+    from crawler.discovery.health.selector_health import SelectorHealthChecker
+    return SelectorHealthChecker()
+
+
+def _get_ai_extractor():
+    """Lazy load AIExtractor to avoid circular imports."""
+    from crawler.discovery.extractors import AIExtractor
+    return AIExtractor()
+
+
+def _send_alert(source: str, message: str, severity: str = 'warning'):
+    """Send alert via Sentry and optionally Slack."""
+    try:
+        from crawler.discovery.health.alerts import (
+            StructureChangeAlertHandler,
+            StructureAlert,
+            AlertSeverity,
+        )
+
+        severity_map = {
+            'info': AlertSeverity.INFO,
+            'warning': AlertSeverity.WARNING,
+            'critical': AlertSeverity.CRITICAL,
+        }
+
+        alert = StructureAlert(
+            source=source,
+            severity=severity_map.get(severity, AlertSeverity.WARNING),
+            message=message,
+        )
+
+        handler = StructureChangeAlertHandler(config={})
+        handler.send_alert(alert)
+    except ImportError:
+        # Fallback to logging if alert handler not available
+        logger.warning(f"Alert for {source}: {message}")
+    except Exception as e:
+        logger.error(f"Failed to send alert: {e}")
+
+
+@shared_task(name="crawler.tasks.check_source_health", bind=True)
+def check_source_health(
+    self,
+    source: Optional[str] = None,
+    year: Optional[int] = None
+) -> Dict[str, Any]:
+    """
+    Celery task to check health of award site sources.
+
+    Unified Pipeline Phase 7: Periodic health check for sources.
+    Runs via Celery Beat to detect structural changes before crawls fail.
+
+    Args:
+        source: Optional specific source to check. If None, checks all sources.
+        year: Optional year for the check. Defaults to current year.
+
+    Returns:
+        Dict with health check results
+    """
+    from crawler.models import SourceHealthCheck
+
+    if year is None:
+        year = timezone.now().year
+
+    checker = _get_selector_health_checker()
+
+    if source:
+        # Check single source
+        logger.info(f"Checking health for source: {source}, year: {year}")
+
+        try:
+            report = checker.check_source(source, year)
+
+            # Save to database
+            SourceHealthCheck.objects.create(
+                source=source,
+                check_type='selector',
+                is_healthy=report.is_healthy,
+                details={
+                    'sample_url': report.sample_url,
+                    'selectors_tested': report.selectors_tested,
+                    'selectors_healthy': report.selectors_healthy,
+                    'failed_selectors': report.failed_selectors,
+                    'timestamp': report.timestamp,
+                },
+            )
+
+            result = {
+                'source': source,
+                'is_healthy': report.is_healthy,
+                'selectors_tested': report.selectors_tested,
+                'selectors_healthy': report.selectors_healthy,
+                'sample_url': report.sample_url,
+            }
+
+            if not report.is_healthy:
+                result['failures'] = report.failed_selectors
+                # Send alert for unhealthy source
+                _send_alert(
+                    source,
+                    f"Source {source} health check failed: {report.failed_selectors}",
+                    severity='critical' if report.selectors_healthy == 0 else 'warning',
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Health check failed for {source}: {e}")
+            return {
+                'source': source,
+                'is_healthy': False,
+                'error': str(e),
+            }
+    else:
+        # Check all sources
+        logger.info("Checking health for all sources")
+
+        results = []
+        total_healthy = 0
+
+        for src in HEALTH_CHECK_SOURCES:
+            try:
+                report = checker.check_source(src, year)
+
+                SourceHealthCheck.objects.create(
+                    source=src,
+                    check_type='selector',
+                    is_healthy=report.is_healthy,
+                    details={
+                        'failed_selectors': report.failed_selectors,
+                    },
+                )
+
+                results.append({
+                    'source': src,
+                    'is_healthy': report.is_healthy,
+                })
+
+                if report.is_healthy:
+                    total_healthy += 1
+                else:
+                    _send_alert(
+                        src,
+                        f"Source {src} health check failed",
+                        severity='warning',
+                    )
+
+            except Exception as e:
+                logger.error(f"Health check failed for {src}: {e}")
+                results.append({
+                    'source': src,
+                    'is_healthy': False,
+                    'error': str(e),
+                })
+
+        return {
+            'sources_checked': len(results),
+            'total_healthy': total_healthy,
+            'results': results,
+        }
+
+
+# Known products for verification (ground truth)
+KNOWN_PRODUCTS = {
+    'iwsc': [
+        {
+            'url': 'https://www.iwsc.net/results/detail/157656/10-yo-tawny-nv',
+            'expected': {
+                'name_contains': '10 Year',
+                'medal': 'Gold',
+                'has_tasting_notes': True,
+            },
+        },
+    ],
+    'dwwa': [
+        {
+            'url': 'https://awards.decanter.com/DWWA/2025/wines/768949',
+            'expected': {
+                'name_contains': 'Galpin Peak',
+                'medal_in': ['Gold', 'Silver', 'Bronze', 'Platinum'],
+                'has_tasting_notes': True,
+            },
+        },
+    ],
+}
+
+
+def _verify_single_product(extractor, url: str, expected: Dict[str, Any]) -> Dict[str, Any]:
+    """Verify extraction for a single known product."""
+    try:
+        extracted = extractor.extract_from_url(url)
+
+        checks = []
+        for key, exp_value in expected.items():
+            if key == 'name_contains':
+                actual = extracted.get('name', '')
+                passed = exp_value.lower() in actual.lower() if actual else False
+                checks.append({'check': key, 'passed': passed})
+            elif key == 'medal_in':
+                actual = extracted.get('medal', '')
+                passed = actual in exp_value
+                checks.append({'check': key, 'passed': passed})
+            elif key == 'medal':
+                actual = extracted.get('medal', '')
+                passed = actual == exp_value
+                checks.append({'check': key, 'passed': passed})
+            elif key == 'has_tasting_notes':
+                has_notes = bool(
+                    extracted.get('palate_description') or
+                    extracted.get('nose_description') or
+                    extracted.get('finish_description')
+                )
+                passed = has_notes == exp_value
+                checks.append({'check': key, 'passed': passed})
+
+        all_passed = all(c['passed'] for c in checks)
+        return {
+            'url': url,
+            'passed': all_passed,
+            'checks': checks,
+        }
+    except Exception as e:
+        return {
+            'url': url,
+            'passed': False,
+            'error': str(e),
+            'checks': [],
+        }
+
+
+@shared_task(name="crawler.tasks.verify_known_products", bind=True)
+def verify_known_products(
+    self,
+    source: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Celery task to verify extraction on known products.
+
+    Unified Pipeline Phase 7: Weekly verification of extraction accuracy
+    using ground truth products.
+
+    Args:
+        source: Optional specific source to verify. If None, verifies all sources.
+
+    Returns:
+        Dict with verification results
+    """
+    from crawler.models import SourceHealthCheck
+
+    extractor = _get_ai_extractor()
+
+    if source:
+        # Verify single source
+        if source not in KNOWN_PRODUCTS:
+            return {'error': f'No known products for {source}'}
+
+        logger.info(f"Verifying known products for source: {source}")
+
+        products = KNOWN_PRODUCTS[source]
+        results = []
+
+        for product in products:
+            result = _verify_single_product(
+                extractor,
+                product['url'],
+                product['expected'],
+            )
+            results.append(result)
+
+        passed = sum(1 for r in results if r['passed'])
+        is_healthy = passed == len(results)
+
+        # Save to database
+        SourceHealthCheck.objects.create(
+            source=source,
+            check_type='known_product',
+            is_healthy=is_healthy,
+            details={
+                'total': len(results),
+                'passed': passed,
+                'details': results,
+            },
+        )
+
+        return {
+            'source': source,
+            'total': len(results),
+            'passed': passed,
+            'health': 'HEALTHY' if is_healthy else 'DEGRADED',
+            'details': results,
+        }
+    else:
+        # Verify all sources
+        logger.info("Verifying known products for all sources")
+
+        all_results = {}
+        for src in KNOWN_PRODUCTS.keys():
+            try:
+                products = KNOWN_PRODUCTS[src]
+                results = []
+
+                for product in products:
+                    result = _verify_single_product(
+                        extractor,
+                        product['url'],
+                        product['expected'],
+                    )
+                    results.append(result)
+
+                passed = sum(1 for r in results if r['passed'])
+                is_healthy = passed == len(results)
+
+                SourceHealthCheck.objects.create(
+                    source=src,
+                    check_type='known_product',
+                    is_healthy=is_healthy,
+                    details={
+                        'total': len(results),
+                        'passed': passed,
+                    },
+                )
+
+                all_results[src] = {
+                    'total': len(results),
+                    'passed': passed,
+                    'health': 'HEALTHY' if is_healthy else 'DEGRADED',
+                }
+
+            except Exception as e:
+                logger.error(f"Verification failed for {src}: {e}")
+                all_results[src] = {'error': str(e)}
+
+        return {
+            'sources_verified': list(all_results.keys()),
+            'results': all_results,
+        }

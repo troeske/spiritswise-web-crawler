@@ -464,6 +464,7 @@ class CrawledSourceTypeChoices(models.TextChoices):
     - retailer_page: Retailer product listing page
     - distillery_page: Distillery product page
     - news_article: News or press article
+    - list_page: List page with multiple products (e.g., "Best Whiskey 2026" articles)
     """
 
     AWARD_PAGE = "award_page", "Award Page"
@@ -471,6 +472,7 @@ class CrawledSourceTypeChoices(models.TextChoices):
     RETAILER_PAGE = "retailer_page", "Retailer Page"
     DISTILLERY_PAGE = "distillery_page", "Distillery Page"
     NEWS_ARTICLE = "news_article", "News Article"
+    LIST_PAGE = "list_page", "List Page"
 
 
 class ExtractionStatusChoices(models.TextChoices):
@@ -5730,10 +5732,10 @@ class SearchTerm(models.Model):
     """
     Configurable search term for product discovery.
 
-    Search terms are templates that can include {year} for dynamic substitution.
+    Admins add complete search queries directly (no template substitution).
     Examples:
-    - "best whisky {year}" -> "best whisky 2026"
-    - "top 10 bourbon {year}" -> "top 10 bourbon 2026"
+    - "best whisky 2026"
+    - "top 10 bourbon 2026"
 
     Managed via Django Admin for easy configuration without code changes.
     """
@@ -5741,9 +5743,9 @@ class SearchTerm(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     # Core fields
-    term_template = models.CharField(
+    search_query = models.CharField(
         max_length=200,
-        help_text="Search term template. Use {year} for current year substitution.",
+        help_text="Complete search query to execute.",
     )
     category = models.CharField(
         max_length=50,
@@ -5754,6 +5756,11 @@ class SearchTerm(models.Model):
         max_length=20,
         choices=SearchTermProductType.choices,
         help_text="Product type this search term targets.",
+    )
+    max_results = models.IntegerField(
+        default=10,
+        validators=[MinValueValidator(1), MaxValueValidator(20)],
+        help_text="Number of search results to crawl (1-20).",
     )
 
     # Priority and status
@@ -5811,17 +5818,7 @@ class SearchTerm(models.Model):
         verbose_name_plural = "Search Terms"
 
     def __str__(self):
-        return f"{self.term_template} ({self.category})"
-
-    def get_search_query(self) -> str:
-        """
-        Get the actual search query with year substitution.
-
-        Returns:
-            str: The search query with {year} replaced by current year.
-        """
-        from datetime import datetime
-        return self.term_template.format(year=datetime.now().year)
+        return f"{self.search_query} ({self.category})"
 
     def is_in_season(self) -> bool:
         """

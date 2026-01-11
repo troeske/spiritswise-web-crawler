@@ -5,8 +5,8 @@ API credentials and endpoints for true end-to-end testing.
 """
 import os
 
-# ScrapingBee Configuration
-SCRAPINGBEE_API_KEY = "U9T8N36G3Z8LL2VLVY86S1LJJ83R33C79A4EYXYYRNSMQFCS2JPPQJX6OQ8RMPHXZS4LE2H8J25JJHZI"
+# ScrapingBee Configuration - Task 3 fix: Use environment variable instead of hardcoded key
+SCRAPINGBEE_API_KEY = os.environ.get('SCRAPINGBEE_API_KEY', '')
 SCRAPINGBEE_BASE_URL = "https://app.scrapingbee.com/api/v1/"
 
 # AI Enhancement Service Configuration (VPS)

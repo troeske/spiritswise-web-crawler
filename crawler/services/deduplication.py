@@ -447,7 +447,7 @@ def create_product_from_candidate(
         individual_fields.pop("name", None)
         individual_fields.pop("brand", None)
 
-        # Create product
+        # Create product with individual fields only (extracted_data removed)
         product = DiscoveredProduct.objects.create(
             source=crawler_source,
             source_url=candidate.source.url,
@@ -457,7 +457,6 @@ def create_product_from_candidate(
             raw_content_hash=candidate.source.content_hash or "",
             name=candidate.raw_name,
             brand=brand,
-            extracted_data=extracted_data,
             **individual_fields,
         )
 

@@ -1,0 +1,638 @@
+{
+  "test_name": "IWSC Competition Flow",
+  "started_at": "2026-01-10T19:58:31.688161",
+  "completed_at": "2026-01-10T19:59:50.889659",
+  "total_duration_seconds": 79.201498,
+  "output_file": "tests\\e2e\\outputs\\iwsc_competition_flow_2026-01-10_195831.json",
+  "steps": [
+    {
+      "step_name": "fetch",
+      "description": "Fetching competition page (force_tier=2)",
+      "started_at": "2026-01-10T19:58:31.720450",
+      "completed_at": "2026-01-10T19:59:05.801754",
+      "duration_ms": 34081.30383491516,
+      "input_data": {
+        "url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "max_retries": 3,
+        "force_tier": 2
+      },
+      "output_data": {
+        "tier_used": 3,
+        "tier_name": "ScrapingBee",
+        "content_length_bytes": 996683,
+        "content_length_kb": 973.3,
+        "has_product_indicators": true,
+        "content_preview": "<!DOCTYPE html><html class=\"js no-touchevents\" lang=\"en\" xml:lang=\"en\"><head><style data-hubspot-styled-components=\"\"></style><script type=\"text/javascript\" async=\"\" src=\"https://snap.licdn.com/li.lms-analytics/insight.min.js\"></script><script type=\"text/javascript\" async=\"\" charset=\"utf-8\" src=\"https://www.gstatic.com/recaptcha/releases/9TiwnJFHeuIw_s0wSd3fiKfN/recaptcha__en_gb.js\" crossorigin=\"anonymous\" integrity=\"sha384-rdxmFDe+9oFiJNaP7JzB/zjcDB0cua1lCNP//Rngzg+Z64BSLyGWIU9cXfTES3lg\"></scri"
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "ai_extract",
+      "description": "AI extraction for whiskey products",
+      "started_at": "2026-01-10T19:59:05.801754",
+      "completed_at": "2026-01-10T19:59:49.805477",
+      "duration_ms": 44003.72266769409,
+      "input_data": {
+        "url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "product_type": "whiskey",
+        "product_category": "whisky",
+        "content_length": 996683
+      },
+      "output_data": {
+        "total_products_from_ai": 10,
+        "extraction_time_ms": 44003.7,
+        "ai_success": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "validate",
+      "description": "Validating 10 extracted products",
+      "started_at": "2026-01-10T19:59:49.805477",
+      "completed_at": "2026-01-10T19:59:49.805477",
+      "duration_ms": 0.0,
+      "input_data": {
+        "min_products_required": 3
+      },
+      "output_data": {
+        "total_products": 10,
+        "valid_products": 10,
+        "rejected_products": 0,
+        "validation_pass_rate": "100.0%"
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "db_create_source",
+      "description": "Creating CrawledSource record",
+      "started_at": "2026-01-10T19:59:49.805477",
+      "completed_at": "2026-01-10T19:59:49.818833",
+      "duration_ms": 13.356208801269531,
+      "input_data": {
+        "url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "content_length": 996683
+      },
+      "output_data": {
+        "source_id": "df4839f3-f385-4445-aa75-4a30bb9114e6",
+        "title": "IWSC 2025 - Competition Results Page",
+        "source_type": "award_page"
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for The Scotch Malt Whisky Society",
+      "started_at": "2026-01-10T19:59:49.821991",
+      "completed_at": "2026-01-10T19:59:49.821991",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky",
+        "status": "partial",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "abv",
+          "description",
+          "nose_description",
+          "palate_flavors"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching The Scotch Malt Whisky Society... via SerpAPI + AI",
+      "started_at": "2026-01-10T19:59:49.834403",
+      "completed_at": "2026-01-10T19:59:49.834403",
+      "duration_ms": 0.0,
+      "input_data": {
+        "product_name": "The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky",
+        "product_id": "54f1d40f-7b2f-428a-a163-8553eceecd31"
+      },
+      "output_data": {
+        "error": "You cannot call this from an async context - use a thread or sync_to_async."
+      },
+      "success": false,
+      "error": "You cannot call this from an async context - use a thread or sync_to_async."
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for The GlenAllachie Distillers Co",
+      "started_at": "2026-01-10T19:59:49.834403",
+      "completed_at": "2026-01-10T19:59:49.834403",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky",
+        "status": "partial",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "abv",
+          "description",
+          "nose_description",
+          "palate_flavors"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching The GlenAllachie Distillers Co... via SerpAPI + AI",
+      "started_at": "2026-01-10T19:59:49.834403",
+      "completed_at": "2026-01-10T19:59:49.834403",
+      "duration_ms": 0.0,
+      "input_data": {
+        "product_name": "The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky",
+        "product_id": "39d459d3-7262-4a55-8a92-1861b71c8280"
+      },
+      "output_data": {
+        "error": "You cannot call this from an async context - use a thread or sync_to_async."
+      },
+      "success": false,
+      "error": "You cannot call this from an async context - use a thread or sync_to_async."
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Ballantine's 10 YO Blended Sco",
+      "started_at": "2026-01-10T19:59:49.834403",
+      "completed_at": "2026-01-10T19:59:49.834403",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Ballantine's 10 YO Blended Scotch Whisky",
+        "status": "skeleton",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "description",
+          "abv",
+          "region"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching Ballantine's 10 YO Blended Sco... via SerpAPI + AI",
+      "started_at": "2026-01-10T19:59:49.859520",
+      "completed_at": "2026-01-10T19:59:49.860517",
+      "duration_ms": 0.9970664978027344,
+      "input_data": {
+        "product_name": "Ballantine's 10 YO Blended Scotch Whisky",
+        "product_id": "b15e7afb-cbf8-4f94-9cb4-f4b948d86734"
+      },
+      "output_data": {
+        "error": "You cannot call this from an async context - use a thread or sync_to_async."
+      },
+      "success": false,
+      "error": "You cannot call this from an async context - use a thread or sync_to_async."
+    }
+  ],
+  "products": [
+    {
+      "index": 0,
+      "name": "The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky",
+      "brand": "The Scotch Malt Whisky Society",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "The Scotch Malt Whisky Society 1.292 - Rhythms Of The Soul 11 YO Single Malt Scotch Whisky",
+        "brand": "The Scotch Malt Whisky Society",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 11,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 1,
+      "name": "The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky",
+      "brand": "The GlenAllachie Distillers Co",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "The GlenAllachie Distillers Co 10 YO Batch 12 Single Malt Scotch Whisky",
+        "brand": "The GlenAllachie Distillers Co",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 2,
+      "name": "Ballantine's 10 YO Blended Scotch Whisky",
+      "brand": "Ballantine's",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.68,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Ballantine's 10 YO Blended Scotch Whisky",
+        "brand": "Ballantine's",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": null,
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": null,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.68
+      }
+    },
+    {
+      "index": 3,
+      "name": "Filliers Distillery 10 YO Sherry Cask Single Malt Whisky",
+      "brand": "Filliers Distillery",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.68,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Filliers Distillery 10 YO Sherry Cask Single Malt Whisky",
+        "brand": "Filliers Distillery",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Belgium",
+        "region": null,
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": null,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.68
+      }
+    },
+    {
+      "index": 4,
+      "name": "Glencadam Distillery 10 YO Single Malt Scotch Whisky",
+      "brand": "Glencadam Distillery",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Glencadam Distillery 10 YO Single Malt Scotch Whisky",
+        "brand": "Glencadam Distillery",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Highland",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 5,
+      "name": "Laphroaig 10 YO Single Malt Scotch Whisky",
+      "brand": "Laphroaig",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Laphroaig 10 YO Single Malt Scotch Whisky",
+        "brand": "Laphroaig",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Islay",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 6,
+      "name": "The Benromach Distillery 10 YO Single Malt Scotch Whisky",
+      "brand": "The Benromach Distillery",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "The Benromach Distillery 10 YO Single Malt Scotch Whisky",
+        "brand": "The Benromach Distillery",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 7,
+      "name": "Ardbeg Distillery 10 YO Single Malt Scotch Whisky",
+      "brand": "Ardbeg Distillery",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Ardbeg Distillery 10 YO Single Malt Scotch Whisky",
+        "brand": "Ardbeg Distillery",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Islay",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 8,
+      "name": "Tomintoul Distillery 10 YO Single Malt Scotch Whisky",
+      "brand": "Tomintoul Distillery",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Tomintoul Distillery 10 YO Single Malt Scotch Whisky",
+        "brand": "Tomintoul Distillery",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    },
+    {
+      "index": 9,
+      "name": "Speyburn Distillery 10 YO Single Malt Scotch Whisky",
+      "brand": "Speyburn Distillery",
+      "is_valid": true,
+      "rejection_reason": null,
+      "confidence": 0.76,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "age_statement",
+        "country",
+        "region"
+      ],
+      "quality_status": null,
+      "raw_data": {
+        "name": "Speyburn Distillery 10 YO Single Malt Scotch Whisky",
+        "brand": "Speyburn Distillery",
+        "description": null,
+        "abv": null,
+        "volume_ml": null,
+        "age_statement": 10,
+        "price": null,
+        "country": "Scotland",
+        "region": "Speyside",
+        "source_url": "https://www.iwsc.net/results/search/2025?q=whisky",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": null,
+          "abv": null,
+          "volume_ml": null,
+          "age_statement": 1.0,
+          "price": null,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.76
+      }
+    }
+  ],
+  "summary": {
+    "competition": "IWSC",
+    "year": 2025,
+    "url": "https://www.iwsc.net/results/search/2025?q=whisky",
+    "products_created": 3,
+    "sources_created": 1,
+    "awards_created": 3,
+    "valid_products_extracted": 10,
+    "rejected_products": 0,
+    "duration_seconds": 79.19948983192444,
+    "test_passed": true,
+    "enrichment": {
+      "products_enriched": 0,
+      "total_fields_enriched": 0,
+      "status_improvements": 0
+    }
+  },
+  "statistics": {
+    "total_steps": 10,
+    "successful_steps": 7,
+    "failed_steps": 3,
+    "total_products": 10,
+    "valid_products": 10,
+    "rejected_products": 0
+  }
+}

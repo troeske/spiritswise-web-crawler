@@ -1786,9 +1786,10 @@ class SearchTermAdmin(admin.ModelAdmin):
     """
 
     list_display = [
-        "term_template",
+        "search_query",
         "category",
         "product_type",
+        "max_results",
         "priority",
         "is_active_badge",
         "seasonal_display",
@@ -1805,9 +1806,10 @@ class SearchTermAdmin(admin.ModelAdmin):
     ]
     list_editable = [
         "priority",
+        "max_results",
     ]
-    search_fields = ["term_template"]
-    ordering = ["-priority", "category", "term_template"]
+    search_fields = ["search_query"]
+    ordering = ["-priority", "category", "search_query"]
     readonly_fields = [
         "search_count",
         "products_discovered",
@@ -1821,9 +1823,10 @@ class SearchTermAdmin(admin.ModelAdmin):
             "Search Term Configuration",
             {
                 "fields": (
-                    "term_template",
+                    "search_query",
                     "category",
                     "product_type",
+                    "max_results",
                     "priority",
                     "is_active",
                 ),
@@ -2131,7 +2134,7 @@ class DiscoveryResultAdmin(admin.ModelAdmin):
         "source_type",
         ("product", admin.EmptyFieldListFilter),
     ]
-    search_fields = ["source_url", "search_term__term_template"]
+    search_fields = ["source_url", "search_term__search_query"]
     ordering = ["-created_at"]
     readonly_fields = [
         "id",
@@ -2212,9 +2215,9 @@ class DiscoveryResultAdmin(admin.ModelAdmin):
     job_id_short.short_description = "Job"
 
     def search_term_display(self, obj):
-        """Display search term template."""
+        """Display search query."""
         if obj.search_term:
-            return obj.search_term.term_template[:30]
+            return obj.search_term.search_query[:30]
         return "-"
 
     search_term_display.short_description = "Search Term"

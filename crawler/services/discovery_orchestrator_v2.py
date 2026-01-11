@@ -21,6 +21,7 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from crawler.fetchers.smart_router import SmartRouter
 from crawler.services.ai_client_v2 import AIClientV2, ExtractionResultV2, get_ai_client_v2
 from crawler.services.quality_gate_v2 import ProductStatus, QualityGateV2, get_quality_gate_v2
 from crawler.services.enrichment_orchestrator_v2 import (
@@ -271,30 +272,64 @@ class DiscoveryOrchestratorV2:
                 source_url=url
             )
 
-    async def _fetch_page(self, url: str) -> Optional[str]:
+    async def _fetch_page(self, url: str, use_javascript: bool = True) -> Optional[str]:
         """
-        Fetch page content from URL.
+        Fetch page content from URL using SmartRouter for JavaScript rendering.
+
+        Uses SmartRouter which supports:
+        - Tier 1: httpx (fast, for static pages)
+        - Tier 2: Playwright (JavaScript rendering)
+        - Tier 3: ScrapingBee (premium proxy + JS rendering for blocked sites)
 
         Args:
             url: URL to fetch
+            use_javascript: If True, force Tier 3 (ScrapingBee) for JavaScript rendering
 
         Returns:
             HTML content or None if failed
         """
         try:
-            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
-                response = await client.get(
-                    url,
-                    follow_redirects=True,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; SpiritswiseCrawler/2.0)"
-                    }
+            # Use SmartRouter for fetching - it handles JavaScript rendering
+            router = SmartRouter(timeout=self.DEFAULT_TIMEOUT)
+
+            # For JavaScript-heavy pages (like competition sites), use Tier 3
+            # which has ScrapingBee with render_js and wait capabilities
+            force_tier = 3 if use_javascript else None
+
+            result = await router.fetch(url, force_tier=force_tier)
+
+            if result.success and result.content:
+                logger.info(
+                    "Fetched %s via SmartRouter (tier=%s, content_size=%d)",
+                    url, result.tier_used, len(result.content)
                 )
-                response.raise_for_status()
-                return response.text
+                return result.content
+            else:
+                logger.warning(
+                    "SmartRouter failed for %s: %s (tier=%s)",
+                    url, result.error, result.tier_used
+                )
+                # Fallback to httpx for simple pages
+                async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+                    response = await client.get(
+                        url,
+                        follow_redirects=True,
+                        headers={
+                            "User-Agent": "Mozilla/5.0 (compatible; SpiritswiseCrawler/2.0)"
+                        }
+                    )
+                    response.raise_for_status()
+                    return response.text
+
         except Exception as e:
             logger.error("Failed to fetch %s: %s", url, e)
             raise
+        finally:
+            # Clean up SmartRouter connections
+            try:
+                await router.close()
+            except Exception:
+                pass
 
     def _assess_quality(
         self,

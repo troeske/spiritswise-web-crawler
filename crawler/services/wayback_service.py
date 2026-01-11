@@ -75,6 +75,48 @@ class WaybackService:
         """
         return extraction_status == "processed" and wayback_status == "saved"
 
+    def save_url(self, url: str) -> Dict[str, Any]:
+        """
+        Save a URL to the Wayback Machine (simple URL-based interface).
+
+        This is an alias that creates a minimal object for archival.
+
+        Args:
+            url: The URL to archive
+
+        Returns:
+            Dict with success, wayback_url, and optional error
+        """
+        # Create a simple object to hold URL for archival
+        class SimpleSource:
+            def __init__(self, url: str):
+                self.url = url
+                self.wayback_url = None
+                self.wayback_status = None
+                self.wayback_saved_at = None
+
+            def save(self, update_fields=None):
+                pass  # No-op for simple URL archival
+
+        simple_source = SimpleSource(url)
+        return self.archive_url(simple_source)
+
+    def queue_archive(self, source: 'CrawledSource') -> bool:
+        """
+        Queue a source for Wayback archival.
+
+        This is an alias for archive_url that returns a simple success boolean.
+        For async workflows, this can be extended to use a task queue.
+
+        Args:
+            source: The CrawledSource to queue for archival
+
+        Returns:
+            True if queued/archived successfully
+        """
+        result = self.archive_url(source)
+        return result.get("success", False)
+
     def archive_url(self, crawled_source: 'CrawledSource') -> Dict[str, Any]:
         """
         Save a URL to the Wayback Machine.

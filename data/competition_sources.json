@@ -1,0 +1,158 @@
+[
+  {
+    "name": "International Whisky Competition",
+    "base_url": "https://www.whiskycompetition.com",
+    "product_type": "whiskey",
+    "notes": "Annual international whisky competition. Publishes detailed scores (out of 100) and category winners. Whisky of the Year, Distillery of the Year, Master Distiller awards."
+  },
+  {
+    "name": "World Whiskies Awards",
+    "base_url": "https://www.worldwhiskiesawards.com",
+    "product_type": "whiskey",
+    "notes": "Part of World Drinks Awards. Global competition with category winners by region and style. Best Single Malt, Best Blended, Icons of Whisky. Annual ceremony in London."
+  },
+  {
+    "name": "International Wine & Spirit Competition (IWSC)",
+    "base_url": "https://www.iwsc.net",
+    "product_type": "both",
+    "notes": "Premier global competition. Gold Outstanding (98-100), Gold, Silver, Bronze medals. Covers whiskey, port wine, and all spirits. North American Whiskey & RTD competition held in Bardstown, KY."
+  },
+  {
+    "name": "San Francisco World Spirits Competition",
+    "base_url": "https://thetastingalliance.com",
+    "product_type": "whiskey",
+    "notes": "Largest and most influential spirits competition. Double Gold, Gold, Silver, Bronze medals. Best of Class awards. Results via The Tasting Alliance. Record 5,500+ entries in 2025."
+  },
+  {
+    "name": "International Spirits Challenge (ISC)",
+    "base_url": "https://internationalspiritschallenge.com",
+    "product_type": "whiskey",
+    "notes": "Longest-running spirits competition (31 years). Supreme Champion Spirit title. Double Gold, Gold, Silver, Bronze medals. 70+ countries participate. Organized by Drinks International."
+  },
+  {
+    "name": "Decanter World Wine Awards",
+    "base_url": "https://www.decanter.com/decanter-awards",
+    "product_type": "port_wine",
+    "notes": "World's largest wine competition (23 years). Best in Show, Platinum (97+), Gold, Silver, Bronze medals. 248 expert judges including 72 Masters of Wine. Strong port wine coverage."
+  },
+  {
+    "name": "International Wine Challenge (IWC)",
+    "base_url": "https://www.internationalwinechallenge.com",
+    "product_type": "port_wine",
+    "notes": "Major wine competition since 1984. Gold, Silver, Bronze, Commended awards. 500+ expert judges from 38 countries. Port Trophy category."
+  },
+  {
+    "name": "Scottish Whisky Awards",
+    "base_url": "https://www.scottishwhiskyawards.org.uk",
+    "product_type": "whiskey",
+    "notes": "Annual Scottish-focused competition since 2019. Blind-tasted whisky awards plus business excellence categories (tourism, marketing, innovation). Held in Glasgow."
+  },
+  {
+    "name": "Online Scotch Whisky Awards (OSWA)",
+    "base_url": "https://www.oswa.co.uk",
+    "product_type": "whiskey",
+    "notes": "Community-driven awards. No paid entries - chosen by community. Annual ceremony on YouTube. Celebrates whiskies, distilleries, and bottlers."
+  },
+  {
+    "name": "Irish Whiskey Awards",
+    "base_url": "https://www.irishwhiskeyawards.com",
+    "product_type": "whiskey",
+    "notes": "Annual awards since 2013. Blind-tasted by whiskey societies. Categories: single malt, single pot still, blended, grain, cask strength. Organized by Celtic Whiskey Shop."
+  },
+  {
+    "name": "The Irish Whiskey Masters",
+    "base_url": "https://globalspiritsmasters.com/awards/the-irish-whiskey-masters-2025",
+    "product_type": "whiskey",
+    "notes": "Part of The Spirits Business Global Spirits Masters. Taste Master award for top expression. Master, Gold, Silver, Bronze medals."
+  },
+  {
+    "name": "North American Bourbon & Whiskey Competition",
+    "base_url": "https://whiskeycomp.com",
+    "product_type": "whiskey",
+    "notes": "Annual competition now in 11th year. Best of Show, Best of Class, Double Gold (95+), Gold medals. Focus on American whiskey and bourbon."
+  },
+  {
+    "name": "ADI International Spirits Competition",
+    "base_url": "https://distilling.com/adi-isc",
+    "product_type": "whiskey",
+    "notes": "American Distilling Institute competition. Best of Class awards by category. Focus on craft distillers. Annual event."
+  },
+  {
+    "name": "New York International Spirits Competition",
+    "base_url": "https://nyispiritscompetition.com",
+    "product_type": "whiskey",
+    "notes": "Trade buyer focused competition. Best in Class by category. Part of The Tasting Alliance. Distillery of the Year award."
+  },
+  {
+    "name": "London Spirits Competition",
+    "base_url": "https://londonspiritscompetition.com",
+    "product_type": "whiskey",
+    "notes": "Rates spirits by quality, value, and packaging. Spirit of the Year award. Trade-focused judging panel."
+  },
+  {
+    "name": "The Scotch Whisky Masters",
+    "base_url": "https://www.thespiritsbusiness.com/sb-awards",
+    "product_type": "whiskey",
+    "notes": "Part of The Spirits Business Global Spirits Masters. Taste Master for top expression. Master, Gold, Silver, Bronze medals. Blind tasting by expert panels."
+  },
+  {
+    "name": "The American Whiskey Masters",
+    "base_url": "https://www.thespiritsbusiness.com/sb-awards",
+    "product_type": "whiskey",
+    "notes": "Part of The Spirits Business Global Spirits Masters. Covers bourbon, rye, American single malt. Taste Master award for top expression."
+  },
+  {
+    "name": "The World Whisky Masters",
+    "base_url": "https://www.thespiritsbusiness.com/sb-awards",
+    "product_type": "whiskey",
+    "notes": "Part of The Spirits Business Global Spirits Masters. Covers non-Scotch, non-American whiskies (Japanese, Taiwanese, Australian, etc.)."
+  },
+  {
+    "name": "Whisky Magazine",
+    "base_url": "https://www.whiskymag.com",
+    "product_type": "whiskey",
+    "notes": "Publisher of World Whiskies Awards. Hall of Fame inductees. Icons of Whisky awards for industry figures."
+  },
+  {
+    "name": "The Whiskey Wash",
+    "base_url": "https://thewhiskeywash.com",
+    "product_type": "whiskey",
+    "notes": "Whiskey publication that tracks competition results. Best Whiskies annual list. Competition result aggregator."
+  },
+  {
+    "name": "Wines of Portugal Challenge",
+    "base_url": "https://winesofportugal.com",
+    "product_type": "port_wine",
+    "notes": "Portuguese wine competition. Grand Gold, Gold, Silver medals. Best Fortified Wine of the Year. Douro/Porto region leads in awards."
+  },
+  {
+    "name": "Wine Enthusiast",
+    "base_url": "https://www.wineenthusiast.com",
+    "product_type": "port_wine",
+    "notes": "Wine Star Awards. 2025 International Wine Region of the Year: Douro Valley. The Enthusiast 100 annual list. Port wine ratings section."
+  },
+  {
+    "name": "Wine Spectator",
+    "base_url": "https://www.winespectator.com",
+    "product_type": "port_wine",
+    "notes": "Top 100 Wines annual list. Expert ratings 50-100 scale. Vintage Port chart. Port wine coverage including vintage and tawny."
+  },
+  {
+    "name": "Wine Searcher",
+    "base_url": "https://www.wine-searcher.com",
+    "product_type": "port_wine",
+    "notes": "Wine database and price aggregator. Best Ports annual list. Critic score aggregation. Competition results tracking."
+  },
+  {
+    "name": "Club Oenologique",
+    "base_url": "https://cluboenologique.com",
+    "product_type": "port_wine",
+    "notes": "Wine publication with port wine reviews. Best Port annual guides. Award-winning port recommendations."
+  },
+  {
+    "name": "World Drinks Awards",
+    "base_url": "https://www.worlddrinksawards.com",
+    "product_type": "both",
+    "notes": "Parent organization of World Whiskies Awards. Also covers Icons of Whisky. News and results from multiple drink categories."
+  }
+]

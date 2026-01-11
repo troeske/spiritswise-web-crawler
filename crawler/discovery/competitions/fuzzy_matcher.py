@@ -151,7 +151,8 @@ class SkeletonMatcher:
         best_score = 0
 
         for skeleton in candidates:
-            skeleton_name = skeleton.extracted_data.get("name", "")
+            # Use individual column instead of extracted_data
+            skeleton_name = skeleton.name or ""
             if not skeleton_name:
                 continue
 
@@ -163,7 +164,7 @@ class SkeletonMatcher:
 
         if best_match:
             logger.info(
-                f"Found skeleton match: '{best_match.extracted_data.get('name')}' "
+                f"Found skeleton match: '{best_match.name}' "
                 f"matches '{crawled_name}' with score {best_score}"
             )
             return (best_match, best_score)
@@ -189,7 +190,7 @@ class SkeletonMatcher:
         Returns:
             True if match was found and skeleton was enriched, False otherwise
         """
-        skeleton_name = skeleton.extracted_data.get("name", "")
+        skeleton_name = skeleton.name or ""
         score = self.calculate_similarity(skeleton_name, crawled_name)
 
         if score < self.threshold:
@@ -198,17 +199,23 @@ class SkeletonMatcher:
             )
             return False
 
-        # Match found - enrich the skeleton
+        # Match found - enrich the skeleton with individual columns
         with transaction.atomic():
-            # Update enriched_data
-            skeleton.enriched_data = enriched_data
-
-            # Update extracted_data with new information
-            updated_extracted = skeleton.extracted_data.copy()
-            for key in ["name", "brand", "price", "description", "volume_ml", "abv"]:
-                if key in enriched_data and enriched_data[key]:
-                    updated_extracted[key] = enriched_data[key]
-            skeleton.extracted_data = updated_extracted
+            # Update individual fields from enriched data
+            if enriched_data.get("name") and not skeleton.name:
+                skeleton.name = enriched_data["name"]
+            if enriched_data.get("description") and not skeleton.description:
+                skeleton.description = enriched_data["description"]
+            if enriched_data.get("volume_ml") and not skeleton.volume_ml:
+                skeleton.volume_ml = enriched_data["volume_ml"]
+            if enriched_data.get("abv") and not skeleton.abv:
+                skeleton.abv = enriched_data["abv"]
+            if enriched_data.get("nose_description") and not skeleton.nose_description:
+                skeleton.nose_description = enriched_data["nose_description"]
+            if enriched_data.get("palate_description") and not skeleton.palate_description:
+                skeleton.palate_description = enriched_data["palate_description"]
+            if enriched_data.get("finish_description") and not skeleton.finish_description:
+                skeleton.finish_description = enriched_data["finish_description"]
 
             # Set source URL if provided
             if source_url:
@@ -220,10 +227,8 @@ class SkeletonMatcher:
             # Change status from skeleton to pending
             skeleton.status = DiscoveredProductStatus.PENDING
 
-            # Recompute fingerprint with enriched data
-            skeleton.fingerprint = DiscoveredProduct.compute_fingerprint(
-                skeleton.extracted_data
-            )
+            # Recompute fingerprint from model fields
+            skeleton.fingerprint = skeleton.compute_fingerprint_from_fields()
 
             skeleton.save()
 
@@ -283,7 +288,7 @@ class SkeletonMatcher:
                 if success:
                     results["matches_found"] += 1
                     results["matches"].append({
-                        "skeleton_name": skeleton.extracted_data.get("name"),
+                        "skeleton_name": skeleton.name,
                         "crawled_name": crawled_name,
                         "score": score,
                         "url": crawled.get("url"),

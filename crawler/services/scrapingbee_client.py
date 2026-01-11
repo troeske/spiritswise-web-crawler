@@ -254,3 +254,83 @@ class ScrapingBeeClient:
             True if mode is supported
         """
         return mode in self.MODE_PARAMS
+
+    def fetch_with_retry(
+        self,
+        url: str,
+        max_retries: int = 3,
+        mode: ScrapingBeeMode = ScrapingBeeMode.JS_RENDER,
+        extra_params: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """
+        Fetch a URL with exponential backoff retry logic.
+
+        Phase 11: Integration Failure Validators - Retry Logic
+
+        Implements retry with exponential backoff for HTTP 5xx errors:
+        - Retry 1: 2s delay
+        - Retry 2: 4s delay
+        - Retry 3: 8s delay
+
+        Args:
+            url: URL to fetch
+            max_retries: Maximum number of retry attempts (default: 3)
+            mode: ScrapingBee crawling mode
+            extra_params: Additional parameters for ScrapingBee
+
+        Returns:
+            HTML content string if successful, None if all retries fail
+        """
+        import time
+
+        last_error = None
+        base_delay = 2  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                result = self.fetch(url, mode=mode, extra_params=extra_params)
+
+                if result.get("success") and result.get("status_code") == 200:
+                    return result.get("content")
+
+                status_code = result.get("status_code", 0)
+
+                # Retry on server errors (5xx)
+                if 500 <= status_code < 600:
+                    last_error = f"HTTP {status_code}"
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # 2, 4, 8 seconds
+                        logger.warning(
+                            f"ScrapingBee retry {attempt + 1}/{max_retries} for {url}, "
+                            f"status={status_code}, waiting {delay}s"
+                        )
+                        time.sleep(delay)
+                        continue
+
+                # Don't retry on client errors (4xx)
+                if 400 <= status_code < 500:
+                    logger.warning(
+                        f"ScrapingBee client error for {url}: HTTP {status_code}"
+                    )
+                    return None
+
+                # Unknown error - don't retry
+                last_error = result.get("error", f"HTTP {status_code}")
+                logger.warning(f"ScrapingBee error for {url}: {last_error}")
+                return None
+
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(
+                        f"ScrapingBee exception retry {attempt + 1}/{max_retries} for {url}: {e}, "
+                        f"waiting {delay}s"
+                    )
+                    time.sleep(delay)
+                    continue
+
+        logger.error(
+            f"ScrapingBee gave up after {max_retries} retries for {url}: {last_error}"
+        )
+        return None

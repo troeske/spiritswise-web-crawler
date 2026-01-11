@@ -337,7 +337,8 @@ class Command(BaseCommand):
             # Show which skeletons would be processed
             skeletons = orchestrator.skeleton_manager.get_unenriched_skeletons(limit=actual_limit)
             for skeleton in skeletons:
-                name = skeleton.extracted_data.get("name", "Unknown")
+                # Use individual column instead of extracted_data
+                name = skeleton.name or "Unknown"
                 self.stdout.write(f"  Would enrich: {name}")
             return
 

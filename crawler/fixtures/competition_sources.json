@@ -12,7 +12,7 @@
       "priority": 10,
       "crawl_frequency_hours": 168,
       "rate_limit_requests_per_minute": 5,
-      "requires_javascript": false,
+      "requires_javascript": true,
       "requires_proxy": false,
       "requires_authentication": false,
       "custom_headers": {},
@@ -20,13 +20,13 @@
       "age_gate_cookies": {},
       "requires_tier3": false,
       "discovery_method": "manual",
-      "product_url_patterns": ["/results/[\\w-]+", "/awarded/[\\w-]+"],
-      "pagination_pattern": "",
+      "product_url_patterns": ["/results/search/[\\d]+", "/results/detail/[\\w-]+"],
+      "pagination_pattern": "/results/search/{year}/{page}",
       "sitemap_url": "",
       "robots_txt_compliant": true,
       "tos_compliant": true,
       "compliance_notes": "Permissive robots.txt. Only test pages blocked.",
-      "notes": "International Wine & Spirit Competition. Gold/Silver/Bronze awards. Authoritative quality indicator."
+      "notes": "IWSC is a JavaScript-heavy SPA. Results at /results/search/{year}. Requires Tier 2 (Playwright) or Tier 3 (ScrapingBee) for proper rendering. Static HTML contains only page shell."
     }
   },
   {
@@ -98,7 +98,7 @@
       "base_url": "https://awards.decanter.com",
       "product_types": ["port_wine"],
       "category": "competition",
-      "is_active": false,
+      "is_active": true,
       "priority": 8,
       "crawl_frequency_hours": 168,
       "rate_limit_requests_per_minute": 5,
@@ -110,13 +110,13 @@
       "age_gate_cookies": {},
       "requires_tier3": false,
       "discovery_method": "manual",
-      "product_url_patterns": ["/wines/[\\w-]+"],
+      "product_url_patterns": ["/DWWA/[\\d]+/search/wines"],
       "pagination_pattern": "?page={page}",
       "sitemap_url": "",
       "robots_txt_compliant": true,
       "tos_compliant": true,
-      "compliance_notes": "Requires JavaScript for results display.",
-      "notes": "Decanter World Wine Awards. Port wine awards. Inactive until port wine support enabled."
+      "compliance_notes": "JavaScript-heavy SPA. Requires Tier 2 (Playwright) or Tier 3 (ScrapingBee).",
+      "notes": "DWWA is a JavaScript-heavy SPA for port wine awards. URL structure: /DWWA/{year}/search/wines?type=port&medal=gold"
     }
   }
 ]

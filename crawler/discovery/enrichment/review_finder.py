@@ -64,7 +64,8 @@ class ReviewFinder:
             List of review entries with url, title, source, and optional score
         """
         try:
-            product_name = product.extracted_data.get("name", "")
+            # Use individual column instead of extracted_data
+            product_name = product.name or ""
 
             # Build search query for reviews
             query = f"{product_name} review"

@@ -40,8 +40,9 @@ class ArticleFinder:
             List of article entries with url, title, source, date, snippet
         """
         try:
-            product_name = product.extracted_data.get("name", "")
-            brand = product.extracted_data.get("brand", "")
+            # Use individual columns instead of extracted_data
+            product_name = product.name or ""
+            brand = product.brand.name if product.brand else ""
 
             # Build search query
             query = f"{brand} {product_name}".strip() if brand else product_name

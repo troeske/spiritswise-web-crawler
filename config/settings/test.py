@@ -22,8 +22,25 @@ DATABASES = {
         "TEST": {
             "NAME": BASE_DIR / "test_db.sqlite3",
         },
+        "OPTIONS": {
+            "timeout": 60,  # Longer timeout for concurrent access
+            "check_same_thread": False,  # Allow cross-thread access for async
+        },
     }
 }
+
+# Configure SQLite to use WAL mode for better concurrency
+# This is set via connection signal handler
+from django.db.backends.signals import connection_created
+def set_sqlite_wal_mode(sender, connection, **kwargs):
+    """Set SQLite WAL mode on each connection for better concurrent access."""
+    if connection.vendor == 'sqlite':
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA busy_timeout=60000;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+
+connection_created.connect(set_sqlite_wal_mode)
 
 # Test Cache - use local memory cache
 CACHES = {
@@ -52,7 +69,8 @@ PASSWORD_HASHERS = [
 # Disable Sentry in tests
 SENTRY_DSN = ""
 
-# Test crawler settings - fail fast
-CRAWLER_REQUEST_TIMEOUT = 5
+# Test crawler settings
+# Note: E2E tests require longer timeouts for real network calls
+CRAWLER_REQUEST_TIMEOUT = 30  # Increased for E2E tests with real external services
 CRAWLER_MAX_RETRIES = 0
 CRAWLER_RATE_LIMIT_DELAY = 0

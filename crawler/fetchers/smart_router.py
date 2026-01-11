@@ -265,7 +265,7 @@ class SmartRouter:
                         source_id=str(source.id),
                         source_name=source.name,
                     )
-                await sync_to_async(_record)()
+                await sync_to_async(_record, thread_sensitive=True)()
 
             # Create synthetic exception for Sentry capture
             error = Exception(f"Fetch failed at tier {tier_used} for {url}")
@@ -289,7 +289,7 @@ class SmartRouter:
             if tracker:
                 def _record():
                     tracker.record_success(str(source.id))
-                await sync_to_async(_record)()
+                await sync_to_async(_record, thread_sensitive=True)()
 
         except Exception as e:
             logger.warning(f"Failed to record success to monitoring: {e}")
@@ -344,7 +344,7 @@ class SmartRouter:
                 source.requires_tier3 = True
                 source.save(update_fields=["requires_tier3"])
 
-            await sync_to_async(_update_source)()
+            await sync_to_async(_update_source, thread_sensitive=True)()
             logger.info(f"Marked {source.name} as requires_tier3=True")
         except Exception as e:
             logger.warning(f"Failed to mark source as requires_tier3: {e}")
@@ -375,7 +375,7 @@ class SmartRouter:
                     stack_trace=traceback.format_exc(),
                 )
 
-            await sync_to_async(_create_error)()
+            await sync_to_async(_create_error, thread_sensitive=True)()
             logger.debug(f"Logged CrawlError for {url}")
 
         except Exception as e:
