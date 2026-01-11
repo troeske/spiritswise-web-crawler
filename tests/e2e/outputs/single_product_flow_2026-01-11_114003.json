@@ -1,0 +1,264 @@
+{
+  "test_name": "Single Product Flow",
+  "started_at": "2026-01-11T11:40:03.254265",
+  "completed_at": "2026-01-11T11:41:04.268235",
+  "total_duration_seconds": 61.01397,
+  "output_file": "tests\\e2e\\outputs\\single_product_flow_2026-01-11_114003.json",
+  "steps": [
+    {
+      "step_name": "product_search",
+      "description": "Searching: Frank August Small Batch Kentucky Straight Bourbon...",
+      "started_at": "2026-01-11T11:40:03.285061",
+      "completed_at": "2026-01-11T11:40:06.021861",
+      "duration_ms": 2736.799478530884,
+      "input_data": {
+        "template": "{name} official site",
+        "query": "Frank August Small Batch Kentucky Straight Bourbon Whiskey official site"
+      },
+      "output_data": {
+        "results_count": 5,
+        "top_urls": [
+          "https://thefrankaugust.com/products/small-batch-kentucky-str",
+          "https://thefrankaugust.com/",
+          "https://thefrankaugust.com/collections/frontpage"
+        ]
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "fetch",
+      "description": "Fetching product page (force_tier=auto)",
+      "started_at": "2026-01-11T11:40:06.021861",
+      "completed_at": "2026-01-11T11:40:32.901573",
+      "duration_ms": 26879.7128200531,
+      "input_data": {
+        "url": "https://thefrankaugust.com/products/small-batch-kentucky-straight-bourbon-whiskey",
+        "max_retries": 3,
+        "force_tier": null
+      },
+      "output_data": {
+        "tier_used": 3,
+        "tier_name": "ScrapingBee",
+        "content_length_bytes": 120982,
+        "content_length_kb": 118.1,
+        "has_product_indicators": true,
+        "content_preview": "<!DOCTYPE html><html class=\"js\" lang=\"en\"><head>\n    <meta charset=\"utf-8\">\n<meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">\n<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<meta name=\"theme-color\" content=\"\">\n<link rel=\"canonical\" href=\"https://thefrankaugust.com/products/small-batch-kentucky-straight-bourbon-whiskey\">\n<link rel=\"preconnect\" href=\"https://cdn.shopify.com\" crossorigin=\"\">\n<link rel=\"preload\" href=\"//thefrankaugust.com/cdn/shop/t/25/assets/bundle.css?v=63"
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "ai_extract",
+      "description": "AI extraction for whiskey product",
+      "started_at": "2026-01-11T11:40:32.901573",
+      "completed_at": "2026-01-11T11:40:39.962453",
+      "duration_ms": 7060.879707336426,
+      "input_data": {
+        "url": "https://thefrankaugust.com/products/small-batch-kentucky-straight-bourbon-whiskey",
+        "product_type": "whiskey",
+        "expected_name": "Frank August Small Batch Kentucky Straight Bourbon Whiskey",
+        "content_length": 120982
+      },
+      "output_data": {
+        "extraction_time_ms": 7060.9,
+        "product_name": "Small Batch Kentucky Straight Bourbon Whiskey",
+        "fields_extracted": [
+          "name",
+          "brand",
+          "description",
+          "abv",
+          "volume_ml",
+          "age_statement",
+          "price",
+          "country",
+          "region",
+          "source_url"
+        ],
+        "overall_confidence": 0.94
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "db_create_source",
+      "description": "Creating CrawledSource record",
+      "started_at": "2026-01-11T11:40:41.966819",
+      "completed_at": "2026-01-11T11:40:41.968840",
+      "duration_ms": 2.0210742950439453,
+      "input_data": {
+        "url": "https://thefrankaugust.com/products/small-batch-kentucky-straight-bourbon-whiskey"
+      },
+      "output_data": {
+        "source_id": "f066c5da-fe38-4681-a92f-d08867221563",
+        "title": "Product Page - Small Batch Kentucky Straight Bourbon Whiskey",
+        "source_type": "retailer_page"
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Small Batch Kentucky Straight ",
+      "started_at": "2026-01-11T11:40:41.971333",
+      "completed_at": "2026-01-11T11:40:41.971333",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Small Batch Kentucky Straight Bourbon Whiskey",
+        "status": "partial",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [
+          "nose_description",
+          "palate_description",
+          "finish_description"
+        ],
+        "needs_enrichment": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment",
+      "description": "Enriching Small Batch Kentucky Straight ... via SerpAPI + AI",
+      "started_at": "2026-01-11T11:40:41.975364",
+      "completed_at": "2026-01-11T11:41:04.252640",
+      "duration_ms": 22277.275800704956,
+      "input_data": {
+        "product_name": "Small Batch Kentucky Straight Bourbon Whiskey",
+        "product_id": "1ec62272-5e64-4a0b-92c2-8f3bc7c00969"
+      },
+      "output_data": {
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "primary_aromas",
+          "palate_description",
+          "nose_description",
+          "palate_flavors",
+          "finish_description"
+        ],
+        "sources_used": 3,
+        "searches_performed": 1
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "enrichment_result",
+      "description": "Enrichment complete for Small Batch Kentucky Straight ",
+      "started_at": "2026-01-11T11:41:04.252640",
+      "completed_at": "2026-01-11T11:41:04.252640",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Small Batch Kentucky Straight Bourbon Whiskey",
+        "status_before": "partial",
+        "status_after": "complete",
+        "fields_enriched": [
+          "primary_aromas",
+          "palate_description",
+          "nose_description",
+          "palate_flavors",
+          "finish_description"
+        ],
+        "fields_enriched_count": 5,
+        "sources_used": 3,
+        "searches_performed": 1,
+        "time_elapsed_seconds": 22.3,
+        "status_improved": true
+      },
+      "success": true,
+      "error": null
+    },
+    {
+      "step_name": "quality_assess",
+      "description": "Quality assessment for Small Batch Kentucky Straight ",
+      "started_at": "2026-01-11T11:41:04.265361",
+      "completed_at": "2026-01-11T11:41:04.265361",
+      "duration_ms": 0.0,
+      "input_data": {},
+      "output_data": {
+        "product_name": "Small Batch Kentucky Straight Bourbon Whiskey (post-enrichment)",
+        "status": "complete",
+        "completeness_score": 0.0,
+        "completeness_percent": "0%",
+        "missing_fields": [],
+        "needs_enrichment": false
+      },
+      "success": true,
+      "error": null
+    }
+  ],
+  "products": [
+    {
+      "index": 0,
+      "name": "Small Batch Kentucky Straight Bourbon Whiskey",
+      "brand": "Frank August",
+      "is_valid": false,
+      "rejection_reason": "Confidence too low: 0.0 < 0.3",
+      "confidence": 0.94,
+      "fields_extracted": [
+        "name",
+        "brand",
+        "description",
+        "abv",
+        "volume_ml",
+        "price",
+        "country",
+        "region"
+      ],
+      "quality_status": "partial",
+      "raw_data": {
+        "name": "Small Batch Kentucky Straight Bourbon Whiskey",
+        "brand": "Frank August",
+        "description": "Named World's Best Bourbon at the 2025 IWSC, Frank August's Small Batch Kentucky Straight Bourbon Whiskey stands as the brand's multi-award-winning flagship expression. Awarded a Gold Outstanding Medal and an extraordinary score of 98/100-the competition's highest distinction. A true small batch, each release is comprised of just 10-15 hand-selected barrels, reflecting the brand's commitment to quality and authenticity.",
+        "abv": 50.0,
+        "volume_ml": 750,
+        "age_statement": null,
+        "price": 100.0,
+        "country": "USA",
+        "region": "Kentucky",
+        "source_url": "https://thefrankaugust.com/products/small-batch-kentucky-straight-bourbon-whiskey",
+        "field_confidences": {
+          "name": 1.0,
+          "brand": 1.0,
+          "description": 1.0,
+          "abv": 1.0,
+          "volume_ml": 1.0,
+          "age_statement": 1.0,
+          "price": 1.0,
+          "country": 1.0,
+          "region": 1.0,
+          "source_url": 1.0
+        },
+        "overall_confidence": 0.94
+      }
+    }
+  ],
+  "summary": {
+    "product_name": "Small Batch Kentucky Straight Bourbon Whiskey",
+    "product_id": "1ec62272-5e64-4a0b-92c2-8f3bc7c00969",
+    "source_id": "f066c5da-fe38-4681-a92f-d08867221563",
+    "status_before": "partial",
+    "status_after": "complete",
+    "duration_seconds": 61.001429319381714,
+    "enrichment_success": true,
+    "fields_enriched": [
+      "primary_aromas",
+      "palate_description",
+      "nose_description",
+      "palate_flavors",
+      "finish_description"
+    ]
+  },
+  "statistics": {
+    "total_steps": 8,
+    "successful_steps": 8,
+    "failed_steps": 0,
+    "total_products": 1,
+    "valid_products": 0,
+    "rejected_products": 1
+  }
+}

@@ -1,0 +1,75 @@
+================================================================================
+TEST: Single Product Flow
+Started: 2026-01-11T11:40:03.254265
+Duration: 61.0s
+================================================================================
+
+STEPS:
+----------------------------------------
+1. [OK] product_search: Searching: Frank August Small Batch Kentucky Straight Bourbon... (2737ms)
+      results_count: 5
+      top_urls: ['https://thefrankaugust.com/products/small-batch-kentucky-str', 'https://thefrankaugust.com/', 'https://thefrankaugust.com/collections/frontpage']
+2. [OK] fetch: Fetching product page (force_tier=auto) (26880ms)
+      tier_used: 3
+      tier_name: ScrapingBee
+      content_length_bytes: 120982
+      content_length_kb: 118.1
+      has_product_indicators: True
+3. [OK] ai_extract: AI extraction for whiskey product (7061ms)
+      extraction_time_ms: 7060.9
+      product_name: Small Batch Kentucky Straight Bourbon Whiskey
+      fields_extracted: ['name', 'brand', 'description', 'abv', 'volume_ml', 'age_statement', 'price', 'country', 'region', 'source_url']
+      overall_confidence: 0.94
+4. [OK] db_create_source: Creating CrawledSource record (2ms)
+      source_id: f066c5da-fe38-4681-a92f-d08867221563
+      title: Product Page - Small Batch Kentucky Straight Bourbon Whiskey
+      source_type: retailer_page
+5. [OK] quality_assess: Quality assessment for Small Batch Kentucky Straight  (N/A)
+      product_name: Small Batch Kentucky Straight Bourbon Whiskey
+      status: partial
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: ['nose_description', 'palate_description', 'finish_description']
+      needs_enrichment: True
+6. [OK] enrichment: Enriching Small Batch Kentucky Straight ... via SerpAPI + AI (22277ms)
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['primary_aromas', 'palate_description', 'nose_description', 'palate_flavors', 'finish_description']
+      sources_used: 3
+      searches_performed: 1
+7. [OK] enrichment_result: Enrichment complete for Small Batch Kentucky Straight  (N/A)
+      product_name: Small Batch Kentucky Straight Bourbon Whiskey
+      status_before: partial
+      status_after: complete
+      fields_enriched: ['primary_aromas', 'palate_description', 'nose_description', 'palate_flavors', 'finish_description']
+      fields_enriched_count: 5
+      sources_used: 3
+      searches_performed: 1
+      time_elapsed_seconds: 22.3
+      status_improved: True
+8. [OK] quality_assess: Quality assessment for Small Batch Kentucky Straight  (N/A)
+      product_name: Small Batch Kentucky Straight Bourbon Whiskey (post-enrichment)
+      status: complete
+      completeness_score: 0.0
+      completeness_percent: 0%
+      missing_fields: []
+      needs_enrichment: False
+
+PRODUCTS:
+----------------------------------------
+  1. Small Batch Kentucky Straight Bourbon Whiskey
+      Status: REJECTED: Confidence too low: 0.0 < 0.3
+      Confidence: 0.94
+      Fields: name, brand, description, abv, volume_ml...
+      Quality: partial
+
+SUMMARY:
+----------------------------------------
+  Total Steps: 8
+  Successful Steps: 8
+  Failed Steps: 0
+  Total Products: 1
+  Valid Products: 0
+  Rejected Products: 1
+
+================================================================================

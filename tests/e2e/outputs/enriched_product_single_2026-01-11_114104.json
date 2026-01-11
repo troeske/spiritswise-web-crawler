@@ -1,0 +1,63 @@
+{
+  "export_timestamp": "2026-01-11T11:41:04.270123",
+  "product_name": "Frank August Small Batch Kentucky Straight Bourbon Whiskey",
+  "product": {
+    "product_id": "1ec62272-5e64-4a0b-92c2-8f3bc7c00969",
+    "source_id": "f066c5da-fe38-4681-a92f-d08867221563",
+    "product_data": {
+      "name": "Small Batch Kentucky Straight Bourbon Whiskey",
+      "brand": "Frank August",
+      "description": "Named World's Best Bourbon at the 2025 IWSC, Frank August's Small Batch Kentucky Straight Bourbon Whiskey stands as the brand's multi-award-winning flagship expression. Awarded a Gold Outstanding Medal and an extraordinary score of 98/100-the competition's highest distinction. A true small batch, each release is comprised of just 10-15 hand-selected barrels, reflecting the brand's commitment to quality and authenticity.",
+      "abv": 50.0,
+      "volume_ml": 750,
+      "age_statement": null,
+      "price": 100.0,
+      "country": "USA",
+      "region": "Kentucky",
+      "source_url": "https://thefrankaugust.com/products/small-batch-kentucky-straight-bourbon-whiskey",
+      "nose_description": "Light and surprisingly fruity with green apple, citrus, and sherry combining to a pleasant effect.",
+      "palate_description": "Introduces pear and sweet apple for its part, before transitioning to a more baking spices and oaky affair for its finish.",
+      "finish_description": "Warming spice, raisin, light cinnamon, touch of malt, seasoned oak, medium length, light ethanol aftertaste.",
+      "primary_aromas": [
+        "green apple",
+        "citrus",
+        "sherry",
+        "caramel",
+        "cherry",
+        "vanilla",
+        "oak",
+        "licorice",
+        "cinnamon",
+        "clove",
+        "apple",
+        "strawberry",
+        "ginger",
+        "mint"
+      ],
+      "palate_flavors": [
+        "caramel",
+        "vanilla",
+        "pear",
+        "sweet apple",
+        "baking spices",
+        "oak",
+        "cherry",
+        "apple",
+        "licorice",
+        "cinnamon",
+        "mint",
+        "burnt butter cookies"
+      ]
+    },
+    "quality_status_before": "partial",
+    "quality_status_after": "complete",
+    "enrichment_success": true,
+    "fields_enriched": [
+      "primary_aromas",
+      "palate_description",
+      "nose_description",
+      "palate_flavors",
+      "finish_description"
+    ]
+  }
+}
