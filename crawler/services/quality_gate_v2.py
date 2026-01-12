@@ -434,10 +434,18 @@ class QualityGateV2:
         if not confidences:
             return []
 
-        return [
-            field_name for field_name, conf in confidences.items()
-            if conf is not None and conf < self.CONFIDENCE_THRESHOLD
-        ]
+        low_confidence = []
+        for field_name, conf in confidences.items():
+            if conf is None:
+                continue
+            # Normalize confidence to float if it's a list (LLM may return array)
+            if isinstance(conf, list):
+                conf = sum(conf) / len(conf) if conf else 0.5
+            elif not isinstance(conf, (int, float)):
+                conf = 0.5
+            if conf < self.CONFIDENCE_THRESHOLD:
+                low_confidence.append(field_name)
+        return low_confidence
 
     # Async-safe methods for use in async contexts
 
