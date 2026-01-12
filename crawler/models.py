@@ -1007,27 +1007,23 @@ class FieldDefinition(models.Model):
 
 class QualityGateConfig(models.Model):
     """
-    V2 Architecture: Quality gate thresholds for a product type.
+    V3 Architecture: Quality gate thresholds for a product type.
 
     Defines the requirements for each product status level:
-    - SKELETON: Minimum to save at all
-    - PARTIAL: Has some useful data
-    - COMPLETE: Ready for production use
-    - ENRICHED: Fully enriched with external data
+    - SKELETON: Has name only
+    - PARTIAL: Has basic product information
+    - BASELINE: Has core tasting profile and production data (formerly COMPLETE)
+    - ENRICHED: Has advanced tasting and cask information
+    - COMPLETE: Has 90%+ of all enrichable fields (ECP threshold)
 
-    Logic for each status:
-        STATUS = (ALL required_fields) AND (N or more from any_of_fields)
+    V3 Logic (simplified, no any-of):
+        SKELETON = ALL skeleton_required_fields
+        PARTIAL = ALL partial_required_fields
+        BASELINE = ALL baseline_required_fields + (ANY baseline_or_fields satisfied)
+        ENRICHED = BASELINE + ALL enriched_required_fields + (ANY enriched_or_fields satisfied)
+        COMPLETE = ECP >= 90%
 
-    Example for COMPLETE:
-        complete_required_fields = ["name", "brand", "abv", "description", "palate_flavors"]
-        complete_any_of_count = 2
-        complete_any_of_fields = ["nose_description", "finish_description", "distillery", "region"]
-
-        A product is COMPLETE if:
-        - Has name AND brand AND abv AND description AND palate_flavors (all 5 required)
-        - AND has at least 2 of: nose_description, finish_description, distillery, region
-
-    Spec Reference: CRAWLER_AI_SERVICE_ARCHITECTURE_V2.md Section 2.3
+    Spec Reference: ENRICHMENT_PIPELINE_V3_SPEC.md Section 2 & 6.1
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -1040,7 +1036,7 @@ class QualityGateConfig(models.Model):
     )
 
     # ============================================
-    # SKELETON: Minimum to save at all
+    # SKELETON: Has name only
     # ============================================
 
     skeleton_required_fields = models.JSONField(
@@ -1049,54 +1045,79 @@ class QualityGateConfig(models.Model):
     )
 
     # ============================================
-    # PARTIAL: Has some useful data
+    # PARTIAL: Has basic product information
+    # V3: No any-of logic, ALL fields required
     # ============================================
 
     partial_required_fields = models.JSONField(
         default=list,
-        help_text='Must have ALL of these. Example: ["name", "brand"]',
+        help_text='Must have ALL. V3: ["name", "brand", "abv", "region", "country", "category"]',
     )
+
+    # V2 Legacy fields - kept for migration, not used in V3
     partial_any_of_count = models.IntegerField(
-        default=2,
-        help_text="Must have at least this many from any_of_fields",
+        default=0,
+        help_text="DEPRECATED in V3 - not used",
     )
     partial_any_of_fields = models.JSONField(
         default=list,
-        help_text='Pool of fields. Example: ["abv", "description", "region"]',
+        help_text="DEPRECATED in V3 - not used",
     )
 
     # ============================================
-    # COMPLETE: Ready for production use
+    # BASELINE: Has core tasting profile (formerly COMPLETE)
+    # V3: No any-of logic, ALL required + OR fields
     # ============================================
 
+    baseline_required_fields = models.JSONField(
+        default=list,
+        help_text='V3: Must have ALL. Replaces complete_required_fields.',
+    )
+    baseline_or_fields = models.JSONField(
+        default=list,
+        help_text='V3: List of field pairs where either satisfies. Example: [["indication_age", "harvest_year"]]',
+    )
+    baseline_or_field_exceptions = models.JSONField(
+        default=dict,
+        help_text='V3: Conditions to waive OR requirements. Example: {"style": ["ruby", "reserve_ruby"]}',
+    )
+
+    # V2 Legacy fields - kept for migration, not used in V3
     complete_required_fields = models.JSONField(
         default=list,
-        help_text='Must have ALL. Example: ["name", "brand", "description", "palate_flavors"]',
+        help_text="DEPRECATED in V3 - use baseline_required_fields",
     )
     complete_any_of_count = models.IntegerField(
-        default=2,
-        help_text="Must have at least this many from any_of_fields",
+        default=0,
+        help_text="DEPRECATED in V3 - not used",
     )
     complete_any_of_fields = models.JSONField(
         default=list,
-        help_text='Pool of fields. Example: ["abv", "nose_description", "finish_description"]',
+        help_text="DEPRECATED in V3 - not used",
     )
 
     # ============================================
-    # ENRICHED: Fully enriched with external data
+    # ENRICHED: Has advanced tasting and cask info
+    # V3: Required fields + OR fields (no any-of)
     # ============================================
 
     enriched_required_fields = models.JSONField(
         default=list,
-        help_text="Must have ALL (inherits COMPLETE + these)",
+        help_text='V3: Must have ALL. Example: ["mouthfeel"]',
     )
+    enriched_or_fields = models.JSONField(
+        default=list,
+        help_text='V3: List of field pairs where either satisfies. Example: [["complexity", "overall_complexity"]]',
+    )
+
+    # V2 Legacy fields - kept for migration, not used in V3
     enriched_any_of_count = models.IntegerField(
-        default=2,
-        help_text="Must have at least this many from any_of_fields",
+        default=0,
+        help_text="DEPRECATED in V3 - not used",
     )
     enriched_any_of_fields = models.JSONField(
         default=list,
-        help_text='External data fields: ["awards", "ratings", "prices"]',
+        help_text="DEPRECATED in V3 - not used",
     )
 
     class Meta:
@@ -1169,6 +1190,167 @@ class EnrichmentConfig(models.Model):
     def __str__(self):
         return f"{self.template_name} ({self.product_type_config.product_type})"
 
+
+class PipelineConfig(models.Model):
+    """
+    V3 Architecture: Pipeline configuration for a product type.
+
+    Stores product-type specific pipeline settings including:
+    - Search budget (max_serpapi_searches, max_sources_per_product)
+    - Awards search settings
+    - Members-only site detection settings
+    - Status thresholds (JSON for flexibility)
+    - ECP (Enrichment Completion Percentage) settings
+
+    Spec Reference: ENRICHMENT_PIPELINE_V3_SPEC.md Section 6.1
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    product_type_config = models.OneToOneField(
+        ProductTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="pipeline_config",
+        help_text="Product type this pipeline config applies to",
+    )
+
+    # ============================================
+    # Search Budget (V3 increased defaults)
+    # ============================================
+
+    max_serpapi_searches = models.IntegerField(
+        default=6,
+        help_text="Maximum SerpAPI searches per product (V3: increased from 3)",
+    )
+    max_sources_per_product = models.IntegerField(
+        default=8,
+        help_text="Maximum sources to fetch per product (V3: increased from 5)",
+    )
+    max_enrichment_time_seconds = models.IntegerField(
+        default=180,
+        help_text="Maximum enrichment time in seconds (V3: increased from 120)",
+    )
+
+    # ============================================
+    # Awards Search (always runs per V3 spec)
+    # ============================================
+
+    awards_search_enabled = models.BooleanField(
+        default=True,
+        help_text="Enable dedicated awards search (Step 4 in V3 pipeline)",
+    )
+    awards_search_template = models.CharField(
+        max_length=500,
+        default="{name} {brand} awards medals competition winner",
+        help_text="Search template for awards discovery",
+    )
+
+    # ============================================
+    # Members-Only Site Detection (V3 feature)
+    # ============================================
+
+    members_only_detection_enabled = models.BooleanField(
+        default=True,
+        help_text="Enable content analysis for members-only/paywall sites",
+    )
+    members_only_patterns = models.JSONField(
+        default=list,
+        help_text="Regex patterns to detect members-only sites (login forms, paywalls)",
+    )
+
+    # ============================================
+    # Status Thresholds (V3 JSON structure)
+    # ============================================
+
+    status_thresholds = models.JSONField(
+        default=dict,
+        help_text="Status requirements per level (skeleton, partial, baseline, enriched, complete)",
+    )
+
+    # ============================================
+    # ECP (Enrichment Completion Percentage) Settings
+    # ============================================
+
+    ecp_complete_threshold = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=90.0,
+        help_text="ECP percentage required for COMPLETE status (V3 default: 90%)",
+    )
+
+    # ============================================
+    # Timestamps
+    # ============================================
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "pipeline_config"
+        verbose_name = "Pipeline Configuration"
+        verbose_name_plural = "Pipeline Configurations"
+
+    def __str__(self):
+        return f"Pipeline Config for {self.product_type_config.product_type}"
+
+
+class FieldGroup(models.Model):
+    """
+    V3 Architecture: Field group definition for ECP calculation.
+
+    Defines groups of fields for Enrichment Completion Percentage (ECP)
+    calculation. Each group has a key, display name, and list of fields.
+
+    Groups are product-type specific and used to track enrichment progress
+    by category (e.g., tasting_nose, cask_info, whiskey_details).
+
+    Spec Reference: ENRICHMENT_PIPELINE_V3_SPEC.md Section 6.2
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    product_type_config = models.ForeignKey(
+        ProductTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="field_groups",
+        help_text="Product type this field group belongs to",
+    )
+
+    # Group identity
+    group_key = models.CharField(
+        max_length=50,
+        help_text="Unique key for this group (e.g., 'tasting_nose', 'cask_info')",
+    )
+    display_name = models.CharField(
+        max_length=100,
+        help_text="Human-readable name for display",
+    )
+
+    # Fields in this group
+    fields = models.JSONField(
+        default=list,
+        help_text="List of field names in this group",
+    )
+
+    # Ordering and status
+    sort_order = models.IntegerField(
+        default=0,
+        help_text="Display order (lower = first)",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Enable/disable this field group",
+    )
+
+    class Meta:
+        db_table = "field_group"
+        ordering = ["sort_order"]
+        unique_together = [["product_type_config", "group_key"]]
+        verbose_name = "Field Group"
+        verbose_name_plural = "Field Groups"
+
+    def __str__(self):
+        return f"{self.group_key} ({self.product_type_config.product_type})"
 
 
 # ============================================================
@@ -2482,6 +2664,31 @@ class DiscoveredProduct(models.Model):
         blank=True,
         null=True,
         help_text="Recommended food pairings",
+    )
+
+    # ============================================================
+    # V3: Enrichment Completion Percentage (ECP) Fields
+    # Spec Reference: ENRICHMENT_PIPELINE_V3_SPEC.md Section 3.2
+    # ============================================================
+
+    enrichment_completion = models.JSONField(
+        default=dict,
+        help_text="V3: ECP by field group with missing field lists",
+    )
+    ecp_total = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        db_index=True,
+        help_text="V3: Total ECP percentage (0-100). 90%+ = COMPLETE status",
+    )
+    members_only_sites_detected = models.JSONField(
+        default=list,
+        help_text="V3: URLs detected as members-only/paywall during enrichment",
+    )
+    awards_search_completed = models.BooleanField(
+        default=False,
+        help_text="V3: Whether dedicated awards search (Step 4) was performed",
     )
 
     # Metadata

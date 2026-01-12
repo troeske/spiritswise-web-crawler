@@ -1,0 +1,194 @@
+{
+  "pipeline_config": {
+    "pk": "11111111-5555-5555-5555-111111111111",
+    "max_serpapi_searches": 6,
+    "max_sources_per_product": 8,
+    "max_enrichment_time_seconds": 180,
+    "awards_search_enabled": true,
+    "awards_search_template": "{name} {brand} awards medals competition winner",
+    "members_only_detection_enabled": true,
+    "members_only_patterns": [
+      "<form[^>]*login",
+      "<input[^>]*type=[\"']password[\"']",
+      "sign\\s*in\\s*to\\s*(view|access|continue)",
+      "members?\\s*only",
+      "member\\s*exclusive",
+      "join\\s*(now|today)\\s*to\\s*(access|view)",
+      "subscription\\s*required",
+      "paywall",
+      "premium\\s*content",
+      "unlock\\s*(this|full)\\s*(content|article)",
+      "access\\s*denied",
+      "restricted\\s*area",
+      "authentication\\s*required"
+    ],
+    "status_thresholds": {
+      "skeleton": {"required": ["name"]},
+      "partial": {"required": ["name", "brand", "abv", "region", "country", "category"]},
+      "baseline": {
+        "required": [
+          "name", "brand", "abv", "region", "country", "category",
+          "volume_ml", "description", "primary_aromas", "finish_flavors",
+          "age_statement", "primary_cask", "palate_flavors"
+        ]
+      },
+      "enriched": {
+        "required": ["mouthfeel"],
+        "or_fields": [
+          ["complexity", "overall_complexity"],
+          ["finishing_cask", "maturation_notes"]
+        ]
+      },
+      "complete": {"ecp_threshold": 90.0}
+    },
+    "ecp_complete_threshold": "90.00"
+  },
+  "field_groups": [
+    {
+      "pk": "11111111-6666-0001-0000-000000000001",
+      "group_key": "basic_product_info",
+      "display_name": "Basic Product Info",
+      "fields": ["product_type", "category", "abv", "volume_ml", "description", "age_statement", "country", "region", "bottler"],
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0002-0000-000000000001",
+      "group_key": "tasting_appearance",
+      "display_name": "Tasting Profile - Appearance",
+      "fields": ["color_description", "color_intensity", "clarity", "viscosity"],
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0003-0000-000000000001",
+      "group_key": "tasting_nose",
+      "display_name": "Tasting Profile - Nose",
+      "fields": ["nose_description", "primary_aromas", "primary_intensity", "secondary_aromas", "aroma_evolution"],
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0004-0000-000000000001",
+      "group_key": "tasting_palate",
+      "display_name": "Tasting Profile - Palate",
+      "fields": ["initial_taste", "mid_palate_evolution", "palate_flavors", "palate_description", "flavor_intensity", "complexity", "mouthfeel"],
+      "sort_order": 4,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0005-0000-000000000001",
+      "group_key": "tasting_finish",
+      "display_name": "Tasting Profile - Finish",
+      "fields": ["finish_length", "warmth", "dryness", "finish_flavors", "finish_evolution", "finish_description", "final_notes"],
+      "sort_order": 5,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0006-0000-000000000001",
+      "group_key": "tasting_overall",
+      "display_name": "Tasting Profile - Overall",
+      "fields": ["balance", "overall_complexity", "uniqueness", "drinkability", "price_quality_ratio", "experience_level", "serving_recommendation", "food_pairings"],
+      "sort_order": 6,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0007-0000-000000000001",
+      "group_key": "cask_info",
+      "display_name": "Cask Info",
+      "fields": ["primary_cask", "finishing_cask", "wood_type", "cask_treatment", "maturation_notes"],
+      "sort_order": 7,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-6666-0008-0000-000000000001",
+      "group_key": "whiskey_details",
+      "display_name": "Whiskey-Specific Details",
+      "fields": ["whiskey_type", "distillery", "mash_bill", "cask_strength", "single_cask", "cask_number", "vintage_year", "bottling_year", "batch_number", "peated", "peat_level", "peat_ppm", "natural_color", "non_chill_filtered"],
+      "sort_order": 8,
+      "is_active": true
+    }
+  ],
+  "quality_gate_config": {
+    "pk": "11111111-7777-7777-7777-111111111111",
+    "skeleton_required_fields": ["name"],
+    "partial_required_fields": ["name", "brand", "abv", "region", "country", "category"],
+    "baseline_required_fields": [
+      "name", "brand", "abv", "region", "country", "category",
+      "volume_ml", "description", "primary_aromas", "finish_flavors",
+      "age_statement", "primary_cask", "palate_flavors"
+    ],
+    "baseline_or_fields": [],
+    "baseline_or_field_exceptions": {},
+    "enriched_required_fields": ["mouthfeel"],
+    "enriched_or_fields": [
+      ["complexity", "overall_complexity"],
+      ["finishing_cask", "maturation_notes"]
+    ]
+  },
+  "enrichment_configs": [
+    {
+      "pk": "11111111-8888-0001-0000-000000000001",
+      "template_name": "tasting_notes",
+      "display_name": "Tasting Notes Search",
+      "search_template": "{name} {brand} tasting notes review",
+      "target_fields": ["nose_description", "palate_description", "finish_description", "palate_flavors", "primary_aromas", "finish_flavors"],
+      "priority": 10,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-8888-0002-0000-000000000001",
+      "template_name": "distillery_info",
+      "display_name": "Distillery Information Search",
+      "search_template": "{name} distillery information production whiskey_type",
+      "target_fields": ["distillery", "region", "country", "whiskey_type"],
+      "priority": 8,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-8888-0003-0000-000000000001",
+      "template_name": "production_details",
+      "display_name": "Production Details Search",
+      "search_template": "{name} {brand} production mash bill cask",
+      "target_fields": ["mash_bill", "cask_strength", "non_chill_filtered", "primary_cask", "finishing_cask"],
+      "priority": 7,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-8888-0004-0000-000000000001",
+      "template_name": "cask_details",
+      "display_name": "Cask/Maturation Details Search",
+      "search_template": "{name} {brand} cask maturation wood type",
+      "target_fields": ["wood_type", "cask_treatment", "maturation_notes"],
+      "priority": 5,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-8888-0005-0000-000000000001",
+      "template_name": "appearance",
+      "display_name": "Appearance/Visual Search",
+      "search_template": "{name} {brand} color appearance tasting",
+      "target_fields": ["color_description", "clarity", "viscosity"],
+      "priority": 4,
+      "is_active": true
+    },
+    {
+      "pk": "11111111-8888-0006-0000-000000000001",
+      "template_name": "ratings_search",
+      "display_name": "Ratings and Reviews Search (V3 DEPRECATED)",
+      "search_template": "{name} {brand} rating score review",
+      "target_fields": ["ratings"],
+      "priority": 5,
+      "is_active": false
+    },
+    {
+      "pk": "11111111-8888-0007-0000-000000000001",
+      "template_name": "price_search",
+      "display_name": "Price Information Search (V3 DEPRECATED)",
+      "search_template": "{name} {brand} price buy",
+      "target_fields": ["prices"],
+      "priority": 4,
+      "is_active": false
+    }
+  ]
+}

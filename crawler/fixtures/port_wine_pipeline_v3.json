@@ -1,0 +1,199 @@
+{
+  "pipeline_config": {
+    "pk": "22222222-5555-5555-5555-222222222222",
+    "max_serpapi_searches": 6,
+    "max_sources_per_product": 8,
+    "max_enrichment_time_seconds": 180,
+    "awards_search_enabled": true,
+    "awards_search_template": "{name} {brand} awards medals competition winner port wine",
+    "members_only_detection_enabled": true,
+    "members_only_patterns": [
+      "<form[^>]*login",
+      "<input[^>]*type=[\"']password[\"']",
+      "sign\\s*in\\s*to\\s*(view|access|continue)",
+      "members?\\s*only",
+      "member\\s*exclusive",
+      "subscription\\s*required"
+    ],
+    "status_thresholds": {
+      "skeleton": {"required": ["name"]},
+      "partial": {"required": ["name", "brand", "abv", "style"]},
+      "baseline": {
+        "required": [
+          "name", "brand", "abv", "style",
+          "volume_ml", "description",
+          "primary_aromas", "finish_flavors", "palate_flavors",
+          "producer_house"
+        ],
+        "or_fields": [
+          ["indication_age", "harvest_year"]
+        ],
+        "or_field_exceptions": {
+          "style": ["ruby", "reserve_ruby"]
+        }
+      },
+      "enriched": {
+        "required": ["mouthfeel"],
+        "or_fields": [
+          ["complexity", "overall_complexity"],
+          ["grape_varieties", "quinta"]
+        ]
+      },
+      "complete": {"ecp_threshold": 90.0}
+    },
+    "ecp_complete_threshold": "90.00"
+  },
+  "field_groups": [
+    {
+      "pk": "22222222-6666-0001-0000-000000000001",
+      "group_key": "basic_product_info",
+      "display_name": "Basic Product Info",
+      "fields": ["product_type", "style", "abv", "volume_ml", "description", "country", "region", "bottler"],
+      "sort_order": 1,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0002-0000-000000000001",
+      "group_key": "tasting_appearance",
+      "display_name": "Tasting Profile - Appearance",
+      "fields": ["color_description", "color_intensity", "clarity", "viscosity"],
+      "sort_order": 2,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0003-0000-000000000001",
+      "group_key": "tasting_nose",
+      "display_name": "Tasting Profile - Nose",
+      "fields": ["nose_description", "primary_aromas", "primary_intensity", "secondary_aromas", "aroma_evolution"],
+      "sort_order": 3,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0004-0000-000000000001",
+      "group_key": "tasting_palate",
+      "display_name": "Tasting Profile - Palate",
+      "fields": ["initial_taste", "mid_palate_evolution", "palate_flavors", "palate_description", "flavor_intensity", "complexity", "mouthfeel"],
+      "sort_order": 4,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0005-0000-000000000001",
+      "group_key": "tasting_finish",
+      "display_name": "Tasting Profile - Finish",
+      "fields": ["finish_length", "warmth", "dryness", "finish_flavors", "finish_evolution", "finish_description", "final_notes"],
+      "sort_order": 5,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0006-0000-000000000001",
+      "group_key": "tasting_overall",
+      "display_name": "Tasting Profile - Overall",
+      "fields": ["balance", "overall_complexity", "uniqueness", "drinkability", "price_quality_ratio", "experience_level", "serving_recommendation", "food_pairings"],
+      "sort_order": 6,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0007-0000-000000000001",
+      "group_key": "cask_info",
+      "display_name": "Aging/Cask Info",
+      "fields": ["aging_vessel", "maturation_notes"],
+      "sort_order": 7,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-6666-0008-0000-000000000001",
+      "group_key": "port_details",
+      "display_name": "Port Wine-Specific Details",
+      "fields": ["indication_age", "harvest_year", "bottling_year", "producer_house", "quinta", "douro_subregion", "grape_varieties", "decanting_required", "drinking_window"],
+      "sort_order": 8,
+      "is_active": true
+    }
+  ],
+  "quality_gate_config": {
+    "pk": "22222222-7777-7777-7777-222222222222",
+    "skeleton_required_fields": ["name"],
+    "partial_required_fields": ["name", "brand", "abv", "style"],
+    "baseline_required_fields": [
+      "name", "brand", "abv", "style",
+      "volume_ml", "description",
+      "primary_aromas", "finish_flavors", "palate_flavors",
+      "producer_house"
+    ],
+    "baseline_or_fields": [
+      ["indication_age", "harvest_year"]
+    ],
+    "baseline_or_field_exceptions": {
+      "style": ["ruby", "reserve_ruby"]
+    },
+    "enriched_required_fields": ["mouthfeel"],
+    "enriched_or_fields": [
+      ["complexity", "overall_complexity"],
+      ["grape_varieties", "quinta"]
+    ]
+  },
+  "enrichment_configs": [
+    {
+      "pk": "22222222-8888-0001-0000-000000000001",
+      "template_name": "tasting_notes",
+      "display_name": "Tasting Notes Search",
+      "search_template": "{name} {brand} port wine tasting notes review",
+      "target_fields": ["nose_description", "palate_description", "finish_description", "palate_flavors", "primary_aromas", "finish_flavors"],
+      "priority": 10,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-8888-0002-0000-000000000001",
+      "template_name": "producer_info",
+      "display_name": "Producer/House Information Search",
+      "search_template": "{name} {brand} port producer house quinta douro",
+      "target_fields": ["producer_house", "quinta", "douro_subregion", "grape_varieties"],
+      "priority": 8,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-8888-0003-0000-000000000001",
+      "template_name": "vintage_info",
+      "display_name": "Vintage/Age Information Search",
+      "search_template": "{name} {brand} vintage harvest year indication age port",
+      "target_fields": ["indication_age", "harvest_year", "bottling_year", "drinking_window"],
+      "priority": 7,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-8888-0004-0000-000000000001",
+      "template_name": "style_info",
+      "display_name": "Port Style Information Search",
+      "search_template": "{name} {brand} port style ruby tawny vintage LBV colheita",
+      "target_fields": ["style", "decanting_required"],
+      "priority": 6,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-8888-0005-0000-000000000001",
+      "template_name": "appearance",
+      "display_name": "Appearance/Visual Search",
+      "search_template": "{name} {brand} port color appearance tasting",
+      "target_fields": ["color_description", "clarity", "viscosity"],
+      "priority": 4,
+      "is_active": true
+    },
+    {
+      "pk": "22222222-8888-0006-0000-000000000001",
+      "template_name": "ratings_search",
+      "display_name": "Ratings and Reviews Search (V3 DEPRECATED)",
+      "search_template": "{name} {brand} port rating score review",
+      "target_fields": ["ratings"],
+      "priority": 5,
+      "is_active": false
+    },
+    {
+      "pk": "22222222-8888-0007-0000-000000000001",
+      "template_name": "price_search",
+      "display_name": "Price Information Search (V3 DEPRECATED)",
+      "search_template": "{name} {brand} port price buy",
+      "target_fields": ["prices"],
+      "priority": 4,
+      "is_active": false
+    }
+  ]
+}
