@@ -182,6 +182,106 @@ class EnrichmentOrchestratorV2:
                     product_type,
                 )
 
+            # =================================================================
+            # STEP 1: Detail Page Extraction (Competition Site)
+            # =================================================================
+            detail_url = initial_data.get("detail_url")
+            if detail_url:
+                logger.info(
+                    "Step 1: Detail page extraction from %s",
+                    detail_url,
+                )
+                try:
+                    detail_data, detail_confidences = await self._extract_from_detail_page(
+                        detail_url,
+                        product_type,
+                        session,
+                    )
+
+                    if detail_data:
+                        merged, enriched = self._merge_data(
+                            session.current_data,
+                            detail_data,
+                            session.field_confidences,
+                            detail_confidences,
+                        )
+
+                        if enriched:
+                            session.current_data = merged
+                            session.fields_enriched.extend(enriched)
+                            logger.info(
+                                "Detail page enriched %d fields: %s",
+                                len(enriched),
+                                enriched[:5],
+                            )
+
+                except Exception as e:
+                    logger.warning(
+                        "Detail page extraction failed for %s: %s",
+                        detail_url,
+                        str(e),
+                    )
+
+            # Check status after detail extraction
+            current_status = self._assess_status(
+                session.current_data,
+                product_type,
+                session.field_confidences,
+            )
+
+            # =================================================================
+            # STEP 2: Producer/Brand Page Search (Official Site)
+            # =================================================================
+            if current_status != ProductStatus.COMPLETE.value:
+                logger.info("Step 2: Producer page search")
+                try:
+                    producer_data, producer_confidences = await self._search_and_extract_producer_page(
+                        session.current_data,
+                        product_type,
+                        session,
+                    )
+
+                    if producer_data:
+                        merged, enriched = self._merge_data(
+                            session.current_data,
+                            producer_data,
+                            session.field_confidences,
+                            producer_confidences,
+                        )
+
+                        if enriched:
+                            session.current_data = merged
+                            session.fields_enriched.extend(enriched)
+                            logger.info(
+                                "Producer page enriched %d fields: %s",
+                                len(enriched),
+                                enriched[:5],
+                            )
+
+                except Exception as e:
+                    logger.warning(
+                        "Producer page search failed: %s",
+                        str(e),
+                    )
+
+                # Re-check status after producer page extraction
+                current_status = self._assess_status(
+                    session.current_data,
+                    product_type,
+                    session.field_confidences,
+                )
+
+            # =================================================================
+            # STEP 3: Review Site Enrichment (Existing Flow)
+            # Skip if already COMPLETE from Steps 1 & 2
+            # =================================================================
+            if current_status == ProductStatus.COMPLETE.value:
+                logger.info(
+                    "Product COMPLETE after detail/producer extraction, "
+                    "skipping review site enrichment"
+                )
+                configs = []  # Skip the config loop
+
             for config in configs:
                 if not self._check_limits(session):
                     logger.info(
@@ -758,6 +858,276 @@ class EnrichmentOrchestratorV2:
                 str(e),
             )
             return "partial"
+
+    # =========================================================================
+    # Detail Page and Producer Page Extraction (Steps 1 & 2)
+    # =========================================================================
+
+    def _get_base_url(self, source_url: str) -> str:
+        """
+        Extract base URL (scheme + domain) from source URL.
+
+        Args:
+            source_url: Full URL to extract base from
+
+        Returns:
+            Base URL like "https://www.iwsc.net"
+        """
+        from urllib.parse import urlparse
+        if not source_url:
+            return ""
+        parsed = urlparse(source_url)
+        return f"{parsed.scheme}://{parsed.netloc}"
+
+    async def _extract_from_detail_page(
+        self,
+        detail_url: str,
+        product_type: str,
+        session: EnrichmentSession,
+    ) -> Tuple[Dict[str, Any], Dict[str, float]]:
+        """
+        Extract product data from competition detail page.
+
+        Uses SmartRouter for JS rendering and full extraction schema.
+        This is Step 1 of the 3-step enrichment pipeline.
+
+        Args:
+            detail_url: URL to detail page (may be relative)
+            product_type: Product type for extraction
+            session: Current enrichment session
+
+        Returns:
+            Tuple of (extracted_data, field_confidences)
+        """
+        from crawler.fetchers.smart_router import SmartRouter
+
+        # Resolve relative URLs
+        if detail_url.startswith("/"):
+            base_url = self._get_base_url(session.initial_data.get("source_url", ""))
+            if base_url:
+                detail_url = f"{base_url}{detail_url}"
+            else:
+                logger.warning("Cannot resolve relative detail_url without source_url")
+                return {}, {}
+
+        logger.info("Step 1: Fetching detail page: %s", detail_url)
+
+        try:
+            # Use SmartRouter with Tier 2 (Playwright) for JS rendering
+            router = SmartRouter()
+            result = await router.fetch(detail_url, force_tier=2)
+
+            if not result.success or not result.content:
+                logger.warning("Failed to fetch detail page: %s", detail_url)
+                return {}, {}
+
+            logger.debug("Detail page fetched: %d chars", len(result.content))
+
+            # Extract with FULL schema (not skeleton) - single product page
+            ai_client = self._get_ai_client()
+            extraction = await ai_client.extract(
+                content=result.content,
+                source_url=detail_url,
+                product_type=product_type,
+                detect_multi_product=False,  # Single product detail page
+            )
+
+            if not extraction.success or not extraction.products:
+                logger.warning(
+                    "No products extracted from detail page: %s",
+                    extraction.error or "empty result",
+                )
+                return {}, {}
+
+            # Return first product with high confidence (authoritative source)
+            product = extraction.products[0]
+            extracted_data = product.extracted_data or {}
+
+            # Set high confidence (0.95) for detail page data - authoritative source
+            confidences = {field: 0.95 for field in extracted_data.keys()}
+
+            session.sources_used.append(detail_url)
+            logger.info(
+                "Extracted %d fields from detail page: %s",
+                len(extracted_data),
+                detail_url,
+            )
+
+            return extracted_data, confidences
+
+        except Exception as e:
+            logger.warning("Detail page extraction failed for %s: %s", detail_url, str(e))
+            return {}, {}
+
+    def _filter_producer_urls(
+        self,
+        urls: List[str],
+        brand: str,
+        producer: str,
+    ) -> List[str]:
+        """
+        Filter and prioritize URLs for producer page search.
+
+        Prioritizes official brand/producer sites over retailers and review sites.
+
+        Args:
+            urls: List of URLs from search results
+            brand: Product brand name
+            producer: Product producer name
+
+        Returns:
+            Sorted list with official sites first
+        """
+        # Known retailer/review domains to deprioritize
+        retailer_domains = {
+            "masterofmalt", "thewhiskyexchange", "whiskyexchange",
+            "totalwine", "wine.com", "drizly", "reservebar",
+            "klwines", "finedrams", "thewhiskyshop",
+            "amazon", "ebay", "walmart",
+        }
+
+        brand_lower = brand.lower().replace(" ", "").replace("'", "").replace("-", "")
+        producer_lower = (producer or "").lower().replace(" ", "").replace("'", "").replace("-", "")
+
+        def get_domain(url: str) -> str:
+            """Extract domain from URL."""
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            return parsed.netloc.lower().replace("www.", "")
+
+        def is_retailer(url: str) -> bool:
+            """Check if URL is from a retailer domain."""
+            domain = get_domain(url)
+            return any(r in domain for r in retailer_domains)
+
+        def is_likely_official(url: str) -> bool:
+            """Check if brand/producer name appears in domain."""
+            domain = get_domain(url).replace("-", "").replace(".", "")
+            if brand_lower and len(brand_lower) > 3 and brand_lower in domain:
+                return True
+            if producer_lower and len(producer_lower) > 3 and producer_lower in domain:
+                return True
+            return False
+
+        # Categorize URLs
+        official = []
+        other = []
+        retailers = []
+
+        for url in urls:
+            if is_retailer(url):
+                retailers.append(url)
+            elif is_likely_official(url):
+                official.append(url)
+            else:
+                other.append(url)
+
+        # Return: official sites first, then other non-retailers, then retailers last
+        return official + other + retailers
+
+    async def _search_and_extract_producer_page(
+        self,
+        product_data: Dict[str, Any],
+        product_type: str,
+        session: EnrichmentSession,
+    ) -> Tuple[Dict[str, Any], Dict[str, float]]:
+        """
+        Search for and extract from official producer/brand page.
+
+        This is Step 2 of the 3-step enrichment pipeline.
+        Searches SerpAPI for official producer page, filters results
+        to prioritize brand domains, and extracts with full schema.
+
+        Args:
+            product_data: Current product data (needs name, brand)
+            product_type: Product type for extraction
+            session: Current enrichment session
+
+        Returns:
+            Tuple of (extracted_data, field_confidences)
+        """
+        brand = product_data.get("brand", "")
+        name = product_data.get("name", "")
+        producer = product_data.get("producer", "") or brand
+
+        if not brand and not producer:
+            logger.debug("No brand/producer for producer page search")
+            return {}, {}
+
+        # Build search query for official site
+        # Use brand + name + "official" to find producer pages
+        query = f"{brand} {name} official".strip()
+        if not query or query == "official":
+            return {}, {}
+
+        logger.info("Step 2: Searching for producer page: %s", query[:80])
+
+        try:
+            # Search with SerpAPI
+            urls = await self._search_sources(query, session)
+            session.searches_performed += 1
+
+            if not urls:
+                logger.debug("No URLs found for producer page search")
+                return {}, {}
+
+            # Filter and prioritize producer URLs
+            producer_urls = self._filter_producer_urls(urls, brand, producer)
+            logger.debug(
+                "Producer URL filtering: %d total, prioritized order: %s",
+                len(producer_urls),
+                [u[:50] for u in producer_urls[:3]],
+            )
+
+            # Try top 3 matches
+            for url in producer_urls[:3]:
+                if url in session.sources_searched:
+                    continue
+                session.sources_searched.append(url)
+
+                try:
+                    # Extract with full schema
+                    extracted, confidences = await self._fetch_and_extract(
+                        url, product_type, []  # Empty list = full schema
+                    )
+
+                    if extracted:
+                        # Validate it's the right product
+                        is_match, reason = self._validate_product_match(
+                            product_data, extracted
+                        )
+
+                        if is_match:
+                            # Boost confidence for official/producer site
+                            boosted_confidences = {
+                                k: min(v + 0.1, 0.95) for k, v in confidences.items()
+                            }
+                            session.sources_used.append(url)
+                            logger.info(
+                                "Extracted %d fields from producer page: %s",
+                                len(extracted),
+                                url,
+                            )
+                            return extracted, boosted_confidences
+                        else:
+                            logger.debug(
+                                "Producer page rejected (mismatch): %s - %s",
+                                url,
+                                reason,
+                            )
+                            session.sources_rejected.append({
+                                "url": url,
+                                "reason": reason,
+                            })
+
+                except Exception as e:
+                    logger.warning("Failed to extract from producer page %s: %s", url, str(e))
+
+            return {}, {}
+
+        except Exception as e:
+            logger.warning("Producer page search failed: %s", str(e))
+            return {}, {}
 
 
 _orchestrator_instance: Optional[EnrichmentOrchestratorV2] = None
