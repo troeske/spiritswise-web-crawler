@@ -1,27 +1,74 @@
 """
 Product Match Validator Service.
 
-Task 1.1: Product Match Validator
+This module provides multi-level validation to prevent enrichment cross-contamination
+when merging data from multiple sources. It ensures that extracted data from a source
+actually belongs to the target product being enriched.
 
-Spec Reference: specs/GENERIC_SEARCH_V3_SPEC.md Section 5.2 (FEAT-002)
+Task Reference: GENERIC_SEARCH_V3_TASKS.md Task 1.1
+Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.2 (FEAT-002)
 
-Multi-level validation to prevent enrichment cross-contamination:
-- Level 1: Brand matching (target vs extracted must overlap)
-- Level 2: Product type keywords (bourbon vs rye, single malt vs blended)
-- Level 3: Name token overlap (>= 30% required)
+The Problem:
+    When enriching "Frank August Bourbon", a search might return pages about
+    "Frank August Rye". Without validation, the rye's tasting notes could
+    contaminate the bourbon's data.
 
-Real-world example: "Frank August Bourbon" enrichment rejected data from "Frank August Rye" page.
+Solution - 3-Level Validation:
+    Level 1 (Brand Matching):
+        Target and extracted brand names must overlap. Either one can be
+        contained within the other (e.g., "Glenfiddich" matches "The Glenfiddich
+        Distillery"). Empty brands are allowed to pass.
+
+    Level 2 (Product Type Keywords):
+        Checks for mutually exclusive keywords that indicate different products.
+        For example, if target has "bourbon" and extracted has "rye", they are
+        different products and should be rejected.
+
+    Level 3 (Name Token Overlap):
+        At least 30% of significant tokens must overlap between target and
+        extracted product names. Tokens are filtered to remove stopwords and
+        short words (< 3 chars).
+
+Example:
+    >>> validator = ProductMatchValidator()
+    >>> target = {"name": "Frank August Bourbon", "brand": "Frank August"}
+    >>> extracted = {"name": "Frank August Rye Whiskey", "brand": "Frank August"}
+    >>> is_match, reason = validator.validate(target, extracted)
+    >>> print(is_match, reason)
+    False product_type_mismatch: target has {'bourbon'}, extracted has {'rye', 'corn whiskey'}
+
+Usage:
+    from crawler.services.product_match_validator import get_product_match_validator
+
+    validator = get_product_match_validator()
+    is_match, reason = validator.validate(target_data, extracted_data)
+
+    if is_match:
+        # Safe to merge extracted_data with target
+        merger.merge(target_data, extracted_data)
+    else:
+        # Reject and log reason
+        logger.warning(f"Rejected enrichment: {reason}")
 """
 
 import logging
 import re
-from typing import Dict, Any, Tuple, Set, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
 
-# Level 2: Mutually exclusive keyword groups
-# If target has keyword from group_a and extracted has keyword from group_b, reject
+# Level 2: Mutually exclusive keyword groups for product type validation.
+# Each tuple contains two sets of keywords that are mutually exclusive.
+# If target has a keyword from group_a and extracted has a keyword from group_b,
+# the match is rejected (and vice versa).
+#
+# Business Rules:
+# - Bourbon and Rye are distinct whiskey types that should never be conflated
+# - Single Malt and Blended are fundamentally different production methods
+# - Scotch, Irish, Japanese, and American whiskies have distinct characteristics
+# - Vintage and LBV (Late Bottled Vintage) are different port wine categories
+# - Tawny and Ruby are distinct port wine styles with different aging processes
 MUTUALLY_EXCLUSIVE_KEYWORDS: List[Tuple[Set[str], Set[str]]] = [
     ({"bourbon"}, {"rye", "corn whiskey"}),
     ({"single malt"}, {"blended", "blend"}),
@@ -30,9 +77,16 @@ MUTUALLY_EXCLUSIVE_KEYWORDS: List[Tuple[Set[str], Set[str]]] = [
     ({"tawny"}, {"ruby"}),
 ]
 
-# Level 3: Token filtering constants
+# Level 3: Token filtering constants for name overlap validation.
+# These stopwords are common English words that don't contribute to product identity.
 STOPWORDS: Set[str] = {"the", "a", "an", "of", "and", "or", "in", "on", "at", "to", "for"}
+
+# Minimum token length to be considered significant (filters out abbreviations and noise).
 MIN_TOKEN_LENGTH: int = 3
+
+# Minimum required overlap ratio between target and extracted name tokens.
+# 30% threshold balances between catching obvious mismatches while allowing
+# minor variations in product naming across sources.
 MIN_OVERLAP_RATIO: float = 0.30
 
 
@@ -40,22 +94,40 @@ class ProductMatchValidator:
     """
     Validates that extracted data matches the target product.
 
-    Implements 3-level validation to prevent enrichment cross-contamination:
-    - Level 1: Brand matching
-    - Level 2: Product type keywords
-    - Level 3: Name token overlap
+    This class implements 3-level validation to prevent enrichment cross-contamination
+    when merging data from multiple sources. Each level adds more specificity to the
+    validation, and all levels must pass for a match to be confirmed.
 
-    Usage:
-        validator = ProductMatchValidator()
-        is_match, reason = validator.validate(target_data, extracted_data)
-        if is_match:
-            # Safe to merge extracted data with target
-        else:
-            # Reject extracted data
+    Validation Levels:
+        Level 1 - Brand Matching:
+            Checks if brand names overlap (one contained in the other).
+            Empty brands are considered a match.
+
+        Level 2 - Product Type Keywords:
+            Checks for mutually exclusive keywords that indicate different products.
+            Uses MUTUALLY_EXCLUSIVE_KEYWORDS constant for keyword groups.
+
+        Level 3 - Name Token Overlap:
+            Checks if at least 30% of significant tokens overlap between names.
+            Filters out stopwords and short tokens.
+
+    Attributes:
+        stopwords: Set of common words to filter from token analysis.
+        min_token_length: Minimum length for a token to be considered significant.
+        min_overlap_ratio: Minimum required overlap ratio for name matching.
+        mutually_exclusive_keywords: List of mutually exclusive keyword pairs.
+
+    Example:
+        >>> validator = ProductMatchValidator()
+        >>> target = {"name": "Glenfiddich 18 Year", "brand": "Glenfiddich"}
+        >>> extracted = {"name": "Glenfiddich 18 Year Old Single Malt", "brand": "Glenfiddich"}
+        >>> is_match, reason = validator.validate(target, extracted)
+        >>> print(is_match)
+        True
     """
 
-    def __init__(self):
-        """Initialize the ProductMatchValidator."""
+    def __init__(self) -> None:
+        """Initialize the ProductMatchValidator with default configuration."""
         self.stopwords = STOPWORDS
         self.min_token_length = MIN_TOKEN_LENGTH
         self.min_overlap_ratio = MIN_OVERLAP_RATIO
@@ -69,17 +141,30 @@ class ProductMatchValidator:
         """
         Validate that extracted data matches the target product.
 
-        Runs all three validation levels in order:
-        1. Brand matching
-        2. Product type keywords
-        3. Name token overlap
+        Runs all three validation levels in order. If any level fails,
+        validation stops and returns False with a reason. All levels must
+        pass for the validation to succeed.
 
         Args:
-            target_data: Original product data being enriched
-            extracted_data: Data extracted from a new source
+            target_data: Original product data being enriched. Expected keys
+                include 'name', 'brand', 'category', 'description', 'product_type'.
+            extracted_data: Data extracted from a new source to be validated
+                against the target. Same expected keys as target_data.
 
         Returns:
-            Tuple of (is_match: bool, reason: str)
+            A tuple of (is_match, reason) where:
+            - is_match: True if all validation levels pass, False otherwise.
+            - reason: A string describing the validation result. For failures,
+                this explains which level failed and why. For success, returns
+                "product_match_validated".
+
+        Example:
+            >>> validator = ProductMatchValidator()
+            >>> target = {"name": "Lagavulin 16", "brand": "Lagavulin"}
+            >>> extracted = {"name": "Lagavulin 16 Year", "brand": "Lagavulin"}
+            >>> is_match, reason = validator.validate(target, extracted)
+            >>> print(is_match, reason)
+            True product_match_validated
         """
         logger.debug(
             "Validating product match: target='%s', extracted='%s'",
@@ -120,12 +205,24 @@ class ProductMatchValidator:
         """
         Level 1: Validate brand matching.
 
+        Checks if the brand names overlap by seeing if one is contained within
+        the other. This handles cases where brands have variations like
+        "Macallan" vs "The Macallan".
+
+        Empty brands are allowed because:
+        1. Not all products have brand information
+        2. We don't want to reject valid data just because brand is missing
+        3. Other validation levels will catch mismatches
+
         Args:
-            target_brand: Brand from target product
-            extracted_brand: Brand from extracted data
+            target_brand: Brand name from target product. May be None or empty.
+            extracted_brand: Brand name from extracted data. May be None or empty.
 
         Returns:
-            Tuple of (is_match: bool, reason: str)
+            A tuple of (is_match, reason) where:
+            - is_match: True if brands match or one/both are empty.
+            - reason: "both_empty", "one_empty_allowed", "brand_overlap", or
+                "brand_mismatch: target='X', extracted='Y'".
         """
         # Handle None and empty string cases
         target_empty = not target_brand or not target_brand.strip()
@@ -141,6 +238,7 @@ class ProductMatchValidator:
         extracted_lower = extracted_brand.lower().strip()
 
         # Check for overlap (one contained in the other)
+        # This handles cases like "Macallan" matching "The Macallan"
         if target_lower in extracted_lower or extracted_lower in target_lower:
             return True, "brand_overlap"
 
@@ -154,12 +252,26 @@ class ProductMatchValidator:
         """
         Level 2: Validate product type keywords are not mutually exclusive.
 
+        Searches for mutually exclusive keywords in the combined text of name,
+        category, description, and product_type fields. If the target has a
+        keyword from one exclusive group and the extracted data has a keyword
+        from the opposing group, the match is rejected.
+
+        Business Logic Examples:
+        - Target "Frank August Bourbon" + Extracted "Frank August Rye" -> REJECTED
+        - Target "Glenfiddich Single Malt" + Extracted "Glenfiddich Blend" -> REJECTED
+        - Target "Taylor's Vintage Port" + Extracted "Taylor's LBV Port" -> REJECTED
+
         Args:
-            target_data: Target product data dict
-            extracted_data: Extracted product data dict
+            target_data: Target product data dict with text fields to search.
+            extracted_data: Extracted product data dict with text fields to search.
 
         Returns:
-            Tuple of (is_match: bool, reason: str)
+            A tuple of (is_match, reason) where:
+            - is_match: True if no mutually exclusive keywords found.
+            - reason: "keywords_compatible" on success, or
+                "product_type_mismatch: target has {group_a}, extracted has {group_b}"
+                on failure.
         """
         target_text = self._build_keyword_text(target_data)
         extracted_text = self._build_keyword_text(extracted_data)
@@ -184,13 +296,17 @@ class ProductMatchValidator:
         """
         Build searchable text from product data for keyword matching.
 
-        Combines name, category, and description fields into lowercase text.
+        Combines multiple text fields into a single lowercase string for
+        keyword searching. This ensures we catch product type indicators
+        regardless of which field they appear in.
 
         Args:
-            data: Product data dict
+            data: Product data dict that may contain 'name', 'category',
+                'description', and 'product_type' fields.
 
         Returns:
-            Combined lowercase text for keyword searching
+            Combined lowercase text string from all available text fields,
+            joined by spaces. Returns empty string if no text fields found.
         """
         parts = []
 
@@ -209,21 +325,36 @@ class ProductMatchValidator:
         """
         Level 3: Validate name token overlap meets minimum threshold.
 
+        Tokenizes both names, filters out stopwords and short tokens, then
+        calculates the overlap ratio. At least 30% of tokens must overlap
+        for the match to pass.
+
+        The 30% threshold is chosen to:
+        - Allow minor naming variations across sources
+        - Catch obvious mismatches (e.g., completely different products)
+        - Handle cases where one source has more detailed naming
+
         Args:
-            target_name: Name from target product
-            extracted_name: Name from extracted data
+            target_name: Product name from target data. May be None or empty.
+            extracted_name: Product name from extracted data. May be None or empty.
 
         Returns:
-            Tuple of (is_match: bool, reason: str)
+            A tuple of (is_match, reason) where:
+            - is_match: True if overlap ratio >= 30% or insufficient tokens.
+            - reason: "insufficient_tokens" if either name lacks significant tokens,
+                "name_overlap_X.XX" where X.XX is the overlap ratio on success,
+                or "name_mismatch: overlap=X.XX, tokens={...}" on failure.
         """
         target_tokens = self._tokenize(target_name or "")
         extracted_tokens = self._tokenize(extracted_name or "")
 
         # If either has insufficient tokens, allow (can't make determination)
+        # This handles edge cases like single-word names or names with only stopwords
         if not target_tokens or not extracted_tokens:
             return True, "insufficient_tokens"
 
-        # Calculate overlap
+        # Calculate overlap ratio using the larger token set as denominator
+        # This penalizes cases where one name is much more specific than the other
         overlap = target_tokens.intersection(extracted_tokens)
         max_tokens = max(len(target_tokens), len(extracted_tokens))
         overlap_ratio = len(overlap) / max_tokens
@@ -237,13 +368,21 @@ class ProductMatchValidator:
         """
         Tokenize text into a set of significant tokens.
 
-        Filters out stopwords and tokens shorter than MIN_TOKEN_LENGTH.
+        Splits text on non-alphanumeric characters, converts to lowercase,
+        and filters out stopwords and tokens shorter than MIN_TOKEN_LENGTH.
 
         Args:
-            text: Text to tokenize
+            text: Text to tokenize. May be empty.
 
         Returns:
-            Set of significant tokens (lowercase)
+            Set of significant lowercase tokens. Returns empty set if input
+            is empty or contains only stopwords/short tokens.
+
+        Example:
+            >>> validator = ProductMatchValidator()
+            >>> tokens = validator._tokenize("The Macallan 18 Year Old")
+            >>> print(tokens)
+            {'macallan', 'year', 'old'}  # 'the', '18' filtered out
         """
         if not text:
             return set()
@@ -263,12 +402,25 @@ class ProductMatchValidator:
         return filtered
 
 
-# Singleton instance
+# Singleton instance for module-level access
 _validator: Optional[ProductMatchValidator] = None
 
 
 def get_product_match_validator() -> ProductMatchValidator:
-    """Get singleton ProductMatchValidator instance."""
+    """
+    Get the singleton ProductMatchValidator instance.
+
+    Creates a new instance on first call, then returns the same instance
+    on subsequent calls. Use reset_product_match_validator() to clear
+    the singleton (mainly for testing).
+
+    Returns:
+        The shared ProductMatchValidator instance.
+
+    Example:
+        >>> validator = get_product_match_validator()
+        >>> is_match, reason = validator.validate(target, extracted)
+    """
     global _validator
     if _validator is None:
         _validator = ProductMatchValidator()
@@ -276,6 +428,12 @@ def get_product_match_validator() -> ProductMatchValidator:
 
 
 def reset_product_match_validator() -> None:
-    """Reset singleton for testing."""
+    """
+    Reset the singleton ProductMatchValidator instance.
+
+    Clears the singleton so the next call to get_product_match_validator()
+    creates a fresh instance. Primarily used in tests to ensure isolation
+    between test cases.
+    """
     global _validator
     _validator = None

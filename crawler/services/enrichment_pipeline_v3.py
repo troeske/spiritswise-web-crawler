@@ -1,22 +1,59 @@
 """
 2-Step Enrichment Pipeline V3 for Generic Search Discovery.
 
-Task 1.3: 2-Step Enrichment Pipeline
+This module implements the V3 enrichment pipeline specifically designed for
+products discovered through generic search (listicles, "best of" articles).
+It differs from the Competition Flow's 3-step pipeline because generic search
+results contain inline product text rather than detail page links.
 
-Spec Reference: specs/GENERIC_SEARCH_V3_SPEC.md Section 5.1 (FEAT-001)
+Task Reference: GENERIC_SEARCH_V3_TASKS.md Task 1.3
+Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.1 (FEAT-001)
 
-Generic Search uses a 2-step pipeline (different from Competition Flow's 3-step):
-- Step 1: Producer page search ("{brand} {name} official")
-- Step 2: Review site enrichment (if still incomplete)
+Pipeline Steps:
+    Step 1 - Producer Page Search:
+        Searches for the official producer/brand page using the query pattern
+        "{brand} {name} official". Filters results to prioritize official sites
+        over retailers. Validates extracted data matches target product.
+        Confidence boost: +0.10 (capped at 0.95) for producer data.
 
-There is NO detail page step because generic search returns listicles with
-inline product text, not detail page links.
+    Step 2 - Review Site Enrichment:
+        If product is not COMPLETE after Step 1, searches review sites using
+        EnrichmentConfig templates. Iterates through configs by priority until
+        COMPLETE status is reached or limits are hit. Uses 0.75 confidence
+        for review site data.
 
-Key Features:
-- Uses ProductMatchValidator to prevent cross-contamination
-- Uses ConfidenceBasedMerger for data merging
-- Early exit if COMPLETE (90% ECP) reached after Step 1
-- Comprehensive source tracking
+Key Differences from Competition Flow (3-step):
+    - No detail page step (listicles have inline text, no detail_url)
+    - Starts with producer search instead of detail extraction
+    - Only 2 steps instead of 3 (Detail -> Producer -> Review becomes Producer -> Review)
+
+Integration Points:
+    - ProductMatchValidator: Prevents cross-contamination between similar products
+    - ConfidenceBasedMerger: Intelligent field merging based on source confidence
+    - QualityGateV3: Status assessment with 90% ECP threshold for COMPLETE
+
+Example:
+    >>> pipeline = EnrichmentPipelineV3()
+    >>> result = await pipeline.enrich_product(
+    ...     product_data={"name": "Lagavulin 16", "brand": "Lagavulin"},
+    ...     product_type="whiskey",
+    ... )
+    >>> print(result.status_after)
+    "COMPLETE"
+    >>> print(result.sources_used)
+    ["https://lagavulin.com/16-year-old", "https://whiskyadvocate.com/lagavulin-16"]
+
+Usage:
+    from crawler.services.enrichment_pipeline_v3 import get_enrichment_pipeline_v3
+
+    pipeline = get_enrichment_pipeline_v3()
+    result = await pipeline.enrich_product(product_data, product_type)
+
+    if result.success:
+        # Access enriched data and tracking info
+        enriched_data = result.product_data
+        sources = result.sources_used
+        fields = result.fields_enriched
 """
 
 import logging
@@ -44,7 +81,9 @@ from crawler.services.quality_gate_v3 import (
 logger = logging.getLogger(__name__)
 
 
-# Known retailer domains to deprioritize in producer search
+# Known retailer domains to deprioritize in producer search.
+# These sites sell products but are not authoritative sources for product information.
+# URLs containing these domains are sorted to the end of search results.
 RETAILER_DOMAINS = {
     "masterofmalt", "thewhiskyexchange", "whiskyexchange",
     "totalwine", "wine.com", "drizly", "reservebar",
@@ -57,10 +96,33 @@ RETAILER_DOMAINS = {
 @dataclass
 class EnrichmentSessionV3:
     """
-    Tracks state during 2-step enrichment.
+    Tracks state during a 2-step enrichment operation.
 
-    This session is specific to the Generic Search 2-step pipeline,
-    tracking both producer page and review site enrichment progress.
+    This session dataclass maintains all state needed during enrichment,
+    including the current product data, field confidences, step completion
+    status, source tracking, and resource limits.
+
+    The session is specific to the Generic Search 2-step pipeline and
+    tracks both producer page (Step 1) and review site (Step 2) enrichment.
+
+    Attributes:
+        product_type: Product type for extraction schema (e.g., "whiskey", "port_wine").
+        initial_data: Original product data at session start (immutable reference).
+        current_data: Current product data being enriched (mutated during session).
+        field_confidences: Dict mapping field names to confidence scores (0.0-1.0).
+        step_1_completed: True if producer page search step has completed.
+        step_2_completed: True if review site enrichment step has completed.
+        sources_searched: List of all URLs that were searched/fetched.
+        sources_used: List of URLs that contributed data to enrichment.
+        sources_rejected: List of dicts with 'url' and 'reason' for rejected sources.
+        status_progression: List of status values showing progression (e.g., ["PARTIAL", "BASELINE", "COMPLETE"]).
+        fields_enriched: List of field names that were enriched during session.
+        field_provenance: Dict mapping field names to the source URL that provided them.
+        searches_performed: Counter of SerpAPI searches executed.
+        max_searches: Maximum allowed SerpAPI searches (from ProductTypeConfig).
+        max_sources: Maximum source URLs to use per product.
+        max_time_seconds: Maximum time allowed for enrichment.
+        start_time: Unix timestamp when session started.
     """
 
     product_type: str
@@ -72,7 +134,7 @@ class EnrichmentSessionV3:
     step_1_completed: bool = False  # Producer page search
     step_2_completed: bool = False  # Review site enrichment
 
-    # Source tracking
+    # Source tracking per spec Section 5.6
     sources_searched: List[str] = field(default_factory=list)
     sources_used: List[str] = field(default_factory=list)
     sources_rejected: List[Dict[str, str]] = field(default_factory=list)
@@ -80,18 +142,18 @@ class EnrichmentSessionV3:
     # Status tracking
     status_progression: List[str] = field(default_factory=list)
 
-    # Fields tracking
+    # Fields tracking for audit trail
     fields_enriched: List[str] = field(default_factory=list)
     field_provenance: Dict[str, str] = field(default_factory=dict)
 
-    # Limits
+    # Resource limits (from ProductTypeConfig or defaults)
     searches_performed: int = 0
     max_searches: int = 3
     max_sources: int = 5
     max_time_seconds: float = 120.0
     start_time: float = 0.0
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Initialize current_data from initial_data if empty."""
         if not self.current_data:
             self.current_data = dict(self.initial_data)
@@ -102,10 +164,30 @@ class EnrichmentSessionV3:
 @dataclass
 class EnrichmentResultV3:
     """
-    Result of 2-step enrichment operation.
+    Result of a 2-step enrichment operation.
 
-    Includes comprehensive source tracking and status progression
-    per spec Section 5.6.
+    Contains the enriched product data along with comprehensive tracking
+    information for audit, debugging, and quality assessment.
+
+    Attributes:
+        success: True if enrichment completed without errors.
+        product_data: Final enriched product data dict.
+        quality_status: Final quality status (e.g., "COMPLETE", "PARTIAL").
+        step_1_completed: True if producer page step completed.
+        step_2_completed: True if review site step completed.
+        sources_searched: All URLs that were searched/fetched.
+        sources_used: URLs that contributed data.
+        sources_rejected: List of dicts with rejection reasons.
+        fields_enriched: Field names that were enriched.
+        field_provenance: Maps field names to source URLs.
+        status_before: Quality status before enrichment.
+        status_after: Quality status after enrichment.
+        status_progression: List of status transitions.
+        searches_performed: Number of SerpAPI searches used.
+        time_elapsed_seconds: Total enrichment time.
+        error: Error message if success is False.
+
+    Spec Reference: Section 5.6 (FEAT-006) for source tracking fields.
     """
 
     success: bool
@@ -140,14 +222,58 @@ class EnrichmentPipelineV3:
     """
     2-Step Enrichment Pipeline for Generic Search Discovery.
 
-    Implements the 2-step pipeline from spec Section 5.1:
-    - Step 1: Producer page search ("{brand} {name} official")
-    - Step 2: Review site enrichment (if still incomplete)
+    Implements the 2-step enrichment pipeline from spec Section 5.1. This
+    pipeline is designed for products discovered through generic search
+    (listicles, "best of" articles) which have inline product text rather
+    than links to detail pages.
 
-    Key Differences from Competition Flow:
-    - No detail page step (listicles have inline text, no detail_url)
-    - Starts with producer search instead of detail extraction
-    - Only 2 steps instead of 3
+    Pipeline Steps:
+        Step 1 - Producer Page Search:
+            Searches for official producer/brand pages using "{brand} {name} official".
+            Filters results to prioritize official sites over retailers.
+            Validates extracted data using ProductMatchValidator.
+            Applies confidence boost (+0.10) for authoritative producer data.
+
+        Step 2 - Review Site Enrichment:
+            Only runs if product is not COMPLETE after Step 1.
+            Uses EnrichmentConfig templates ordered by priority.
+            Continues until COMPLETE status or limits reached.
+            Uses 0.75 confidence for review site data.
+
+    Key Features:
+        - ProductMatchValidator integration prevents cross-contamination
+        - ConfidenceBasedMerger ensures high-quality data is preserved
+        - Early exit when COMPLETE (90% ECP) is reached
+        - Comprehensive source tracking for audit trail
+        - Configurable limits from ProductTypeConfig
+
+    Comparison with Competition Flow (3-step):
+        Competition Flow: Detail Page -> Producer Search -> Review Sites
+        Generic Search V3: Producer Search -> Review Sites (no detail page)
+
+        The difference is because competition results link to detail pages
+        with structured data, while generic search results are listicles
+        with inline product text.
+
+    Attributes:
+        ai_client: AIClientV2 for content extraction.
+        DEFAULT_TIMEOUT: HTTP request timeout (30 seconds).
+        DEFAULT_MAX_SOURCES: Maximum sources per product (5).
+        DEFAULT_MAX_SEARCHES: Maximum SerpAPI searches (3).
+        DEFAULT_MAX_TIME_SECONDS: Maximum enrichment time (120 seconds).
+        PRODUCER_CONFIDENCE_BOOST: Confidence boost for producer data (+0.10).
+        PRODUCER_CONFIDENCE_MAX: Maximum producer confidence (0.95).
+        REVIEW_SITE_CONFIDENCE: Default review site confidence (0.75).
+
+    Example:
+        >>> pipeline = EnrichmentPipelineV3()
+        >>> result = await pipeline.enrich_product(
+        ...     {"name": "Glenfiddich 18", "brand": "Glenfiddich"},
+        ...     "whiskey"
+        ... )
+        >>> if result.success:
+        ...     print(f"Enriched to {result.status_after}")
+        ...     print(f"Used {len(result.sources_used)} sources")
     """
 
     DEFAULT_TIMEOUT = 30.0
@@ -155,10 +281,10 @@ class EnrichmentPipelineV3:
     DEFAULT_MAX_SEARCHES = 3
     DEFAULT_MAX_TIME_SECONDS = 120.0
 
-    # Confidence settings
-    PRODUCER_CONFIDENCE_BOOST = 0.10
-    PRODUCER_CONFIDENCE_MAX = 0.95
-    REVIEW_SITE_CONFIDENCE = 0.75
+    # Confidence settings per spec
+    PRODUCER_CONFIDENCE_BOOST = 0.10  # Added to base confidence for producer pages
+    PRODUCER_CONFIDENCE_MAX = 0.95    # Cap to avoid overconfidence
+    REVIEW_SITE_CONFIDENCE = 0.75     # Default confidence for review site data
 
     def __init__(
         self,
@@ -167,16 +293,24 @@ class EnrichmentPipelineV3:
         quality_gate: Optional[QualityGateV3] = None,
         product_match_validator: Optional[ProductMatchValidator] = None,
         confidence_merger: Optional[ConfidenceBasedMerger] = None,
-    ):
+    ) -> None:
         """
         Initialize the 2-step enrichment pipeline.
 
+        All dependencies are optional and will be lazily initialized from
+        singletons if not provided. This allows for easy testing with mocks.
+
         Args:
-            ai_client: AIClientV2 for extraction
-            serp_client: SerpAPI client for search
-            quality_gate: QualityGateV3 for status assessment
-            product_match_validator: Validator to prevent cross-contamination
-            confidence_merger: Merger for confidence-based data merging
+            ai_client: AIClientV2 for content extraction. If None, uses
+                get_ai_client_v2() singleton.
+            serp_client: SerpAPI client for search. If None, creates new
+                SerpAPIClient instance on first use.
+            quality_gate: QualityGateV3 for status assessment. If None,
+                uses get_quality_gate_v3() singleton.
+            product_match_validator: Validator for product matching. If None,
+                uses get_product_match_validator() singleton.
+            confidence_merger: Merger for confidence-based data merging.
+                If None, uses get_confidence_merger() singleton.
         """
         self.ai_client = ai_client
         self._serp_client = serp_client
@@ -188,51 +322,60 @@ class EnrichmentPipelineV3:
 
     @property
     def serp_client(self) -> Any:
-        """Lazy-load SerpAPI client."""
+        """Lazy-load SerpAPI client on first access."""
         if self._serp_client is None:
             from crawler.discovery.serpapi_client import SerpAPIClient
             self._serp_client = SerpAPIClient()
         return self._serp_client
 
     def _get_ai_client(self) -> AIClientV2:
-        """Get or create AI client."""
+        """Get or create AI client from singleton."""
         if self.ai_client is None:
             self.ai_client = get_ai_client_v2()
         return self.ai_client
 
     def _get_quality_gate(self) -> QualityGateV3:
-        """Get or create quality gate."""
+        """Get or create quality gate from singleton."""
         if self._quality_gate is None:
             self._quality_gate = get_quality_gate_v3()
         return self._quality_gate
 
     def _get_validator(self) -> ProductMatchValidator:
-        """Get or create product match validator."""
+        """Get or create product match validator from singleton."""
         if self._validator is None:
             self._validator = get_product_match_validator()
         return self._validator
 
     def _get_merger(self) -> ConfidenceBasedMerger:
-        """Get or create confidence merger."""
+        """Get or create confidence merger from singleton."""
         if self._merger is None:
             self._merger = get_confidence_merger()
         return self._merger
 
     # =========================================================================
-    # Step 1: Producer Page Search (Subtask 1.3.2)
+    # Step 1: Producer Page Search
+    # Spec Reference: Section 5.1 Step 1
     # =========================================================================
 
     def _build_producer_search_query(self, product_data: Dict[str, Any]) -> str:
         """
         Build search query for producer page search.
 
-        Query format: "{brand} {name} official"
+        Constructs query in format "{brand} {name} official" to find
+        official producer/brand pages rather than retailers or review sites.
 
         Args:
-            product_data: Product data with name and brand
+            product_data: Product data with 'name' and 'brand' fields.
 
         Returns:
-            Search query string
+            Search query string. Returns "official" if both brand and name
+            are empty (which will be caught by caller).
+
+        Example:
+            >>> pipeline._build_producer_search_query(
+            ...     {"name": "Lagavulin 16", "brand": "Lagavulin"}
+            ... )
+            "Lagavulin Lagavulin 16 official"
         """
         brand = product_data.get("brand", "")
         name = product_data.get("name", "")
@@ -258,42 +401,58 @@ class EnrichmentPipelineV3:
         """
         Filter and prioritize URLs for producer page search.
 
-        Priority order:
-        1. Official sites (brand/producer in domain)
-        2. Non-retailers (blogs, review sites)
-        3. Retailers (deprioritized)
+        Sorts URLs into three priority tiers:
+        1. Official sites (brand/producer name in domain) - highest priority
+        2. Non-retailers (blogs, review sites) - medium priority
+        3. Retailers (from RETAILER_DOMAINS) - lowest priority
+
+        This ensures we try official sources first, as they have the most
+        authoritative product information.
 
         Args:
-            urls: List of URLs from search results
-            brand: Product brand name
-            producer: Product producer name
+            urls: List of URLs from search results.
+            brand: Product brand name for domain matching.
+            producer: Product producer name for domain matching.
 
         Returns:
-            Sorted list with official sites first
+            Sorted list with official sites first, then non-retailers,
+            then retailers last.
+
+        Example:
+            >>> urls = [
+            ...     "https://masterofmalt.com/lagavulin-16",
+            ...     "https://lagavulin.com/16-year-old",
+            ...     "https://whiskyadvocate.com/reviews/lagavulin-16",
+            ... ]
+            >>> filtered = pipeline._filter_producer_urls(urls, "Lagavulin", "Lagavulin")
+            >>> print(filtered[0])
+            "https://lagavulin.com/16-year-old"  # Official site first
         """
+        # Normalize brand/producer for domain matching
         brand_lower = brand.lower().replace(" ", "").replace("'", "").replace("-", "")
         producer_lower = (producer or "").lower().replace(" ", "").replace("'", "").replace("-", "")
 
         def get_domain(url: str) -> str:
-            """Extract domain from URL."""
+            """Extract normalized domain from URL."""
             parsed = urlparse(url)
             return parsed.netloc.lower().replace("www.", "")
 
         def is_retailer(url: str) -> bool:
-            """Check if URL is from a retailer domain."""
+            """Check if URL is from a known retailer domain."""
             domain = get_domain(url)
             return any(r in domain for r in RETAILER_DOMAINS)
 
         def is_likely_official(url: str) -> bool:
-            """Check if brand/producer name appears in domain."""
+            """Check if brand/producer name appears in domain (likely official site)."""
             domain = get_domain(url).replace("-", "").replace(".", "")
+            # Require minimum 4 chars to avoid false positives
             if brand_lower and len(brand_lower) > 3 and brand_lower in domain:
                 return True
             if producer_lower and len(producer_lower) > 3 and producer_lower in domain:
                 return True
             return False
 
-        # Categorize URLs
+        # Categorize URLs into priority tiers
         official = []
         other = []
         retailers = []
@@ -316,13 +475,15 @@ class EnrichmentPipelineV3:
         """
         Apply confidence boost for producer page data.
 
-        Boost by +0.1 but cap at 0.95.
+        Producer/official pages are considered more authoritative than
+        review sites or retailers, so we boost their confidence by +0.10
+        (capped at 0.95 to avoid overconfidence).
 
         Args:
-            confidences: Original field confidences
+            confidences: Original field confidences from extraction.
 
         Returns:
-            Boosted confidences dict
+            New dict with boosted confidences. Original dict is not modified.
         """
         boosted = {}
         for field_name, confidence in confidences.items():
@@ -347,12 +508,13 @@ class EnrichmentPipelineV3:
         5. If match: return with confidence boost (+0.1, max 0.95)
 
         Args:
-            product_data: Current product data (needs name, brand)
-            product_type: Product type for extraction schema
-            session: Current enrichment session
+            product_data: Current product data (needs 'name', 'brand').
+            product_type: Product type for extraction schema.
+            session: Current enrichment session for tracking.
 
         Returns:
-            Tuple of (extracted_data, field_confidences)
+            Tuple of (extracted_data, field_confidences). Returns empty dicts
+            if no valid producer page is found or all fail validation.
         """
         brand = product_data.get("brand", "")
         name = product_data.get("name", "")
@@ -378,7 +540,7 @@ class EnrichmentPipelineV3:
                 logger.debug("No URLs found for producer page search")
                 return {}, {}
 
-            # Filter and prioritize URLs
+            # Filter and prioritize URLs (official sites first)
             producer_urls = self._filter_producer_urls(urls, brand, producer)
             logger.debug(
                 "Producer URL filtering: %d total, prioritized order: %s",
@@ -399,17 +561,17 @@ class EnrichmentPipelineV3:
                     )
 
                     if extracted:
-                        # Validate product match
+                        # Validate product match to prevent cross-contamination
                         is_match, reason = self._validate_and_track(
                             product_data, extracted
                         )
 
                         if is_match:
-                            # Boost confidence for official site
+                            # Boost confidence for official site data
                             boosted = self._apply_producer_confidence_boost(confidences)
                             session.sources_used.append(url)
 
-                            # Track field provenance
+                            # Track which URL provided which fields
                             for field_name in extracted.keys():
                                 session.field_provenance[field_name] = url
 
@@ -444,15 +606,19 @@ class EnrichmentPipelineV3:
             return {}, {}
 
     # =========================================================================
-    # Step 2: Review Site Enrichment (Subtask 1.3.3)
+    # Step 2: Review Site Enrichment
+    # Spec Reference: Section 5.1 Step 2
     # =========================================================================
 
     def _get_review_site_confidence(self) -> float:
         """
         Get confidence score for review site data.
 
+        Review sites are less authoritative than producer pages but more
+        authoritative than retailers or generic search results.
+
         Returns:
-            Confidence score (0.70-0.80 range, default 0.75)
+            Confidence score (default 0.75, range 0.70-0.80).
         """
         return self.REVIEW_SITE_CONFIDENCE
 
@@ -463,11 +629,15 @@ class EnrichmentPipelineV3:
         """
         Load EnrichmentConfig entries for product type ordered by priority.
 
+        EnrichmentConfigs define search templates for different review sites
+        and are configured per product type in the admin.
+
         Args:
-            product_type: Product type (whiskey, port_wine, etc.)
+            product_type: Product type (e.g., "whiskey", "port_wine").
 
         Returns:
-            List of EnrichmentConfig ordered by priority (descending)
+            List of active EnrichmentConfig instances ordered by priority
+            (highest first). Returns empty list if none found.
         """
         try:
             configs = await sync_to_async(
@@ -505,20 +675,24 @@ class EnrichmentPipelineV3:
         """
         Step 2: Enrich product from review sites.
 
+        Iterates through EnrichmentConfigs by priority, executing searches
+        and extracting data from results. Continues until COMPLETE status
+        is reached or resource limits are hit.
+
         Process:
         1. Load EnrichmentConfigs by priority
-        2. For each config: build search query, execute search
+        2. For each config: build search query from template, execute search
         3. For each URL: fetch, extract, validate product match
-        4. If match: merge by confidence (0.70-0.80)
+        4. If match: merge by confidence (0.75 for review sites)
         5. Stop when COMPLETE or limits reached
 
         Args:
-            product_data: Current product data
-            product_type: Product type for extraction
-            session: Current enrichment session
+            product_data: Current product data to enrich.
+            product_type: Product type for extraction schema.
+            session: Current enrichment session for tracking.
 
         Returns:
-            Tuple of (merged_data, updated_confidences)
+            Tuple of (merged_data, updated_confidences).
         """
         logger.info("Step 2: Starting review site enrichment")
 
@@ -543,7 +717,7 @@ class EnrichmentPipelineV3:
                 )
                 break
 
-            # Check status
+            # Check status - stop if already COMPLETE
             status = await self._assess_status(merged_data, product_type, merged_confidences)
             if status == ProductStatus.COMPLETE:
                 logger.info("Step 2: COMPLETE status reached, stopping enrichment")
@@ -578,7 +752,7 @@ class EnrichmentPipelineV3:
                 session.sources_searched.append(url)
 
                 try:
-                    # Get target fields from config
+                    # Get target fields from config if available
                     target_fields = (
                         config.target_fields
                         if hasattr(config, "target_fields") and config.target_fields
@@ -647,14 +821,24 @@ class EnrichmentPipelineV3:
         """
         Build search query from EnrichmentConfig template.
 
-        Substitutes {name}, {brand}, etc. from product data.
+        Substitutes placeholders like {name}, {brand} with values from
+        product_data. Removes any unsubstituted placeholders.
 
         Args:
-            config: EnrichmentConfig with search_template
-            product_data: Product data for substitution
+            config: EnrichmentConfig with search_template field.
+            product_data: Product data for substitution.
 
         Returns:
-            Completed search query string
+            Completed search query string. May be empty if template
+            contains only unsubstituted placeholders.
+
+        Example:
+            >>> config.search_template = "{brand} {name} review whisky advocate"
+            >>> query = pipeline._build_config_search_query(
+            ...     config, {"brand": "Lagavulin", "name": "16 Year Old"}
+            ... )
+            >>> print(query)
+            "Lagavulin 16 Year Old review whisky advocate"
         """
         import re
 
@@ -674,7 +858,8 @@ class EnrichmentPipelineV3:
         return query.strip()
 
     # =========================================================================
-    # Main Orchestration (Subtask 1.3.4)
+    # Main Orchestration
+    # Spec Reference: Section 5.1 Main Flow
     # =========================================================================
 
     async def enrich_product(
@@ -686,15 +871,32 @@ class EnrichmentPipelineV3:
         """
         Execute 2-step enrichment pipeline for a product.
 
-        Step 1: Search for official producer/brand page
-        Step 2: Search review sites (if still incomplete after Step 1)
+        Main entry point for the V3 enrichment pipeline. Executes both steps
+        in order, with early exit if COMPLETE status is reached after Step 1.
+
+        Steps:
+        1. Search for official producer/brand page
+        2. If not COMPLETE: Search review sites for additional data
 
         Args:
-            product_data: Initial product data (skeleton from listicle)
-            product_type: Product type for schema selection
+            product_data: Initial product data (skeleton from listicle extraction).
+                Must have at least 'name' and preferably 'brand'.
+            product_type: Product type for schema selection (e.g., "whiskey").
+            initial_confidences: Optional initial field confidence scores.
+                If None, all existing fields assumed to have 0.0 confidence.
 
         Returns:
-            EnrichmentResultV3 with enriched data and tracking
+            EnrichmentResultV3 with enriched data and comprehensive tracking
+            including sources_used, fields_enriched, status_progression, etc.
+
+        Example:
+            >>> pipeline = EnrichmentPipelineV3()
+            >>> result = await pipeline.enrich_product(
+            ...     {"name": "Macallan 18", "brand": "The Macallan"},
+            ...     "whiskey"
+            ... )
+            >>> print(f"Status: {result.status_before} -> {result.status_after}")
+            >>> print(f"Enriched fields: {result.fields_enriched}")
         """
         logger.info(
             "Starting 2-step enrichment for product: %s (type=%s)",
@@ -702,7 +904,7 @@ class EnrichmentPipelineV3:
             product_type,
         )
 
-        # Create session
+        # Create session with limits from config
         session = await self._create_session(
             product_type, product_data, initial_confidences
         )
@@ -725,6 +927,7 @@ class EnrichmentPipelineV3:
             )
 
             if producer_data:
+                # Merge producer data with base confidence of 0.85
                 merged, enriched = self._merge_with_confidence(
                     session.current_data,
                     session.field_confidences,
@@ -823,7 +1026,20 @@ class EnrichmentPipelineV3:
         initial_data: Dict[str, Any],
         initial_confidences: Optional[Dict[str, float]] = None,
     ) -> EnrichmentSessionV3:
-        """Create enrichment session with limits from config."""
+        """
+        Create enrichment session with limits from ProductTypeConfig.
+
+        Loads configuration limits from the database or uses defaults if
+        no config is found.
+
+        Args:
+            product_type: Product type for config lookup.
+            initial_data: Initial product data to enrich.
+            initial_confidences: Optional initial field confidences.
+
+        Returns:
+            Configured EnrichmentSessionV3 ready for enrichment.
+        """
         max_sources = self.DEFAULT_MAX_SOURCES
         max_searches = self.DEFAULT_MAX_SEARCHES
         max_time = self.DEFAULT_MAX_TIME_SECONDS
@@ -863,10 +1079,16 @@ class EnrichmentPipelineV3:
 
     def _check_limits(self, session: EnrichmentSessionV3) -> bool:
         """
-        Check if enrichment should continue within limits.
+        Check if enrichment should continue within resource limits.
+
+        Enforces max_searches, max_sources, and max_time limits to prevent
+        runaway enrichment operations.
+
+        Args:
+            session: Current enrichment session.
 
         Returns:
-            True if within limits, False if should stop
+            True if within all limits, False if any limit is exceeded.
         """
         if session.searches_performed >= session.max_searches:
             return False
@@ -882,10 +1104,16 @@ class EnrichmentPipelineV3:
 
     def _should_continue_to_step2(self, status: ProductStatus) -> bool:
         """
-        Check if pipeline should continue to Step 2.
+        Check if pipeline should continue to Step 2 (review sites).
+
+        Step 2 is skipped if product reached COMPLETE status after Step 1,
+        as there's no need to search review sites for additional data.
+
+        Args:
+            status: Current product status after Step 1.
 
         Returns:
-            False if COMPLETE, True otherwise
+            False if COMPLETE, True for all other statuses.
         """
         return status != ProductStatus.COMPLETE
 
@@ -897,12 +1125,14 @@ class EnrichmentPipelineV3:
         """
         Validate product match using ProductMatchValidator.
 
+        Wrapper around the validator that provides logging and tracking.
+
         Args:
-            target_data: Target product data
-            extracted_data: Extracted data from source
+            target_data: Target product data being enriched.
+            extracted_data: Data extracted from a source.
 
         Returns:
-            Tuple of (is_match, reason)
+            Tuple of (is_match, reason) from ProductMatchValidator.
         """
         validator = self._get_validator()
         return validator.validate(target_data, extracted_data)
@@ -917,14 +1147,16 @@ class EnrichmentPipelineV3:
         """
         Merge data using ConfidenceBasedMerger.
 
+        Wrapper around the merger that provides consistent interface.
+
         Args:
-            existing_data: Current product data
-            existing_confidences: Current field confidences
-            new_data: New data to merge
-            new_confidence: Confidence for new data
+            existing_data: Current product data.
+            existing_confidences: Current field confidences.
+            new_data: New data to merge.
+            new_confidence: Confidence for new data source.
 
         Returns:
-            Tuple of (merged_data, enriched_fields)
+            Tuple of (merged_data, enriched_fields).
         """
         merger = self._get_merger()
         return merger.merge(
@@ -943,8 +1175,16 @@ class EnrichmentPipelineV3:
         """
         Assess product status using QualityGateV3.
 
+        Uses the V3 quality gate which includes category-specific requirements
+        and 90% ECP threshold for COMPLETE status.
+
+        Args:
+            product_data: Product data to assess.
+            product_type: Product type for requirements.
+            confidences: Field confidences for assessment.
+
         Returns:
-            ProductStatus enum value
+            ProductStatus enum value (SKELETON, PARTIAL, BASELINE, ENRICHED, COMPLETE).
         """
         try:
             quality_gate = self._get_quality_gate()
@@ -971,12 +1211,14 @@ class EnrichmentPipelineV3:
         """
         Search for source URLs using SerpAPI.
 
+        Requests up to 10 results but adjusts based on remaining source capacity.
+
         Args:
-            query: Search query string
-            session: Current enrichment session
+            query: Search query string.
+            session: Current enrichment session for limit checking.
 
         Returns:
-            List of URLs to extract from
+            List of URLs to extract from. Excludes URLs already searched.
         """
         try:
             remaining_sources = session.max_sources - len(session.sources_used)
@@ -1007,13 +1249,16 @@ class EnrichmentPipelineV3:
         """
         Fetch URL content and extract product data.
 
+        Uses httpx for fetching and AIClientV2 for extraction.
+
         Args:
-            url: Source URL to fetch
-            product_type: Product type for extraction
-            target_fields: Fields to prioritize in extraction
+            url: Source URL to fetch.
+            product_type: Product type for extraction schema.
+            target_fields: Fields to prioritize in extraction (from EnrichmentConfig).
 
         Returns:
-            Tuple of (extracted_data, field_confidences)
+            Tuple of (extracted_data, field_confidences). Returns empty dicts
+            on any error or if no products are found.
         """
         try:
             async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
@@ -1071,6 +1316,7 @@ class EnrichmentPipelineV3:
             field_confidences = product.field_confidences or {}
 
             if not field_confidences:
+                # Use overall product confidence if no field-level confidences
                 field_confidences = {
                     k: product.confidence for k in extracted_data.keys()
                 }
@@ -1088,12 +1334,27 @@ class EnrichmentPipelineV3:
             return {}, {}
 
 
-# Singleton instance
+# Singleton instance for module-level access
 _pipeline_instance: Optional[EnrichmentPipelineV3] = None
 
 
 def get_enrichment_pipeline_v3(**kwargs) -> EnrichmentPipelineV3:
-    """Get or create EnrichmentPipelineV3 singleton."""
+    """
+    Get or create EnrichmentPipelineV3 singleton.
+
+    Creates a new instance on first call, then returns the same instance
+    on subsequent calls. Accepts keyword arguments for initial configuration.
+
+    Args:
+        **kwargs: Passed to EnrichmentPipelineV3 constructor on first call.
+
+    Returns:
+        The shared EnrichmentPipelineV3 instance.
+
+    Example:
+        >>> pipeline = get_enrichment_pipeline_v3()
+        >>> result = await pipeline.enrich_product(data, "whiskey")
+    """
     global _pipeline_instance
     if _pipeline_instance is None:
         _pipeline_instance = EnrichmentPipelineV3(**kwargs)
@@ -1101,6 +1362,11 @@ def get_enrichment_pipeline_v3(**kwargs) -> EnrichmentPipelineV3:
 
 
 def reset_enrichment_pipeline_v3() -> None:
-    """Reset singleton for testing."""
+    """
+    Reset singleton for testing.
+
+    Clears the singleton so the next call to get_enrichment_pipeline_v3()
+    creates a fresh instance.
+    """
     global _pipeline_instance
     _pipeline_instance = None

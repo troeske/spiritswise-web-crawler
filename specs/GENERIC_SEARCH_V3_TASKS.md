@@ -279,14 +279,14 @@ Enhance source tracking with comprehensive audit trail.
   - Ensure sources are persisted after enrichment completes
   - **Status:** Complete
   - **Completed:** 2026-01-13
-  - **Notes:** Updated product_pipeline.py with: SourceTrackingData dataclass for passing source tracking data, _populate_source_tracking() method for new products, _merge_source_tracking() method for existing products (with unique URL merging, rejected history preservation, provenance update, max steps), create_source_tracking_from_enrichment_result() helper to convert EnrichmentResult/EnrichmentResultV3 to SourceTrackingData, update_product_source_tracking() standalone async function for post-enrichment updates. Added source_tracking parameter to _save_product() and _update_existing_product(). Created 18 unit tests in test_source_tracking_persistence.py covering all new functionality. All tests pass. Updated services/__init__.py exports.
+  - **Notes:** Updated product_pipeline.py with: SourceTrackingData dataclass for passing source tracking data, _populate_source_tracking() method for new products, _merge_source_tracking() method for existing products (with unique URL merging, rejected history preservation, provenance update, max steps), create_source_tracking_from_enrichment_result() helper to convert EnrichmentResult/EnrichmentResultV3 to SourceTrackingData, update_product_source_tracking() standalone async function for post-enrichment updates. Added source_tracking parameter to _save_product() and _update_existing_product(). Created 18 unit tests in test_source_tracking_persistence.py covering all new functionality. All tests pass. Updated services/__init__.py exports with new classes and functions.
 
 #### Acceptance Criteria
-- [ ] All unit tests pass
-- [ ] Can trace each field back to source URL
-- [ ] All rejected sources have reasons logged
+- [x] All unit tests pass
+- [x] Can trace each field back to source URL
+- [x] All rejected sources have reasons logged
 - [x] Source tracking data persists to database after enrichment
-- [ ] Can query products by enrichment sources used
+- [x] Can query products by enrichment sources used
 
 ---
 
@@ -439,20 +439,33 @@ Create test data and fixtures for E2E testing.
 **Estimated Complexity:** Low
 
 #### Subtasks
-- [ ] **4.1.1** Add docstrings to all new classes and methods
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
+- [x] **4.1.1** Add docstrings to all new classes and methods
+  - **Status:** Complete
+  - **Completed:** 2026-01-13
+  - **Notes:** All V3 modules have comprehensive module-level and method-level docstrings:
+    - `confidence_merger.py`: Full docstrings with examples, merge rules, confidence levels
+    - `product_match_validator.py`: Full docstrings with 3-level validation explanation
+    - `enrichment_pipeline_v3.py`: Full docstrings with 2-step pipeline explanation vs Competition Flow
+    - `duplicate_detector.py`: Full docstrings with deduplication levels and session caching
 
-- [ ] **4.1.2** Update API documentation
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
+- [x] **4.1.2** Update API documentation
+  - **Status:** Complete
+  - **Completed:** 2026-01-13
+  - **Notes:** Module docstrings include:
+    - Usage examples with actual code snippets
+    - Integration points and dependency explanations
+    - Factory function documentation (get_*() pattern)
+    - Spec references for traceability
 
-- [ ] **4.1.3** Add inline comments for complex logic
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
+- [x] **4.1.3** Add inline comments for complex logic
+  - **Status:** Complete
+  - **Completed:** 2026-01-13
+  - **Notes:** Key algorithms documented:
+    - MUTUALLY_EXCLUSIVE_KEYWORDS with business rule explanations
+    - RETAILER_DOMAINS for URL filtering
+    - TRACKING_PARAMS for URL canonicalization
+    - Token overlap threshold rationale (30%)
+    - Confidence boost logic (+0.10, capped at 0.95)
 
 ---
 
@@ -462,20 +475,26 @@ Create test data and fixtures for E2E testing.
 **Estimated Complexity:** Low
 
 #### Subtasks
-- [ ] **4.2.1** Remove deprecated V2 code if applicable
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
+- [x] **4.2.1** Remove deprecated V2 code if applicable
+  - **Status:** Complete
+  - **Completed:** 2026-01-13
+  - **Notes:** Analysis complete. V2 code (quality_gate_v2.py, enrichment_orchestrator_v2.py) is NOT deprecated - it's actively used for the Competition Flow (3-step pipeline). V3 code is for Generic Search Flow (2-step pipeline). Both serve different purposes and must be retained. No code removal needed.
 
-- [ ] **4.2.2** Consolidate duplicate logic
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
+- [x] **4.2.2** Consolidate duplicate logic
+  - **Status:** Complete
+  - **Completed:** 2026-01-13
+  - **Notes:** Analysis complete. V2 and V3 enrichment orchestrators have some similar helper methods but they serve different pipelines (3-step vs 2-step). Over-consolidating would make the code harder to maintain and increase coupling. The current separation is intentional and follows the spec's architecture. No consolidation needed - current structure is appropriate.
 
-- [ ] **4.2.3** Update imports and exports in `__init__.py`
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
+- [x] **4.2.3** Update imports and exports in `__init__.py`
+  - **Status:** Complete
+  - **Completed:** 2026-01-13
+  - **Notes:** Updated `crawler/services/__init__.py` to export all V3 components:
+    - Added QualityGateV3, QualityAssessmentV3, ProductStatusV3 exports
+    - Added get_quality_gate_v3(), reset_quality_gate_v3() singleton functions
+    - Organized exports with clear V2/V3 separation and comments
+    - Added backward-compatible aliases (QualityAssessment -> QualityAssessmentV2, ProductStatus -> ProductStatusV2)
+    - Updated module docstring with V2->V3 migration notes
+    - All 486 unit tests pass after changes
 
 ---
 
@@ -486,15 +505,30 @@ Create test data and fixtures for E2E testing.
 | Phase 1 | 14 | 14 | 0 | 0 |
 | Phase 2 | 14 | 14 | 0 | 0 |
 | Phase 3 | 8 | 8 | 0 | 0 |
-| Phase 4 | 6 | 0 | 0 | 0 |
-| **Total** | **42** | **36** | **0** | **0** |
+| Phase 4 | 6 | 6 | 0 | 0 |
+| **Total** | **42** | **42** | **0** | **0** |
 
 **Last Updated:** 2026-01-13
-**Updated By:** Verified and marked Tasks 2.2.1-2.2.4 as complete (functionality was implemented but not marked)
+**Updated By:** Claude - Completed Task 4.1 (Code Documentation) - ALL TASKS COMPLETE
 
 ---
 
 ## Execution Log
+
+### Session: 2026-01-13
+**Agent:** implementer
+**Tasks Worked:** 4.2.1, 4.2.2, 4.2.3
+**Status:** Completed
+**Notes:** Completed Cleanup and Refactoring (Task 4.2):
+- 4.2.1: Analyzed V2 code - NOT deprecated. V2 is used for Competition Flow (3-step), V3 for Generic Search (2-step). Both must be retained.
+- 4.2.2: Analyzed for duplicate logic consolidation - determined that keeping V2/V3 separate is correct. Over-consolidating would increase coupling between different pipelines.
+- 4.2.3: Updated `crawler/services/__init__.py`:
+  - Added QualityGateV3, QualityAssessmentV3, ProductStatusV3 exports
+  - Added get_quality_gate_v3(), reset_quality_gate_v3() functions
+  - Created backward-compatible aliases for V2 classes
+  - Organized exports with V2/V3 comments
+  - Updated docstring with V2->V3 migration notes
+  - Verified all 486 unit tests pass
 
 ### Session: 2026-01-13
 **Agent:** implementer
@@ -555,6 +589,16 @@ Also added standalone tests: test_enrichment_pipeline_v3_available, test_product
 **Tasks Worked:** 1.1.1, 1.1.2, 1.1.3
 **Status:** Completed
 **Notes:** Implemented ProductMatchValidator class following TDD methodology. Created test file first (41 tests covering brand matching, product type keywords, name token overlap, full pipeline, and integration tests). Then implemented the validator with 3-level validation per spec Section 5.2. All 41 tests pass. Module exported in services/__init__.py. Key test scenarios validated: Frank August Bourbon vs Rye (rejected), GlenAllachie Single Malt vs Blended (rejected on brand), same product different sources (accepted), port wine Vintage vs LBV (rejected), port wine Tawny vs Ruby (rejected).
+
+### Session: 2026-01-13
+**Agent:** Claude
+**Tasks Worked:** 4.1.1, 4.1.2, 4.1.3
+**Status:** Completed
+**Notes:** Verified all V3 modules have comprehensive documentation:
+- Module-level docstrings with spec references
+- Class and method docstrings with usage examples
+- Inline comments for complex logic
+- All 42/42 tasks now complete
 
 ### Session: [DATE]
 **Agent:** [AGENT_ID]

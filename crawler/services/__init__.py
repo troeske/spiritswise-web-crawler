@@ -5,6 +5,7 @@ Contains:
 - ai_client_v2: AI Service V2 extraction client with content preprocessing
 - config_service: Configuration and schema builder service (V2 Architecture)
 - quality_gate_v2: V2 Quality Gate using database-backed configuration
+- quality_gate_v3: V3 Quality Gate with ECP-based COMPLETE status (V3 Architecture)
 - enrichment_orchestrator_v2: Progressive multi-source enrichment (V2 Architecture Phase 4)
 - enrichment_pipeline_v3: 2-step enrichment pipeline for generic search (V3 Architecture)
 - content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
@@ -24,6 +25,12 @@ Contains:
 
 V1->V2 Migration: V1 ai_client removed. Use ai_client_v2 (AIClientV2) instead.
 AIEnhancementClient and EnhancementResult are now aliases to V2 classes for backward compatibility.
+
+V2->V3 Notes:
+- QualityGateV2 is used for Competition Flow (3-step pipeline)
+- QualityGateV3 is used for Generic Search Flow (2-step pipeline)
+- V3 introduces BASELINE status between PARTIAL and ENRICHED
+- V3 COMPLETE status requires 90% ECP (Enrichment Completion Percentage)
 """
 
 # V1->V2 Migration: Import V2 components with backward-compatible aliases
@@ -41,13 +48,29 @@ from crawler.services.ai_client_v2 import (
 AIEnhancementClient = AIClientV2
 get_ai_client = get_ai_client_v2
 from crawler.services.config_service import ConfigService, get_config_service
+
+# Quality Gate V2 (V2 Architecture - Competition Flow)
 from crawler.services.quality_gate_v2 import (
     QualityGateV2,
-    QualityAssessment,
-    ProductStatus,
+    QualityAssessment as QualityAssessmentV2,
+    ProductStatus as ProductStatusV2,
     get_quality_gate_v2,
     reset_quality_gate_v2,
 )
+# Backward-compatible aliases for V2 names (default to V2 for existing code)
+QualityAssessment = QualityAssessmentV2
+ProductStatus = ProductStatusV2
+
+# Quality Gate V3 (V3 Architecture - Generic Search Flow)
+from crawler.services.quality_gate_v3 import (
+    QualityGateV3,
+    QualityAssessment as QualityAssessmentV3,
+    ProductStatus as ProductStatusV3,
+    get_quality_gate_v3,
+    reset_quality_gate_v3,
+)
+
+# Enrichment Orchestrator V2 (V2 Architecture Phase 4 - Competition Flow)
 from crawler.services.enrichment_orchestrator_v2 import (
     EnrichmentOrchestratorV2,
     EnrichmentResult as EnrichmentResultV2,
@@ -55,6 +78,8 @@ from crawler.services.enrichment_orchestrator_v2 import (
     get_enrichment_orchestrator_v2,
     reset_enrichment_orchestrator_v2,
 )
+
+# Enrichment Pipeline V3 - 2-Step Pipeline for Generic Search (V3 Architecture)
 from crawler.services.enrichment_pipeline_v3 import (
     EnrichmentPipelineV3,
     EnrichmentResultV3,
@@ -62,6 +87,7 @@ from crawler.services.enrichment_pipeline_v3 import (
     get_enrichment_pipeline_v3,
     reset_enrichment_pipeline_v3,
 )
+
 from crawler.services.content_preprocessor import (
     ContentPreprocessor,
     ContentType,
@@ -107,22 +133,29 @@ from crawler.services.wayback import (
     cleanup_raw_content,
     get_pending_wayback_sources,
 )
+
+# Confidence-Based Merger (V3 Architecture)
 from crawler.services.confidence_merger import (
     ConfidenceBasedMerger,
     get_confidence_merger,
     reset_confidence_merger,
 )
+
+# Product Match Validator (V3 Architecture)
 from crawler.services.product_match_validator import (
     ProductMatchValidator,
     get_product_match_validator,
     reset_product_match_validator,
 )
+
+# Duplicate Detector (V3 Architecture Task 2.3)
 from crawler.services.duplicate_detector import (
     DuplicateDetector,
     get_duplicate_detector,
     reset_duplicate_detector,
 )
 
+# Product Pipeline with V3 Source Tracking (Task 2.2.6)
 from crawler.services.product_pipeline import (
     UnifiedProductPipeline,
     PipelineResult,
@@ -147,13 +180,21 @@ __all__ = [
     # Config service (V2 Architecture)
     "ConfigService",
     "get_config_service",
-    # Quality Gate V2 (V2 Architecture)
+    # Quality Gate V2 (V2 Architecture - Competition Flow)
     "QualityGateV2",
-    "QualityAssessment",
-    "ProductStatus",
+    "QualityAssessment",      # Default alias to V2
+    "QualityAssessmentV2",
+    "ProductStatus",          # Default alias to V2
+    "ProductStatusV2",
     "get_quality_gate_v2",
     "reset_quality_gate_v2",
-    # Enrichment Orchestrator V2 (V2 Architecture Phase 4)
+    # Quality Gate V3 (V3 Architecture - Generic Search Flow)
+    "QualityGateV3",
+    "QualityAssessmentV3",
+    "ProductStatusV3",
+    "get_quality_gate_v3",
+    "reset_quality_gate_v3",
+    # Enrichment Orchestrator V2 (V2 Architecture Phase 4 - Competition Flow)
     "EnrichmentOrchestratorV2",
     "EnrichmentResultV2",
     "EnrichmentSession",
@@ -214,7 +255,6 @@ __all__ = [
     "DuplicateDetector",
     "get_duplicate_detector",
     "reset_duplicate_detector",
-
     # Product Pipeline with V3 Source Tracking (Task 2.2.6)
     "UnifiedProductPipeline",
     "PipelineResult",
