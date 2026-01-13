@@ -219,8 +219,8 @@ class PortWineV3BudgetTests(TestCase):
 
     def test_port_wine_uses_v3_defaults(self):
         """Test port wine uses V3 budget defaults."""
-        with patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig') as mock_config:
-            from crawler.models import PipelineConfig as RealConfig
+        with patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig') as mock_config:
+            from crawler.models import ProductTypeConfig as RealConfig
             mock_config.DoesNotExist = RealConfig.DoesNotExist
             mock_config.objects.get.side_effect = RealConfig.DoesNotExist
 

@@ -63,12 +63,12 @@ class SessionCreationTests(TestCase):
         """Set up test fixtures."""
         self.orchestrator = EnrichmentOrchestratorV3()
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
+    @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
     def test_create_session_with_defaults(self, mock_config):
         """Test session creation uses V3 defaults."""
-        from crawler.models import PipelineConfig as RealPipelineConfig
-        mock_config.DoesNotExist = RealPipelineConfig.DoesNotExist
-        mock_config.objects.get.side_effect = RealPipelineConfig.DoesNotExist
+        from crawler.models import ProductTypeConfig as RealProductTypeConfig
+        mock_config.DoesNotExist = RealProductTypeConfig.DoesNotExist
+        mock_config.objects.get.side_effect = RealProductTypeConfig.DoesNotExist
 
         initial_data = {"name": "Test Whiskey", "brand": "Test"}
 
@@ -325,21 +325,21 @@ class AwardsQueryBuildingTests(TestCase):
         self.assertTrue("award" in query_lower or "medal" in query_lower)
 
 
-class PipelineConfigLoadingTests(TestCase):
-    """Tests for loading config from PipelineConfig."""
+class ProductTypeConfigLoadingTests(TestCase):
+    """Tests for loading config from ProductTypeConfig (consolidated)."""
 
     def setUp(self):
         """Set up test fixtures."""
         self.orchestrator = EnrichmentOrchestratorV3()
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
-    def test_loads_from_pipeline_config(self, mock_pipeline_config):
-        """Test budget limits loaded from PipelineConfig."""
+    @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
+    def test_loads_from_product_type_config(self, mock_product_type_config):
+        """Test budget limits loaded from ProductTypeConfig."""
         mock_config = MagicMock()
         mock_config.max_serpapi_searches = 5
         mock_config.max_sources_per_product = 7
         mock_config.max_enrichment_time_seconds = 150
-        mock_pipeline_config.objects.get.return_value = mock_config
+        mock_product_type_config.objects.get.return_value = mock_config
 
         limits = self.orchestrator._get_budget_limits("whiskey")
 
@@ -347,12 +347,12 @@ class PipelineConfigLoadingTests(TestCase):
         self.assertEqual(limits["max_sources"], 7)
         self.assertEqual(limits["max_time"], 150.0)
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
-    def test_falls_back_to_defaults(self, mock_pipeline_config):
+    @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
+    def test_falls_back_to_defaults(self, mock_product_type_config):
         """Test falls back to defaults when config not found."""
-        from crawler.models import PipelineConfig as RealPipelineConfig
-        mock_pipeline_config.DoesNotExist = RealPipelineConfig.DoesNotExist
-        mock_pipeline_config.objects.get.side_effect = RealPipelineConfig.DoesNotExist
+        from crawler.models import ProductTypeConfig as RealProductTypeConfig
+        mock_product_type_config.DoesNotExist = RealProductTypeConfig.DoesNotExist
+        mock_product_type_config.objects.get.side_effect = RealProductTypeConfig.DoesNotExist
 
         limits = self.orchestrator._get_budget_limits("whiskey")
 

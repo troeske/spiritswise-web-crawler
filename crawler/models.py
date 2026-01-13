@@ -836,20 +836,47 @@ class ProductTypeConfig(models.Model):
     )
 
     # ============================================
-    # Enrichment Limits (per product type)
+    # Enrichment Limits (V3 defaults - consolidated from PipelineConfig)
     # ============================================
 
     max_sources_per_product = models.IntegerField(
-        default=5,
-        help_text="Maximum number of sources to fetch per product during enrichment",
+        default=8,
+        help_text="Maximum sources to fetch per product (V3: increased from 5)",
     )
     max_serpapi_searches = models.IntegerField(
-        default=3,
-        help_text="Maximum SerpAPI searches per product (cost control)",
+        default=6,
+        help_text="Maximum SerpAPI searches per product (V3: increased from 3)",
     )
     max_enrichment_time_seconds = models.IntegerField(
-        default=120,
-        help_text="Maximum time in seconds for enrichment per product",
+        default=180,
+        help_text="Maximum enrichment time in seconds (V3: increased from 120)",
+    )
+
+    # ============================================
+    # Awards Search (V3 feature - moved from PipelineConfig)
+    # ============================================
+
+    awards_search_enabled = models.BooleanField(
+        default=True,
+        help_text="Enable dedicated awards search (Step 4 in V3 pipeline)",
+    )
+    awards_search_template = models.CharField(
+        max_length=500,
+        default="{name} {brand} awards medals competition winner",
+        help_text="Search template for awards discovery",
+    )
+
+    # ============================================
+    # Members-Only Site Detection (V3 feature - moved from PipelineConfig)
+    # ============================================
+
+    members_only_detection_enabled = models.BooleanField(
+        default=True,
+        help_text="Enable content analysis for members-only/paywall sites",
+    )
+    members_only_patterns = models.JSONField(
+        default=list,
+        help_text="Regex patterns to detect members-only sites (login forms, paywalls)",
     )
 
     # ============================================

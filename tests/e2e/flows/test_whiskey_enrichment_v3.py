@@ -285,8 +285,8 @@ class FullPipelineFlowTests(TestCase):
 
     def test_session_creation_with_v3_defaults(self):
         """Test session created with V3 defaults."""
-        with patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig') as mock_config:
-            from crawler.models import PipelineConfig as RealConfig
+        with patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig') as mock_config:
+            from crawler.models import ProductTypeConfig as RealConfig
             mock_config.DoesNotExist = RealConfig.DoesNotExist
             mock_config.objects.get.side_effect = RealConfig.DoesNotExist
 

@@ -3,7 +3,7 @@ Enrichment Orchestrator V3 - Enhanced multi-source product enrichment.
 
 V3 Changes from V2:
 - Updated budget defaults: 6 searches, 8 sources, 180s timeout
-- Uses PipelineConfig for per-product-type budget configuration
+- Uses ProductTypeConfig for per-product-type budget configuration (consolidated from PipelineConfig)
 - Integration with QualityGateV3 for V3 status levels
 - ECP calculation and persistence
 - Members-only site detection and budget refund (Tasks 4.2, 4.3)
@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from crawler.models import PipelineConfig, ProductTypeConfig
+from crawler.models import ProductTypeConfig
 from crawler.services.ai_client_v2 import AIClientV2, get_ai_client_v2
 from crawler.services.enrichment_orchestrator_v2 import (
     EnrichmentOrchestratorV2,
@@ -88,7 +88,7 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
 
     V3 Changes:
     - Default budget: 6 searches, 8 sources, 180s timeout
-    - Uses PipelineConfig for product-type specific limits
+    - Uses ProductTypeConfig for product-type specific limits (consolidated)
     - QualityGateV3 for V3 status hierarchy
     - ECP tracking in enrichment results
 
@@ -252,7 +252,7 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
         """
         Get budget limits for a product type.
 
-        Tries to load from PipelineConfig, falls back to V3 defaults.
+        Loads from ProductTypeConfig (consolidated V3 config), falls back to V3 defaults.
 
         Args:
             product_type: Product type (whiskey, port_wine, etc.)
@@ -265,25 +265,23 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
         max_time = self.DEFAULT_MAX_TIME_SECONDS
 
         try:
-            # Try to load from PipelineConfig (V3 model)
-            config = PipelineConfig.objects.get(
-                product_type_config__product_type=product_type
-            )
+            # Load from ProductTypeConfig (consolidated V3 config)
+            config = ProductTypeConfig.objects.get(product_type=product_type)
             max_searches = config.max_serpapi_searches or max_searches
             max_sources = config.max_sources_per_product or max_sources
             max_time = float(config.max_enrichment_time_seconds or max_time)
 
             logger.debug(
-                "Using PipelineConfig limits for %s: searches=%d, sources=%d, time=%.0fs",
+                "Using ProductTypeConfig limits for %s: searches=%d, sources=%d, time=%.0fs",
                 product_type,
                 max_searches,
                 max_sources,
                 max_time,
             )
 
-        except PipelineConfig.DoesNotExist:
+        except ProductTypeConfig.DoesNotExist:
             logger.debug(
-                "PipelineConfig not found for %s, using V3 defaults",
+                "ProductTypeConfig not found for %s, using V3 defaults",
                 product_type,
             )
 

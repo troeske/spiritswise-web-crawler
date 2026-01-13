@@ -45,70 +45,58 @@ class SearchBudgetDefaultsTests(TestCase):
 
 
 class SearchBudgetFromConfigTests(TestCase):
-    """Tests for loading budget from PipelineConfig."""
+    """Tests for loading budget from ProductTypeConfig (consolidated)."""
 
     def setUp(self):
         """Set up test fixtures."""
         from crawler.services.enrichment_orchestrator_v3 import EnrichmentOrchestratorV3
         self.orchestrator = EnrichmentOrchestratorV3()
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
     @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
-    def test_uses_pipeline_config_max_searches(
-        self, mock_product_type_config, mock_pipeline_config
-    ):
-        """Test uses max_serpapi_searches from PipelineConfig."""
+    def test_uses_product_type_config_max_searches(self, mock_product_type_config):
+        """Test uses max_serpapi_searches from ProductTypeConfig."""
         mock_config = MagicMock()
         mock_config.max_serpapi_searches = 10
         mock_config.max_sources_per_product = 8
         mock_config.max_enrichment_time_seconds = 180
-        mock_pipeline_config.objects.get.return_value = mock_config
-        mock_product_type_config.DoesNotExist = Exception
+        mock_product_type_config.objects.get.return_value = mock_config
 
         limits = self.orchestrator._get_budget_limits("whiskey")
 
         self.assertEqual(limits["max_searches"], 10)
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
     @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
-    def test_uses_pipeline_config_max_sources(
-        self, mock_product_type_config, mock_pipeline_config
-    ):
-        """Test uses max_sources_per_product from PipelineConfig."""
+    def test_uses_product_type_config_max_sources(self, mock_product_type_config):
+        """Test uses max_sources_per_product from ProductTypeConfig."""
         mock_config = MagicMock()
         mock_config.max_serpapi_searches = 6
         mock_config.max_sources_per_product = 12
         mock_config.max_enrichment_time_seconds = 180
-        mock_pipeline_config.objects.get.return_value = mock_config
-        mock_product_type_config.DoesNotExist = Exception
+        mock_product_type_config.objects.get.return_value = mock_config
 
         limits = self.orchestrator._get_budget_limits("whiskey")
 
         self.assertEqual(limits["max_sources"], 12)
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
     @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
-    def test_uses_pipeline_config_max_time(
-        self, mock_product_type_config, mock_pipeline_config
-    ):
-        """Test uses max_enrichment_time_seconds from PipelineConfig."""
+    def test_uses_product_type_config_max_time(self, mock_product_type_config):
+        """Test uses max_enrichment_time_seconds from ProductTypeConfig."""
         mock_config = MagicMock()
         mock_config.max_serpapi_searches = 6
         mock_config.max_sources_per_product = 8
         mock_config.max_enrichment_time_seconds = 300
-        mock_pipeline_config.objects.get.return_value = mock_config
-        mock_product_type_config.DoesNotExist = Exception
+        mock_product_type_config.objects.get.return_value = mock_config
 
         limits = self.orchestrator._get_budget_limits("whiskey")
 
         self.assertEqual(limits["max_time"], 300.0)
 
-    @patch('crawler.services.enrichment_orchestrator_v3.PipelineConfig')
-    def test_falls_back_to_defaults_when_no_config(self, mock_pipeline_config):
-        """Test falls back to V3 defaults when no PipelineConfig."""
-        from crawler.models import PipelineConfig as RealPipelineConfig
-        mock_pipeline_config.DoesNotExist = RealPipelineConfig.DoesNotExist
-        mock_pipeline_config.objects.get.side_effect = RealPipelineConfig.DoesNotExist
+    @patch('crawler.services.enrichment_orchestrator_v3.ProductTypeConfig')
+    def test_falls_back_to_defaults_when_no_config(self, mock_product_type_config):
+        """Test falls back to V3 defaults when no ProductTypeConfig."""
+        from crawler.models import ProductTypeConfig as RealProductTypeConfig
+        mock_product_type_config.DoesNotExist = RealProductTypeConfig.DoesNotExist
+        mock_product_type_config.objects.get.side_effect = RealProductTypeConfig.DoesNotExist
 
         limits = self.orchestrator._get_budget_limits("whiskey")
 
