@@ -24,11 +24,49 @@
 Upgrade the Generic Search Discovery flow to match the maturity and reliability of the Competition Flow (IWSC), incorporating all learnings from E2E testing.
 
 ### 1.2 Goals
-- Implement 3-step enrichment pipeline (detail → producer → review sites)
+- Implement 2-step enrichment pipeline (producer → review sites)
 - Add robust product match validation to prevent cross-contamination
 - Implement category-specific quality requirements
 - Add comprehensive source tracking and auditing
 - Achieve 90%+ data quality for discovered products
+
+### 1.4 Key Difference from Competition Flow
+
+**Competition Flow (IWSC):**
+- List page contains `detail_url` links to individual product pages
+- Step 1 (detail page) extracts from authoritative competition site
+- 3-step pipeline: Detail → Producer → Review Sites
+
+**Generic Search Flow:**
+- List pages are listicles/roundups (Forbes, VinePair, etc.)
+- Products listed inline with brief descriptions, NO detail links
+- External links go to retailers, not authoritative sources
+- **2-step pipeline: Producer → Review Sites**
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│           GENERIC SEARCH vs COMPETITION FLOW                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                     │
+│  COMPETITION (IWSC):                                                │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐      │
+│  │ List Page│ →  │ Detail   │ →  │ Producer │ →  │ Review   │      │
+│  │ (awards) │    │ Page     │    │ Page     │    │ Sites    │      │
+│  └──────────┘    │ (0.95)   │    │ (0.85)   │    │ (0.70)   │      │
+│       ↓          └──────────┘    └──────────┘    └──────────┘      │
+│  detail_url ✓                                                       │
+│                                                                     │
+│  GENERIC SEARCH:                                                    │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐                      │
+│  │ Listicle │ →  │ Producer │ →  │ Review   │                      │
+│  │ (Forbes) │    │ Page     │    │ Sites    │                      │
+│  └──────────┘    │ (0.85)   │    │ (0.70)   │                      │
+│       ↓          └──────────┘    └──────────┘                      │
+│  detail_url ✗                                                       │
+│  (inline text)                                                      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+```
 
 ### 1.3 Scope
 - `DiscoveryOrchestratorV2` → `DiscoveryOrchestratorV3`
@@ -42,12 +80,24 @@ Upgrade the Generic Search Discovery flow to match the maturity and reliability 
 
 ### 2.1 Architecture Patterns (COMP-LEARN-001)
 
-**3-Step Enrichment Pipeline:**
+**Competition Flow - 3-Step Pipeline (for reference):**
 ```
 Step 1: Detail Page    → High confidence (0.95), single authoritative source
 Step 2: Producer Page  → Search + filter for official brand sites (0.85+)
 Step 3: Review Sites   → Multi-source with diminishing returns, stop at COMPLETE
 ```
+
+**Generic Search Flow - 2-Step Pipeline (adapted):**
+```
+Step 1: Producer Page  → Search "{brand} {name} official" for brand sites (0.85+)
+Step 2: Review Sites   → Multi-source enrichment, stop at COMPLETE (90% ECP)
+```
+
+**Why No Detail Page Step:**
+- Generic search returns listicles (Forbes "Best Bourbons 2025")
+- Products listed inline with brief text, no `detail_url` available
+- External links point to retailers (Total Wine), not authoritative sources
+- Skeleton extraction captures what's available on list page
 
 **Key Insight:** Sequential funnel with early exit optimization reduces API costs while maintaining quality.
 
@@ -132,7 +182,7 @@ REJECTED → SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
 
 | Gap ID | Description | Impact | Priority |
 |--------|-------------|--------|----------|
-| GAP-001 | No 3-step enrichment pipeline | Lower data quality | P0 |
+| GAP-001 | No 2-step enrichment pipeline | Lower data quality | P0 |
 | GAP-002 | No product match validation | Cross-contamination risk | P0 |
 | GAP-003 | No category-specific requirements | Blends stuck at PARTIAL | P1 |
 | GAP-004 | No type normalization | Arrays returned as strings | P1 |
@@ -155,19 +205,19 @@ REJECTED → SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
 │         ↓                                              ↓         │
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │                 EnrichmentPipelineV3                         │ │
-│  │  ┌──────────┐   ┌──────────────┐   ┌────────────────┐       │ │
-│  │  │ Step 1   │ → │   Step 2     │ → │    Step 3      │       │ │
-│  │  │ Detail   │   │  Producer    │   │  Review Sites  │       │ │
-│  │  │ Page     │   │  Page Search │   │  Multi-source  │       │ │
-│  │  └──────────┘   └──────────────┘   └────────────────┘       │ │
-│  │       ↓                ↓                   ↓                 │ │
+│  │  ┌──────────────┐   ┌────────────────┐                      │ │
+│  │  │   Step 1     │ → │    Step 2      │                      │ │
+│  │  │  Producer    │   │  Review Sites  │                      │ │
+│  │  │  Page Search │   │  Multi-source  │                      │ │
+│  │  └──────────────┘   └────────────────┘                      │ │
+│  │            ↓                   ↓                            │ │
 │  │  ┌─────────────────────────────────────────────────────────┐ │ │
 │  │  │              ProductMatchValidator                       │ │ │
 │  │  │  - Brand matching                                        │ │ │
 │  │  │  - Product type keywords                                 │ │ │
 │  │  │  - Name token overlap                                    │ │ │
 │  │  └─────────────────────────────────────────────────────────┘ │ │
-│  │       ↓                ↓                   ↓                 │ │
+│  │            ↓                   ↓                            │ │
 │  │  ┌─────────────────────────────────────────────────────────┐ │ │
 │  │  │              ConfidenceBasedMerger                       │ │ │
 │  │  │  - Higher confidence wins                                │ │ │
@@ -194,13 +244,12 @@ REJECTED → SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
 ### 4.2 Data Flow
 
 ```
-1. SearchTerm → SerpAPI → URL List
+1. SearchTerm → SerpAPI → URL List (listicles, review sites)
 2. URL → SmartRouter → HTML Content
-3. Content → AIClientV2 → Extracted Products (skeleton)
-4. For each product with detail_url:
-   4.1 Detail Page → Full extraction → Confidence 0.95
-   4.2 IF not COMPLETE: Producer search → Filter official → Extract
-   4.3 IF not COMPLETE: Review sites → Multi-source → Stop at COMPLETE
+3. Content → AIClientV2 → Extracted Products (skeleton from inline text)
+4. For each extracted product:
+   4.1 Step 1: Producer search "{brand} {name} official" → Filter official → Extract
+   4.2 IF not COMPLETE: Step 2: Review sites → Multi-source → Stop at COMPLETE
 5. Each extraction → ProductMatchValidator → Accept/Reject
 6. Accepted data → ConfidenceBasedMerger → Merged product
 7. Merged product → QualityGateV3 → Status assessment
@@ -211,37 +260,21 @@ REJECTED → SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
 
 ## 5. Feature Specifications
 
-### 5.1 3-Step Enrichment Pipeline (FEAT-001)
+### 5.1 2-Step Enrichment Pipeline (FEAT-001)
 
 **Reference:** COMP-LEARN-001
 
-#### 5.1.1 Step 1: Detail Page Extraction
+> **Note:** Generic search uses a 2-step pipeline (Producer → Review Sites) because
+> search results are listicles with inline product text, not detail page links.
+> See Section 1.4 for comparison with Competition Flow's 3-step pipeline.
 
-**Purpose:** Extract from product detail page with highest confidence.
-
-**Input:**
-- `detail_url` from skeleton extraction
-- `product_type` for schema selection
-
-**Process:**
-1. Resolve relative URLs to absolute
-2. Fetch via SmartRouter (Tier 2/3 for JS-heavy sites)
-3. Extract with full schema
-4. Apply confidence floor of 0.95
-
-**Output:**
-- Extracted data dict
-- Field confidences dict (all >= 0.95)
-
-**Exit Condition:** If status reaches COMPLETE after Step 1, skip Steps 2-3.
-
-#### 5.1.2 Step 2: Producer Page Search
+#### 5.1.1 Step 1: Producer Page Search
 
 **Purpose:** Find and extract from official brand/producer website.
 
 **Input:**
-- Product data (name, brand, producer)
-- `product_type`
+- Product data (name, brand, producer) from skeleton extraction
+- `product_type` for schema selection
 
 **Process:**
 1. Build search query: `"{brand} {name} official"`
@@ -257,16 +290,16 @@ REJECTED → SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
 
 **Output:**
 - Extracted data dict
-- Field confidences dict
+- Field confidences dict (0.85-0.95 for official sites)
 
-**Exit Condition:** If status reaches COMPLETE after Step 2, skip Step 3.
+**Exit Condition:** If status reaches COMPLETE after Step 1, skip Step 2.
 
-#### 5.1.3 Step 3: Review Site Enrichment
+#### 5.1.2 Step 2: Review Site Enrichment
 
-**Purpose:** Fill remaining fields from review sites.
+**Purpose:** Fill remaining fields from review sites when producer page didn't reach COMPLETE.
 
 **Input:**
-- Current product data
+- Current product data (after Step 1)
 - Missing fields list
 - EnrichmentConfig templates
 
@@ -278,7 +311,7 @@ REJECTED → SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
    - For each URL (until limits):
      - Fetch and extract
      - Validate product match
-     - If match: merge by confidence
+     - If match: merge by confidence (0.70-0.80)
      - Update session tracking
    - Check exit conditions
 
@@ -391,7 +424,7 @@ class DiscoveryResultV3:
     sources_used: List[str]           # URLs that provided data
     sources_rejected: List[Dict]      # URLs rejected with reasons
     field_provenance: Dict[str, str]  # field_name → source_url
-    enrichment_steps_completed: int   # 0-3
+    enrichment_steps_completed: int   # 0-2 (producer page, review sites)
     status_progression: List[str]     # ["skeleton", "partial", "baseline"]
 ```
 
@@ -461,10 +494,9 @@ class EnrichmentSessionV3:
     current_data: Dict[str, Any]
     field_confidences: Dict[str, float]
 
-    # 3-Step Tracking
-    step_1_completed: bool = False
-    step_2_completed: bool = False
-    step_3_completed: bool = False
+    # 2-Step Tracking
+    step_1_completed: bool = False  # Producer page search
+    step_2_completed: bool = False  # Review site enrichment
 
     # Source Tracking
     sources_searched: List[str] = field(default_factory=list)
@@ -521,15 +553,16 @@ class DiscoveryOrchestratorV3:
         self,
         product_data: Dict[str, Any],
         product_type: str,
-        detail_url: Optional[str] = None,
     ) -> EnrichmentResultV3:
         """
-        Execute 3-step enrichment pipeline for a product.
+        Execute 2-step enrichment pipeline for a product.
+
+        Step 1: Search for official producer/brand page
+        Step 2: Search review sites (if still incomplete)
 
         Args:
-            product_data: Initial product data (skeleton)
+            product_data: Initial product data (skeleton from listicle)
             product_type: Product type for schema selection
-            detail_url: Optional detail page URL for Step 1
 
         Returns:
             EnrichmentResultV3 with enriched data and tracking
@@ -605,7 +638,7 @@ All features must be implemented using Test-Driven Development:
 - `DuplicateDetector` - Deduplication logic
 
 #### 9.2.2 Integration Tests
-- 3-step enrichment pipeline flow
+- 2-step enrichment pipeline flow (producer → review sites)
 - QualityGateV3 integration
 - Source tracking persistence
 - AI service integration
@@ -632,7 +665,7 @@ Use real URLs from `tests/e2e/utils/real_urls.py`:
 
 | ID | Criterion | Measurement |
 |----|-----------|-------------|
-| SC-001 | 3-step enrichment pipeline operational | All 3 steps execute correctly |
+| SC-001 | 2-step enrichment pipeline operational | Both steps execute correctly |
 | SC-002 | Product match validation prevents cross-contamination | 0 wrong-product enrichments |
 | SC-003 | Category exemptions work correctly | Blends reach BASELINE without region/cask |
 | SC-004 | Confidence-based merging works | Higher confidence always wins |

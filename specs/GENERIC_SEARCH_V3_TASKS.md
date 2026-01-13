@@ -105,7 +105,7 @@ Create `ConfidenceBasedMerger` class that merges extracted data based on confide
   - **Notes:**
 
 - [ ] **1.2.3** Add integration test with real extraction data
-  - Test merging detail page (0.95) with review site (0.7)
+  - Test merging producer page (0.85) with review site (0.70)
   - Verify higher confidence data retained
   - **Status:**
   - **Completed:**
@@ -113,62 +113,57 @@ Create `ConfidenceBasedMerger` class that merges extracted data based on confide
 
 #### Acceptance Criteria
 - [ ] All unit tests pass
-- [ ] Detail page data (0.95) not overwritten by review site (0.7)
+- [ ] Producer page data (0.85) not overwritten by review site (0.70)
 - [ ] Arrays correctly merged without duplicates
 
 ---
 
-### Task 1.3: 3-Step Enrichment Pipeline
+### Task 1.3: 2-Step Enrichment Pipeline
 **Spec Reference:** Section 5.1 (FEAT-001)
 **Assigned To:** `implementer` subagent
 **Priority:** P0
 **Estimated Complexity:** High
 
 #### Description
-Implement the 3-step enrichment pipeline in `EnrichmentOrchestratorV3`.
+Implement the 2-step enrichment pipeline in `EnrichmentOrchestratorV3`.
+
+> **Note:** Generic search uses a 2-step pipeline (Producer → Review Sites) because
+> search results are listicles with inline product text, not detail page links.
+> See spec Section 1.4 for comparison with Competition Flow's 3-step pipeline.
 
 #### Subtasks
 - [ ] **1.3.1** Create test file `crawler/tests/unit/services/test_enrichment_pipeline_v3.py`
-  - Test Step 1: Detail page extraction
-  - Test Step 2: Producer page search and filter
-  - Test Step 3: Review site enrichment
+  - Test Step 1: Producer page search and filter
+  - Test Step 2: Review site enrichment
   - Test early exit when COMPLETE reached
   - Test limit enforcement (max_searches, max_sources, max_time)
   - **Status:**
   - **Completed:**
   - **Notes:**
 
-- [ ] **1.3.2** Implement `_extract_from_detail_page()` in enrichment_orchestrator_v3.py
-  - Resolve relative URLs
-  - Fetch via SmartRouter
-  - Extract with full schema
-  - Apply 0.95 confidence floor
-  - **Status:**
-  - **Completed:**
-  - **Notes:**
-
-- [ ] **1.3.3** Implement `_search_and_extract_producer_page()`
+- [ ] **1.3.2** Implement `_search_and_extract_producer_page()`
   - Build search query "{brand} {name} official"
   - Filter URLs by priority (official > non-retailer > retailer)
   - Validate product match before accepting
-  - Apply confidence boost (+0.1)
+  - Apply confidence boost (+0.1, max 0.95)
   - **Status:**
   - **Completed:**
   - **Notes:**
 
-- [ ] **1.3.4** Implement `_enrich_from_review_sites()`
+- [ ] **1.3.3** Implement `_enrich_from_review_sites()`
   - Load EnrichmentConfigs by priority
   - Execute search with templates
   - Iterate sources until limits/COMPLETE
   - Validate product match for each source
+  - Apply confidence 0.70-0.80 for review sites
   - **Status:**
   - **Completed:**
   - **Notes:**
 
-- [ ] **1.3.5** Implement main `enrich_product()` orchestration
-  - Execute steps sequentially
-  - Check status after each step
-  - Early exit if COMPLETE
+- [ ] **1.3.4** Implement main `enrich_product()` orchestration
+  - Execute Step 1 (producer page search)
+  - Check status → if COMPLETE, skip Step 2
+  - Execute Step 2 (review site enrichment)
   - Track all sources
   - **Status:**
   - **Completed:**
@@ -251,7 +246,7 @@ Enhance source tracking with comprehensive audit trail.
   - **Notes:**
 
 - [ ] **2.2.3** Update `EnrichmentSessionV3` dataclass
-  - Add 3-step tracking fields
+  - Add 2-step tracking fields (producer page, review sites)
   - Add field_provenance dict
   - Add status_progression list
   - **Status:**
@@ -343,7 +338,7 @@ Create comprehensive E2E test matching competition flow quality.
   - **Notes:**
 
 - [ ] **3.1.3** Implement enrichment pipeline tests
-  - Test 3-step pipeline with real URLs
+  - Test 2-step pipeline with real URLs (producer → review sites)
   - Test product match validation
   - Test status progression tracking
   - **Status:**
@@ -465,14 +460,14 @@ Create test data and fixtures for E2E testing.
 
 | Phase | Total Tasks | Completed | In Progress | Blocked |
 |-------|-------------|-----------|-------------|---------|
-| Phase 1 | 15 | 0 | 0 | 0 |
+| Phase 1 | 14 | 0 | 0 | 0 |
 | Phase 2 | 12 | 0 | 0 | 0 |
 | Phase 3 | 8 | 0 | 0 | 0 |
 | Phase 4 | 6 | 0 | 0 | 0 |
-| **Total** | **41** | **0** | **0** | **0** |
+| **Total** | **40** | **0** | **0** | **0** |
 
 **Last Updated:** 2026-01-13
-**Updated By:** Initial creation
+**Updated By:** Updated to 2-step pipeline (removed detail page extraction task)
 
 ---
 
