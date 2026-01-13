@@ -19,6 +19,8 @@ Contains:
 - wayback: Wayback Machine integration service
 - confidence_merger: Confidence-based data merging (V3 Architecture)
 - product_match_validator: Product match validation to prevent cross-contamination (V3 Architecture)
+- duplicate_detector: URL/content/product deduplication (V3 Architecture Task 2.3)
+- product_pipeline: Unified product pipeline with V3 source tracking (Task 2.2.6)
 
 V1->V2 Migration: V1 ai_client removed. Use ai_client_v2 (AIClientV2) instead.
 AIEnhancementClient and EnhancementResult are now aliases to V2 classes for backward compatibility.
@@ -115,6 +117,19 @@ from crawler.services.product_match_validator import (
     get_product_match_validator,
     reset_product_match_validator,
 )
+from crawler.services.duplicate_detector import (
+    DuplicateDetector,
+    get_duplicate_detector,
+    reset_duplicate_detector,
+)
+
+from crawler.services.product_pipeline import (
+    UnifiedProductPipeline,
+    PipelineResult,
+    SourceTrackingData,
+    create_source_tracking_from_enrichment_result,
+    update_product_source_tracking,
+)
 
 __all__ = [
     # AI Client (V2 with V1-compatible aliases)
@@ -195,4 +210,15 @@ __all__ = [
     "ProductMatchValidator",
     "get_product_match_validator",
     "reset_product_match_validator",
+    # Duplicate Detector (V3 Architecture Task 2.3)
+    "DuplicateDetector",
+    "get_duplicate_detector",
+    "reset_duplicate_detector",
+
+    # Product Pipeline with V3 Source Tracking (Task 2.2.6)
+    "UnifiedProductPipeline",
+    "PipelineResult",
+    "SourceTrackingData",
+    "create_source_tracking_from_enrichment_result",
+    "update_product_source_tracking",
 ]

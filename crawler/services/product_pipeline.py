@@ -11,6 +11,7 @@ The pipeline ensures:
 3. Status determination requiring palate for COMPLETE/VERIFIED
 4. Proper brand resolution and deduplication
 5. Database persistence with all extracted fields
+6. V3 Source tracking persistence for audit trail
 
 Usage:
     pipeline = UnifiedProductPipeline()
@@ -22,16 +23,43 @@ V2 Migration (2026-01-11):
     - Updated to use AIExtractorV2 instead of AIExtractor
     - Updated to use AIClientV2 instead of AIEnhancementClient
     - V2 components provide field confidence scores and tasting note extraction
+
+V3 Source Tracking (2026-01-13):
+    - Task 2.2.6: Added source tracking persistence
+    - Persists enrichment_sources_searched, enrichment_sources_used,
+      enrichment_sources_rejected, field_provenance, enrichment_steps_completed,
+      and last_enrichment_at from EnrichmentResult to DiscoveredProduct
+    - Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.6.2
 """
 
 import logging
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from asgiref.sync import sync_to_async
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SourceTrackingData:
+    """
+    V3 Source tracking data for enrichment audit trail.
+
+    Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.6.2
+
+    Used to pass source tracking information from enrichment results
+    to product save operations.
+    """
+
+    sources_searched: List[str] = field(default_factory=list)
+    sources_used: List[str] = field(default_factory=list)
+    sources_rejected: List[Dict[str, str]] = field(default_factory=list)
+    field_provenance: Dict[str, str] = field(default_factory=dict)
+    enrichment_steps_completed: int = 0
 
 
 @dataclass
@@ -57,6 +85,7 @@ class UnifiedProductPipeline:
     - Brand resolution
     - Deduplication
     - Database persistence
+    - V3 Source tracking persistence
     """
 
     # Scoring weights matching the spec
@@ -547,11 +576,27 @@ class UnifiedProductPipeline:
         status: str,
         context: Dict[str, Any],
         award_data: Optional[Dict[str, Any]] = None,
+        source_tracking: Optional[SourceTrackingData] = None,
     ):
         """
         Save product to database.
 
         Creates a new DiscoveredProduct with all extracted fields populated.
+
+        V3 Source Tracking (Task 2.2.6):
+        - If source_tracking is provided, persists enrichment source data
+        - Sets last_enrichment_at to current timestamp
+
+        Args:
+            url: Source URL
+            extracted_data: Extracted product data
+            brand: Resolved brand instance
+            product_type: Product type
+            completeness_score: Calculated completeness score
+            status: Product status
+            context: Processing context
+            award_data: Optional award data to attach
+            source_tracking: Optional V3 source tracking data from enrichment
         """
         from crawler.models import DiscoveredProduct, DiscoverySource
         import hashlib
@@ -573,6 +618,7 @@ class UnifiedProductPipeline:
                 completeness_score,
                 status,
                 award_data,
+                source_tracking,
             )
 
         # Determine discovery source
@@ -607,6 +653,10 @@ class UnifiedProductPipeline:
             if award_data:
                 product.awards = [award_data]
 
+            # V3 Source Tracking (Task 2.2.6)
+            if source_tracking:
+                self._populate_source_tracking(product, source_tracking)
+
             product.save()
             return product
 
@@ -620,12 +670,17 @@ class UnifiedProductPipeline:
         completeness_score: int,
         status: str,
         award_data: Optional[Dict[str, Any]] = None,
+        source_tracking: Optional[SourceTrackingData] = None,
     ):
         """
         Update an existing product with new data.
 
         Merges new data without overwriting existing non-empty fields
         unless the new data is more complete.
+
+        V3 Source Tracking (Task 2.2.6):
+        - Merges source tracking data with existing tracking
+        - Updates last_enrichment_at timestamp
         """
         @sync_to_async
         def _update():
@@ -657,10 +712,104 @@ class UnifiedProductPipeline:
             # Increment source count
             product.source_count = (product.source_count or 1) + 1
 
+            # V3 Source Tracking (Task 2.2.6)
+            if source_tracking:
+                self._merge_source_tracking(product, source_tracking)
+
             product.save()
             return product
 
         return await _update()
+
+    def _populate_source_tracking(
+        self,
+        product,
+        source_tracking: SourceTrackingData,
+    ) -> None:
+        """
+        Populate V3 source tracking fields on a new product.
+
+        Task 2.2.6: Persists enrichment source data for audit trail.
+        Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.6.2
+
+        Args:
+            product: DiscoveredProduct instance to populate
+            source_tracking: SourceTrackingData with enrichment audit data
+        """
+        product.enrichment_sources_searched = source_tracking.sources_searched or []
+        product.enrichment_sources_used = source_tracking.sources_used or []
+        product.enrichment_sources_rejected = source_tracking.sources_rejected or []
+        product.field_provenance = source_tracking.field_provenance or {}
+        product.enrichment_steps_completed = source_tracking.enrichment_steps_completed
+        product.last_enrichment_at = timezone.now()
+
+        logger.debug(
+            "Populated source tracking: searched=%d, used=%d, rejected=%d, steps=%d",
+            len(product.enrichment_sources_searched),
+            len(product.enrichment_sources_used),
+            len(product.enrichment_sources_rejected),
+            product.enrichment_steps_completed,
+        )
+
+    def _merge_source_tracking(
+        self,
+        product,
+        source_tracking: SourceTrackingData,
+    ) -> None:
+        """
+        Merge V3 source tracking fields into an existing product.
+
+        Task 2.2.6: Accumulates source tracking data across enrichment runs.
+        Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.6.2
+
+        Merge strategy:
+        - sources_searched: Append unique URLs
+        - sources_used: Append unique URLs
+        - sources_rejected: Append all (preserves history)
+        - field_provenance: Update with new mappings (newer wins)
+        - enrichment_steps_completed: Take max value
+        - last_enrichment_at: Always update to current time
+
+        Args:
+            product: DiscoveredProduct instance to update
+            source_tracking: SourceTrackingData with new enrichment data
+        """
+        # Merge sources_searched (unique URLs)
+        existing_searched = set(product.enrichment_sources_searched or [])
+        new_searched = set(source_tracking.sources_searched or [])
+        product.enrichment_sources_searched = list(existing_searched | new_searched)
+
+        # Merge sources_used (unique URLs)
+        existing_used = set(product.enrichment_sources_used or [])
+        new_used = set(source_tracking.sources_used or [])
+        product.enrichment_sources_used = list(existing_used | new_used)
+
+        # Append sources_rejected (preserve full history)
+        existing_rejected = product.enrichment_sources_rejected or []
+        new_rejected = source_tracking.sources_rejected or []
+        product.enrichment_sources_rejected = existing_rejected + new_rejected
+
+        # Merge field_provenance (newer mappings win)
+        existing_provenance = product.field_provenance or {}
+        new_provenance = source_tracking.field_provenance or {}
+        existing_provenance.update(new_provenance)
+        product.field_provenance = existing_provenance
+
+        # Take max enrichment_steps_completed
+        existing_steps = product.enrichment_steps_completed or 0
+        new_steps = source_tracking.enrichment_steps_completed or 0
+        product.enrichment_steps_completed = max(existing_steps, new_steps)
+
+        # Always update last_enrichment_at
+        product.last_enrichment_at = timezone.now()
+
+        logger.debug(
+            "Merged source tracking: searched=%d, used=%d, rejected=%d, steps=%d",
+            len(product.enrichment_sources_searched),
+            len(product.enrichment_sources_used),
+            len(product.enrichment_sources_rejected),
+            product.enrichment_steps_completed,
+        )
 
     def _populate_product_fields(self, product, extracted_data: Dict[str, Any]):
         """
@@ -855,3 +1004,129 @@ class UnifiedProductPipeline:
 
         fingerprint_str = json.dumps(key_fields, sort_keys=True)
         return hashlib.sha256(fingerprint_str.encode()).hexdigest()
+
+
+def create_source_tracking_from_enrichment_result(
+    enrichment_result,
+) -> SourceTrackingData:
+    """
+    Create SourceTrackingData from an EnrichmentResult or EnrichmentResultV3.
+
+    Task 2.2.6: Helper function to convert enrichment results to source tracking.
+
+    This function handles both V2 EnrichmentResult and V3 EnrichmentResultV3
+    dataclasses, extracting the relevant source tracking fields.
+
+    Args:
+        enrichment_result: An EnrichmentResult or EnrichmentResultV3 instance
+
+    Returns:
+        SourceTrackingData populated from the enrichment result
+    """
+    # Handle V3 EnrichmentResultV3 with step tracking
+    if hasattr(enrichment_result, 'step_1_completed') and hasattr(enrichment_result, 'step_2_completed'):
+        steps_completed = 0
+        if enrichment_result.step_1_completed:
+            steps_completed += 1
+        if enrichment_result.step_2_completed:
+            steps_completed += 1
+    else:
+        # V2 doesn't have step tracking, estimate from sources used
+        steps_completed = min(2, len(getattr(enrichment_result, 'sources_used', [])))
+
+    return SourceTrackingData(
+        sources_searched=getattr(enrichment_result, 'sources_searched', []) or [],
+        sources_used=getattr(enrichment_result, 'sources_used', []) or [],
+        sources_rejected=getattr(enrichment_result, 'sources_rejected', []) or [],
+        field_provenance=getattr(enrichment_result, 'field_provenance', {}) or {},
+        enrichment_steps_completed=steps_completed,
+    )
+
+
+async def update_product_source_tracking(
+    product_id: uuid.UUID,
+    source_tracking: SourceTrackingData,
+) -> bool:
+    """
+    Update source tracking fields on an existing product.
+
+    Task 2.2.6: Standalone function to update source tracking after enrichment.
+
+    This function can be called after enrichment completes to persist the
+    source tracking data without going through the full save pipeline.
+
+    Args:
+        product_id: UUID of the product to update
+        source_tracking: SourceTrackingData with enrichment audit data
+
+    Returns:
+        True if update succeeded, False otherwise
+    """
+    from crawler.models import DiscoveredProduct
+
+    @sync_to_async
+    def _update_tracking():
+        try:
+            product = DiscoveredProduct.objects.get(id=product_id)
+
+            # Merge source tracking data
+            # sources_searched: Append unique URLs
+            existing_searched = set(product.enrichment_sources_searched or [])
+            new_searched = set(source_tracking.sources_searched or [])
+            product.enrichment_sources_searched = list(existing_searched | new_searched)
+
+            # sources_used: Append unique URLs
+            existing_used = set(product.enrichment_sources_used or [])
+            new_used = set(source_tracking.sources_used or [])
+            product.enrichment_sources_used = list(existing_used | new_used)
+
+            # sources_rejected: Append all
+            existing_rejected = product.enrichment_sources_rejected or []
+            new_rejected = source_tracking.sources_rejected or []
+            product.enrichment_sources_rejected = existing_rejected + new_rejected
+
+            # field_provenance: Update with new mappings
+            existing_provenance = product.field_provenance or {}
+            new_provenance = source_tracking.field_provenance or {}
+            existing_provenance.update(new_provenance)
+            product.field_provenance = existing_provenance
+
+            # enrichment_steps_completed: Take max
+            existing_steps = product.enrichment_steps_completed or 0
+            new_steps = source_tracking.enrichment_steps_completed or 0
+            product.enrichment_steps_completed = max(existing_steps, new_steps)
+
+            # Always update timestamp
+            product.last_enrichment_at = timezone.now()
+
+            # Save with skip_status_update to avoid recalculating status
+            product.save(
+                update_fields=[
+                    'enrichment_sources_searched',
+                    'enrichment_sources_used',
+                    'enrichment_sources_rejected',
+                    'field_provenance',
+                    'enrichment_steps_completed',
+                    'last_enrichment_at',
+                ],
+                skip_status_update=True,
+            )
+
+            logger.info(
+                "Updated source tracking for product %s: searched=%d, used=%d, rejected=%d",
+                product_id,
+                len(product.enrichment_sources_searched),
+                len(product.enrichment_sources_used),
+                len(product.enrichment_sources_rejected),
+            )
+
+            return True
+
+        except DiscoveredProduct.DoesNotExist:
+            logger.warning("Product %s not found for source tracking update", product_id)
+            return False
+        except Exception as e:
+            logger.exception("Failed to update source tracking for product %s: %s", product_id, e)
+            return False
+
+    return await _update_tracking()
