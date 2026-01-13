@@ -451,26 +451,42 @@ class TestIWSCCompetitionFlow:
                 logger.info("Loading base_fields.json fixture...")
                 call_command("loaddata", "base_fields.json", verbosity=0)
 
-            # Load V3 pipeline fixtures for ECP calculation (field groups)
-            from crawler.models import FieldGroup
-            if not FieldGroup.objects.filter(product_type_config__product_type="whiskey").exists():
-                logger.info("Loading whiskey_pipeline_v3.json fixture for ECP field groups...")
-                try:
-                    call_command("loaddata", "whiskey_pipeline_v3.json", verbosity=0)
-                except Exception as e:
-                    logger.warning(f"Could not load whiskey_pipeline_v3.json: {e}")
-
-            # Create or get ProductTypeConfig for whiskey
+            # Create or get ProductTypeConfig for whiskey FIRST (needed for FieldGroups)
             product_type_config, _ = ProductTypeConfig.objects.get_or_create(
                 product_type="whiskey",
                 defaults={
                     "display_name": "Whiskey",
                     "is_active": True,
-                    "max_sources_per_product": 5,
-                    "max_serpapi_searches": 3,
-                    "max_enrichment_time_seconds": 120,
+                    "max_sources_per_product": 8,  # V3 default
+                    "max_serpapi_searches": 6,     # V3 default
+                    "max_enrichment_time_seconds": 180,  # V3 default
                 }
             )
+
+            # Create V3 FieldGroups for ECP calculation (must be after ProductTypeConfig)
+            from crawler.models import FieldGroup
+            if not FieldGroup.objects.filter(product_type_config=product_type_config).exists():
+                logger.info("Creating V3 FieldGroups for ECP calculation...")
+                field_groups_data = [
+                    ("basic_product_info", "Basic Product Info", ["product_type", "category", "abv", "volume_ml", "description", "age_statement", "country", "region", "bottler"], 1),
+                    ("tasting_appearance", "Tasting Profile - Appearance", ["color_description", "color_intensity", "clarity", "viscosity"], 2),
+                    ("tasting_nose", "Tasting Profile - Nose", ["nose_description", "primary_aromas", "primary_intensity", "secondary_aromas", "aroma_evolution"], 3),
+                    ("tasting_palate", "Tasting Profile - Palate", ["initial_taste", "mid_palate_evolution", "palate_flavors", "palate_description", "flavor_intensity", "complexity", "mouthfeel"], 4),
+                    ("tasting_finish", "Tasting Profile - Finish", ["finish_length", "warmth", "dryness", "finish_flavors", "finish_evolution", "finish_description", "final_notes"], 5),
+                    ("tasting_overall", "Tasting Profile - Overall", ["balance", "overall_complexity", "uniqueness", "drinkability", "price_quality_ratio", "experience_level", "serving_recommendation", "food_pairings"], 6),
+                    ("cask_info", "Cask Info", ["primary_cask", "finishing_cask", "wood_type", "cask_treatment", "maturation_notes"], 7),
+                    ("whiskey_details", "Whiskey-Specific Details", ["whiskey_type", "distillery", "mash_bill", "cask_strength", "single_cask", "cask_number", "vintage_year", "bottling_year", "batch_number", "peated", "peat_level", "peat_ppm", "natural_color", "non_chill_filtered"], 8),
+                ]
+                for group_key, display_name, fields, sort_order in field_groups_data:
+                    FieldGroup.objects.create(
+                        product_type_config=product_type_config,
+                        group_key=group_key,
+                        display_name=display_name,
+                        fields=fields,
+                        sort_order=sort_order,
+                        is_active=True,
+                    )
+                logger.info(f"Created {len(field_groups_data)} FieldGroups for whiskey")
 
             # Create QualityGateConfig for whiskey (V3 status hierarchy)
             QualityGateConfig.objects.get_or_create(

@@ -139,6 +139,16 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
             self._quality_gate_v3 = get_quality_gate_v3()
         return self._quality_gate_v3
 
+    def _get_quality_gate(self) -> QualityGateV3:
+        """
+        Override V2's _get_quality_gate() to return V3 quality gate.
+
+        This is critical: V2's _assess_status() calls this method, but V2's
+        implementation returns QualityGateV2. We must override to ensure
+        V3 orchestrator uses V3 quality gate for status assessment.
+        """
+        return self.quality_gate
+
     def _assess_quality(
         self,
         session: EnrichmentSession,
