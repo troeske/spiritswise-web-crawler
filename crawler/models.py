@@ -2704,6 +2704,46 @@ class DiscoveredProduct(models.Model):
         help_text="V3: Whether dedicated awards search (Step 4) was performed",
     )
 
+    # ============================================================
+    # V3: Enrichment Source Tracking Fields
+    # Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.6.2
+    # ============================================================
+
+    enrichment_sources_searched = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="V3: All URLs searched/attempted during enrichment",
+    )
+
+    enrichment_sources_used = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="V3: URLs that successfully contributed data during enrichment",
+    )
+
+    enrichment_sources_rejected = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="V3: URLs rejected during enrichment with reasons [{url, reason, timestamp}]",
+    )
+
+    field_provenance = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="V3: Mapping of field_name -> source_url for audit trail",
+    )
+
+    enrichment_steps_completed = models.IntegerField(
+        default=0,
+        help_text="V3: Number of enrichment steps completed (0-2 for generic search)",
+    )
+
+    last_enrichment_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="V3: Timestamp of last enrichment attempt",
+    )
+
     # Metadata
     discovered_at = models.DateTimeField(default=timezone.now)
     reviewed_at = models.DateTimeField(null=True, blank=True)

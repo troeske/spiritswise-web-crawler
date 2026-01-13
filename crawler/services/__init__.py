@@ -16,12 +16,14 @@ Contains:
 - strategy_detection: Crawl strategy auto-detection and escalation
 - scrapingbee_client: ScrapingBee API client wrapper
 - wayback: Wayback Machine integration service
+- confidence_merger: Confidence-based data merging (V3 Architecture)
+- product_match_validator: Product match validation to prevent cross-contamination (V3 Architecture)
 
-V1→V2 Migration: V1 ai_client removed. Use ai_client_v2 (AIClientV2) instead.
+V1->V2 Migration: V1 ai_client removed. Use ai_client_v2 (AIClientV2) instead.
 AIEnhancementClient and EnhancementResult are now aliases to V2 classes for backward compatibility.
 """
 
-# V1→V2 Migration: Import V2 components with backward-compatible aliases
+# V1->V2 Migration: Import V2 components with backward-compatible aliases
 from crawler.services.ai_client_v2 import (
     AIClientV2,
     AIClientError,
@@ -95,6 +97,16 @@ from crawler.services.wayback import (
     cleanup_raw_content,
     get_pending_wayback_sources,
 )
+from crawler.services.confidence_merger import (
+    ConfidenceBasedMerger,
+    get_confidence_merger,
+    reset_confidence_merger,
+)
+from crawler.services.product_match_validator import (
+    ProductMatchValidator,
+    get_product_match_validator,
+    reset_product_match_validator,
+)
 
 __all__ = [
     # AI Client (V2 with V1-compatible aliases)
@@ -161,4 +173,12 @@ __all__ = [
     "mark_wayback_failed",
     "cleanup_raw_content",
     "get_pending_wayback_sources",
+    # Confidence-Based Merger (V3 Architecture)
+    "ConfidenceBasedMerger",
+    "get_confidence_merger",
+    "reset_confidence_merger",
+    # Product Match Validator (V3 Architecture)
+    "ProductMatchValidator",
+    "get_product_match_validator",
+    "reset_product_match_validator",
 ]
