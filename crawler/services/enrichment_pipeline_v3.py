@@ -1335,8 +1335,12 @@ class EnrichmentPipelineV3:
                 best_score = score
                 best_match = product
 
-        # Only return if we have a reasonable match (score > 0)
-        if best_score > 0:
+        # Only return if we have a reasonable match (score > 10)
+        # Minimum score of 10 ensures at least some token overlap or brand match
+        # to prevent cross-contamination from completely unrelated products
+        MIN_MATCH_SCORE = 10.0
+
+        if best_score >= MIN_MATCH_SCORE:
             logger.info(
                 "Selected best matching product: '%s' (score: %.1f)",
                 (best_match.extracted_data or {}).get("name", "Unknown")[:40],
@@ -1344,12 +1348,16 @@ class EnrichmentPipelineV3:
             )
             return best_match
 
-        # No good match - fall back to first product but log warning
+        # No good match - return None to prevent cross-contamination
+        # This is safer than falling back to products[0] which caused issues
         logger.warning(
-            "No good product match found (best score: %.1f), using first product",
+            "No good product match found (best score: %.1f < min %.1f), "
+            "rejecting all %d extracted products to prevent cross-contamination",
             best_score,
+            MIN_MATCH_SCORE,
+            len(products),
         )
-        return products[0]
+        return None
 
     async def _fetch_and_extract(
         self,
@@ -1437,6 +1445,14 @@ class EnrichmentPipelineV3:
                 product = self._find_best_matching_product(
                     result.products, target_product
                 )
+                # If no good match found, return empty to prevent cross-contamination
+                if product is None:
+                    logger.info(
+                        "No matching product found in %d extracted products from %s",
+                        len(result.products),
+                        url,
+                    )
+                    return {}, {}
             else:
                 product = result.products[0]
 
