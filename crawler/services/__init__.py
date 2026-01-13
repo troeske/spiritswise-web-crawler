@@ -6,6 +6,7 @@ Contains:
 - config_service: Configuration and schema builder service (V2 Architecture)
 - quality_gate_v2: V2 Quality Gate using database-backed configuration
 - enrichment_orchestrator_v2: Progressive multi-source enrichment (V2 Architecture Phase 4)
+- enrichment_pipeline_v3: 2-step enrichment pipeline for generic search (V3 Architecture)
 - content_preprocessor: Content preprocessing for AI token cost reduction (V2 Architecture)
 - source_tracker: Source tracking and field provenance (V2 Architecture Phase 4.5)
 - wayback_service: Wayback Machine integration with retry (V2 Architecture Phase 4.6)
@@ -51,6 +52,13 @@ from crawler.services.enrichment_orchestrator_v2 import (
     EnrichmentSession,
     get_enrichment_orchestrator_v2,
     reset_enrichment_orchestrator_v2,
+)
+from crawler.services.enrichment_pipeline_v3 import (
+    EnrichmentPipelineV3,
+    EnrichmentResultV3,
+    EnrichmentSessionV3,
+    get_enrichment_pipeline_v3,
+    reset_enrichment_pipeline_v3,
 )
 from crawler.services.content_preprocessor import (
     ContentPreprocessor,
@@ -136,6 +144,12 @@ __all__ = [
     "EnrichmentSession",
     "get_enrichment_orchestrator_v2",
     "reset_enrichment_orchestrator_v2",
+    # Enrichment Pipeline V3 - 2-Step Pipeline for Generic Search (V3 Architecture)
+    "EnrichmentPipelineV3",
+    "EnrichmentResultV3",
+    "EnrichmentSessionV3",
+    "get_enrichment_pipeline_v3",
+    "reset_enrichment_pipeline_v3",
     # Content Preprocessor (V2 Architecture)
     "ContentPreprocessor",
     "ContentType",

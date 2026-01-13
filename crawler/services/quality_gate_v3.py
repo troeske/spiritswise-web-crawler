@@ -147,6 +147,7 @@ class QualityGateV3:
 
     # Categories where region is NOT required for baseline
     # (blended whiskies source grains from multiple regions across Scotland)
+    # (Canadian whiskies typically don't have a specific region like Scottish whiskies)
     CATEGORIES_NO_REGION_REQUIRED = [
         "blended scotch whisky",
         "blended scotch",
@@ -155,6 +156,8 @@ class QualityGateV3:
         "blended malt",
         "blended malt scotch whisky",
         "blended grain whisky",
+        "canadian whisky",
+        "canadian whiskey",
     ]
 
     def __init__(self, config_service=None):

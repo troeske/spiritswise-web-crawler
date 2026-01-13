@@ -17,6 +17,11 @@ V2 Migration (2026-01-11):
 - Added schedule parameter to __init__ for backward compatibility with V1
 - Added run() method to support V1 interface used in tasks.py
 - Maintains all V2 functionality while supporting V1 callers
+
+V3 Integration (2026-01-13):
+- Updated _assess_quality to support QualityGateV3 with product_category
+- Updated _should_enrich to include V3 status levels (BASELINE, ENRICHED)
+- Added status progression tracking
 """
 
 import asyncio
@@ -78,13 +83,14 @@ class DiscoveryOrchestratorV2:
     Orchestrates:
     - Page fetching and content preprocessing
     - AI extraction via AIClientV2
-    - Quality assessment via QualityGateV2
+    - Quality assessment via QualityGateV2 or QualityGateV3
     - Enrichment decisions and queueing
     - Source tracking and field provenance
 
     Supports both single product pages and list pages.
 
     V2 Migration: Also supports V1 interface via schedule parameter and run() method.
+    V3 Integration: Supports QualityGateV3 with category-specific requirements.
     """
 
     DEFAULT_TIMEOUT = 30.0
@@ -117,7 +123,7 @@ class DiscoveryOrchestratorV2:
     def __init__(
         self,
         ai_client: Optional[AIClientV2] = None,
-        quality_gate: Optional[QualityGateV2] = None,
+        quality_gate=None,  # Can be QualityGateV2 or QualityGateV3
         enrichment_orchestrator: Optional[EnrichmentOrchestratorV2] = None,
         source_tracker: Optional[SourceTracker] = None,
         schedule=None,
@@ -129,7 +135,7 @@ class DiscoveryOrchestratorV2:
 
         Args:
             ai_client: AIClientV2 instance (optional, creates default)
-            quality_gate: QualityGateV2 instance (optional, creates default)
+            quality_gate: QualityGateV2 or QualityGateV3 instance (optional, creates default)
             enrichment_orchestrator: EnrichmentOrchestratorV2 instance (optional)
             source_tracker: SourceTracker instance (optional, creates default)
             schedule: CrawlSchedule for V1 backward compatibility (optional)
@@ -151,6 +157,9 @@ class DiscoveryOrchestratorV2:
         self._product_url_counts: Dict[str, int] = {}
         self._product_serpapi_counts: Dict[str, int] = {}
         self._product_start_times: Dict[str, float] = {}
+
+        # V3: Status progression tracking
+        self._status_progression: Dict[str, List[str]] = {}
 
         # Initialize SerpAPI client if not provided
         if self.serpapi_client is None and self.schedule is not None:
@@ -526,17 +535,22 @@ class DiscoveryOrchestratorV2:
             product_data = primary_product.extracted_data
             field_confidences = primary_product.field_confidences
 
-            # Step 4: Assess quality
+            # Step 4: Assess quality (V3-compatible with category support)
             quality_status = self._assess_quality(
                 product_data=product_data,
                 field_confidences=field_confidences,
-                product_type=product_type
+                product_type=product_type,
+                product_category=product_category,
             )
 
-            # Step 5: Determine enrichment need
+            # Step 5: Track status progression
+            product_key = product_data.get("name", url)
+            self._track_status_progression(product_key, quality_status)
+
+            # Step 6: Determine enrichment need
             needs_enrichment = self._should_enrich(quality_status)
 
-            # Step 6: Optionally save to database
+            # Step 7: Optionally save to database
             product_id = None
             if save_to_db:
                 product_id = await self._save_product(
@@ -614,12 +628,20 @@ class DiscoveryOrchestratorV2:
                 product_data = extracted_product.extracted_data
                 field_confidences = extracted_product.field_confidences
 
-                # Assess quality
+                # Get category from extracted data if not provided
+                effective_category = product_category or product_data.get("category")
+
+                # Assess quality (V3-compatible with category support)
                 quality_status = self._assess_quality(
                     product_data=product_data,
                     field_confidences=field_confidences,
-                    product_type=product_type
+                    product_type=product_type,
+                    product_category=effective_category,
                 )
+
+                # Track status progression
+                product_key = product_data.get("name", f"{url}_{len(product_results)}")
+                self._track_status_progression(product_key, quality_status)
 
                 # Resolve relative URL if present
                 detail_url = self._resolve_url(
@@ -719,40 +741,97 @@ class DiscoveryOrchestratorV2:
         product_data: Dict[str, Any],
         field_confidences: Dict[str, float],
         product_type: str,
+        product_category: Optional[str] = None,
     ) -> str:
         """
-        Assess product data quality using QualityGateV2.
+        Assess product data quality using QualityGateV2 or QualityGateV3.
+
+        V3 Integration:
+        - Passes product_category for category-specific requirements
+        - Supports V3 status hierarchy (SKELETON -> PARTIAL -> BASELINE -> ENRICHED -> COMPLETE)
+        - COMPLETE requires 90% ECP in V3
 
         Args:
             product_data: Extracted product data
             field_confidences: Field confidence scores
             product_type: Product type
+            product_category: Optional category for category-specific requirements
 
         Returns:
-            Quality status string (e.g., "complete", "partial", "skeleton")
+            Quality status string (e.g., "complete", "partial", "skeleton", "baseline", "enriched")
         """
         try:
-            assessment = self.quality_gate.assess(
-                extracted_data=product_data,
-                product_type=product_type,
-                field_confidences=field_confidences,
-            )
+            # Get category from product_data if not explicitly provided
+            effective_category = product_category or product_data.get("category")
+
+            # Check if quality_gate supports product_category (V3)
+            if hasattr(self.quality_gate, 'assess'):
+                import inspect
+                sig = inspect.signature(self.quality_gate.assess)
+                if 'product_category' in sig.parameters:
+                    # V3 quality gate with category support
+                    assessment = self.quality_gate.assess(
+                        extracted_data=product_data,
+                        product_type=product_type,
+                        field_confidences=field_confidences,
+                        product_category=effective_category,
+                    )
+                else:
+                    # V2 quality gate without category support
+                    assessment = self.quality_gate.assess(
+                        extracted_data=product_data,
+                        product_type=product_type,
+                        field_confidences=field_confidences,
+                    )
+            else:
+                # Fallback for unexpected quality gate implementation
+                assessment = self.quality_gate.assess(
+                    extracted_data=product_data,
+                    product_type=product_type,
+                    field_confidences=field_confidences,
+                )
+
             return assessment.status.value
         except Exception as e:
             logger.warning("Quality assessment failed: %s, defaulting to rejected", e)
             return ProductStatus.REJECTED.value
 
+    def _track_status_progression(self, product_key: str, status: str) -> None:
+        """
+        Track status progression for a product.
+
+        V3 Feature: Records status changes for audit trail.
+
+        Args:
+            product_key: Unique identifier for the product
+            status: Current status
+        """
+        if product_key not in self._status_progression:
+            self._status_progression[product_key] = []
+        self._status_progression[product_key].append(status)
+
+    def get_status_progression(self, product_key: str) -> List[str]:
+        """
+        Get the status progression history for a product.
+
+        Args:
+            product_key: Unique identifier for the product
+
+        Returns:
+            List of status values in chronological order
+        """
+        return self._status_progression.get(product_key, [])
+
     def _should_enrich(self, quality_status: str) -> bool:
         """
         Determine if a product should be enriched based on quality status.
 
-        Enrichment is needed for:
+        V3 Status Hierarchy:
         - SKELETON: Minimal data, needs significant enrichment
         - PARTIAL: Missing some required fields
-
-        No enrichment for:
-        - COMPLETE: Has all required fields
-        - ENRICHED: Already enriched
+        - BASELINE: All required fields met, but could use more
+        - ENRICHED: Has mouthfeel and OR fields
+        - COMPLETE: 90% ECP reached, no more enrichment needed
         - REJECTED: Invalid data, not worth enriching
 
         Args:
@@ -761,14 +840,16 @@ class DiscoveryOrchestratorV2:
         Returns:
             True if enrichment is needed
         """
+        # V3 status values that need enrichment
         status_needs_enrichment = {
-            ProductStatus.SKELETON.value: True,
-            ProductStatus.PARTIAL.value: True,
-            ProductStatus.COMPLETE.value: False,
-            ProductStatus.ENRICHED.value: False,
-            ProductStatus.REJECTED.value: False,
+            "skeleton": True,
+            "partial": True,
+            "baseline": True,  # V3: BASELINE needs enrichment to reach COMPLETE
+            "enriched": True,  # V3: ENRICHED needs more to reach 90% ECP
+            "complete": False,  # V3: COMPLETE = 90% ECP, no more needed
+            "rejected": False,
         }
-        return status_needs_enrichment.get(quality_status, False)
+        return status_needs_enrichment.get(quality_status.lower(), False)
 
     def _resolve_url(
         self,

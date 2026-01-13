@@ -12,6 +12,9 @@ Features:
 - Integration with AIClientV2 for extraction
 - Integration with QualityGateV2 for status assessment
 - Automatic stop when COMPLETE status reached or limits exceeded
+
+V3 Compatibility (Task 2.1.3):
+- Added field_confidences and ecp_total to EnrichmentResult
 """
 
 import asyncio
@@ -37,7 +40,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class EnrichmentResult:
-    """Result of enrichment operation."""
+    """
+    Result of enrichment operation.
+
+    V3 Compatibility (Task 2.1.3):
+    - Added field_confidences for confidence tracking
+    - Added ecp_total for ECP tracking
+    """
 
     success: bool
     product_data: Dict[str, Any] = field(default_factory=dict)
@@ -51,6 +60,9 @@ class EnrichmentResult:
     error: Optional[str] = None
     # Track sources that were rejected due to product mismatch
     sources_rejected: List[Dict[str, str]] = field(default_factory=list)
+    # V3 additions (Task 2.1.3)
+    field_confidences: Dict[str, float] = field(default_factory=dict)
+    ecp_total: float = 0.0
 
 
 @dataclass
@@ -425,6 +437,7 @@ class EnrichmentOrchestratorV2:
                 searches_performed=session.searches_performed,
                 time_elapsed_seconds=elapsed,
                 sources_rejected=session.sources_rejected,
+                field_confidences=session.field_confidences,
             )
 
         except Exception as e:
