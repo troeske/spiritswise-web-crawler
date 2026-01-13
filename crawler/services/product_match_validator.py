@@ -64,13 +64,16 @@ logger = logging.getLogger(__name__)
 # the match is rejected (and vice versa).
 #
 # Business Rules:
-# - Bourbon and Rye are distinct whiskey types that should never be conflated
+# - Bourbon and Rye Whiskey are distinct whiskey types that should never be conflated
+#   IMPORTANT: Use specific phrases like "rye whiskey", "straight rye" to avoid
+#   false positives from "high rye mashbill" in bourbon descriptions
 # - Single Malt and Blended are fundamentally different production methods
 # - Scotch, Irish, Japanese, and American whiskies have distinct characteristics
 # - Vintage and LBV (Late Bottled Vintage) are different port wine categories
 # - Tawny and Ruby are distinct port wine styles with different aging processes
 MUTUALLY_EXCLUSIVE_KEYWORDS: List[Tuple[Set[str], Set[str]]] = [
-    ({"bourbon"}, {"rye", "corn whiskey"}),
+    # Use specific "rye whiskey" phrases to avoid matching "high rye mashbill" in bourbons
+    ({"bourbon"}, {"rye whiskey", "straight rye", "rye whisky", "corn whiskey"}),
     ({"single malt"}, {"blended", "blend"}),
     ({"scotch"}, {"irish", "japanese", "american"}),
     ({"vintage"}, {"lbv", "late bottled vintage"}),

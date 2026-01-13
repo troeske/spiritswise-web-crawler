@@ -646,3 +646,62 @@ class IntegrationWithRealProductDataTests(TestCase):
 
         self.assertFalse(is_match)
         self.assertIn("product_type_mismatch", reason)
+
+    def test_high_rye_mashbill_bourbon_not_rejected(self):
+        """Test bourbon with 'high rye mashbill' description is NOT rejected as rye whiskey.
+
+        This is a critical regression test. Bulleit Bourbon and other bourbons
+        are known for having a high rye content in their mashbill. Descriptions
+        mentioning 'high rye' or 'high rye mashbill' should NOT trigger the
+        bourbon vs rye exclusion rule.
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Target: Bulleit Bourbon with "high rye mashbill" in description
+        target_data = {
+            "name": "Bulleit Bourbon",
+            "brand": "Bulleit",
+            "category": "Bourbon",
+            "description": "A Kentucky Straight Bourbon with a high rye mashbill (68% corn, 28% rye, 4% malted barley)"
+        }
+        # Extracted: Same product from enrichment source (correctly identifies as bourbon)
+        extracted_data = {
+            "name": "Bulleit Bourbon",
+            "brand": "Bulleit",
+            "category": "Kentucky Straight Bourbon Whiskey",
+            "description": "Frontier whiskey with a bold, spicy character"
+        }
+
+        is_match, reason = validator.validate(target_data, extracted_data)
+
+        self.assertTrue(is_match)
+        self.assertIn("product_match_validated", reason)
+
+    def test_actual_rye_whiskey_still_rejected(self):
+        """Test that actual rye whiskey is still correctly rejected from bourbon enrichment.
+
+        Ensures the fix for 'high rye mashbill' doesn't accidentally allow
+        actual rye whiskey products to contaminate bourbon data.
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Target: Bourbon
+        target_data = {
+            "name": "Bulleit Bourbon",
+            "brand": "Bulleit",
+            "category": "Bourbon"
+        }
+        # Extracted: Rye whiskey (different product)
+        extracted_data = {
+            "name": "Bulleit 95 Rye Whiskey",
+            "brand": "Bulleit",
+            "category": "Rye Whiskey",
+            "description": "American Rye Whiskey with 95% rye in the mashbill"
+        }
+
+        is_match, reason = validator.validate(target_data, extracted_data)
+
+        self.assertFalse(is_match)
+        self.assertIn("product_type_mismatch", reason)
