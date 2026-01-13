@@ -31,9 +31,49 @@ from crawler.services.content_preprocessor import (
 
 logger = logging.getLogger(__name__)
 
+# Reduced schema for multi-product extraction (list pages)
+# Uses only essential fields to stay under 16K output token limit
+# Full 76-field schema generates ~1000+ tokens per product
+# Skeleton schema generates ~200-300 tokens per product
+MULTI_PRODUCT_SKELETON_SCHEMA = [
+    # Core identification fields (required)
+    "name",
+    "brand",
+    "description",
+    # Key product attributes
+    "abv",
+    "country",
+    "region",
+    "category",
+    "style",
+    # Sizing and age
+    "volume_ml",
+    "age_statement",
+    "vintage",
+    # Awards (important for competition pages)
+    "awards",
+    # Producer info
+    "producer",
+    "distillery",
+    # Detail page URL for follow-up extraction
+    # Competition sites often have "View Details" links with more info
+    "detail_url",
+]
+
 
 class AIClientError(Exception):
     """Error from AI Client V2 operations."""
+
+    pass
+
+
+class SchemaConfigurationError(AIClientError):
+    """
+    Error when extraction schema cannot be loaded from database.
+
+    This error is raised when FieldDefinition lookup fails and indicates
+    a critical configuration issue that should be visible in Sentry.
+    """
 
     pass
 
@@ -92,7 +132,10 @@ class AIClientV2:
     - Configurable timeout
     """
 
-    DEFAULT_TIMEOUT = 90.0
+    # Increased timeout to handle complex multi-product extractions with full 76-field schema
+    # Server-side: nginx proxy_read_timeout 600s, gunicorn timeout 600s
+    # Client needs to wait at least as long as the server timeout
+    DEFAULT_TIMEOUT = 900.0  # 15 minutes to match VPS gunicorn/nginx/OpenAI timeouts
     MAX_RETRIES = 3
     RETRY_BASE_DELAY = 1.0  # seconds
     RETRY_CODES = {500, 502, 503, 504}  # HTTP codes to retry
@@ -187,8 +230,19 @@ class AIClientV2:
                 preprocessed.token_estimate,
             )
 
-            # Get extraction schema (default if not provided) - use async version
-            schema = extraction_schema or await self._aget_default_schema(product_type)
+            # Get extraction schema
+            # For multi-product detection, use skeleton schema to stay under 16K output token limit
+            # Full 76-field schema generates too many tokens for pages with 5+ products
+            if extraction_schema:
+                schema = extraction_schema
+            elif detect_multi_product:
+                schema = MULTI_PRODUCT_SKELETON_SCHEMA
+                logger.info(
+                    "Using skeleton schema (%d fields) for multi-product extraction",
+                    len(schema),
+                )
+            else:
+                schema = await self._aget_default_schema(product_type)
 
             # Build request payload
             payload = self._build_request(
@@ -513,10 +567,14 @@ class AIClientV2:
 
         Returns:
             List of field names to extract
-        """
-        try:
-            from crawler.models import FieldDefinition
 
+        Raises:
+            SchemaConfigurationError: If schema cannot be loaded from database.
+                This error is captured by Sentry for monitoring.
+        """
+        from crawler.models import FieldDefinition
+
+        try:
             # Get fields for this product type OR shared fields (null product_type_config)
             fields = FieldDefinition.objects.filter(
                 is_active=True
@@ -535,33 +593,43 @@ class AIClientV2:
                 )
                 return field_names
 
-        except Exception as e:
-            logger.warning(
-                "Failed to retrieve FieldDefinition for %s: %s, using fallback",
-                product_type,
-                str(e),
+            # No fields found - this is a configuration error
+            error_msg = (
+                f"No FieldDefinition entries found for product_type '{product_type}'. "
+                "Ensure base_fields.json fixture is loaded: "
+                "python manage.py loaddata crawler/fixtures/base_fields.json"
             )
+            raise SchemaConfigurationError(error_msg)
 
-        # Fallback to common fields if database lookup fails
-        fallback_fields = [
-            "name",
-            "brand",
-            "description",
-            "abv",
-            "volume_ml",
-            "age_statement",
-            "price",
-            "country",
-            "region",
-            # Tasting profile fields - critical for complete product data
-            "nose_description",
-            "palate_description",
-            "finish_description",
-            "primary_aromas",
-            "palate_flavors",
-        ]
-        logger.debug("Using fallback schema with %d fields", len(fallback_fields))
-        return fallback_fields
+        except SchemaConfigurationError:
+            # Re-raise our own exception
+            raise
+
+        except Exception as e:
+            # Database or other error - wrap and report to Sentry
+            error_msg = (
+                f"Failed to load extraction schema for '{product_type}': {e}. "
+                "This indicates a database configuration issue."
+            )
+            logger.error(error_msg)
+
+            # Capture to Sentry
+            try:
+                from crawler.monitoring import capture_crawl_error
+                schema_error = SchemaConfigurationError(error_msg)
+                capture_crawl_error(
+                    error=schema_error,
+                    extra_context={
+                        "product_type": product_type,
+                        "original_error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+            except ImportError:
+                # Sentry monitoring not available
+                pass
+
+            raise SchemaConfigurationError(error_msg) from e
 
     async def _aget_default_schema(self, product_type: str) -> List[str]:
         """

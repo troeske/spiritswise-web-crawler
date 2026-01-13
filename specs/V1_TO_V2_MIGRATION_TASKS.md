@@ -1,7 +1,7 @@
 # V1 to V2 Architecture Migration
 
 **Created**: 2026-01-11
-**Status**: IN PROGRESS
+**Status**: COMPLETE ✓
 **Goal**: Complete migration to V2 architecture and remove all V1 code
 
 ---
@@ -660,3 +660,7 @@ If conversation crashes or compacts:
 - AIClientV2 already has tasting notes in fallback schema
 - Tasks 1.3 and 1.4 were N/A - tasks.py never directly imported V1 AI client or extractor
 - Task 3.1 and 3.2 completed 2026-01-11 - All test files and script files updated to V2 imports
+- E2E test fix (2026-01-11): Updated `test_frank_august_urls_configured` → `test_product_search_templates_configured`
+  - Old test relied on hardcoded URLs (obsolete)
+  - New test verifies dynamic search templates (PRODUCT_SEARCH_TEMPLATES) are configured
+- **Migration completed 2026-01-11**: All V1 code removed, all tests passing (4/4 E2E single product, 4/4 generic search, 5/5 competition discovery)

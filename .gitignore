@@ -78,3 +78,8 @@ crawler/tasks_backup.py
 
 # Log files
 *.log
+
+# E2E test outputs (generated)
+tests/e2e/outputs/*.json
+tests/e2e/outputs/*.txt
+nul

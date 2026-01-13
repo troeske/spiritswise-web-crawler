@@ -126,8 +126,32 @@ IWSC_2025_WHISKEY_URLS: List[CompetitionURL] = [
     ),
 ]
 
-# Alias for IWSC URLs
-IWSC_URLS: List[CompetitionURL] = IWSC_2025_WHISKEY_URLS
+# =============================================================================
+# IWSC 2024 Competition URLs - Whiskey
+# =============================================================================
+IWSC_2024_WHISKEY_URLS: List[CompetitionURL] = [
+    CompetitionURL(
+        url="https://www.iwsc.net/results/search/2024?q=whisky",
+        competition="IWSC",
+        year=2024,
+        product_type="whiskey",
+        category="whisky",
+        expected_products=10,
+        notes="IWSC 2024 whisky results - JS-rendered SPA, requires Tier 2/3"
+    ),
+    CompetitionURL(
+        url="https://www.iwsc.net/results/search/2024?q=scotch",
+        competition="IWSC",
+        year=2024,
+        product_type="whiskey",
+        category="scotch",
+        expected_products=15,
+        notes="IWSC 2024 scotch results - JS-rendered SPA, requires Tier 2/3"
+    ),
+]
+
+# Alias for IWSC URLs (both years)
+IWSC_URLS: List[CompetitionURL] = IWSC_2025_WHISKEY_URLS + IWSC_2024_WHISKEY_URLS
 
 
 # =============================================================================

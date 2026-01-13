@@ -42,6 +42,7 @@ class EnrichmentResult:
     success: bool
     product_data: Dict[str, Any] = field(default_factory=dict)
     sources_used: List[str] = field(default_factory=list)
+    sources_searched: List[str] = field(default_factory=list)
     fields_enriched: List[str] = field(default_factory=list)
     status_before: str = ""
     status_after: str = ""
@@ -161,7 +162,7 @@ class EnrichmentOrchestratorV2:
                 initial_confidences or {},
             )
 
-            status_before = self._assess_status(
+            status_before = await self._assess_status(
                 session.current_data,
                 product_type,
                 session.field_confidences,
@@ -223,7 +224,7 @@ class EnrichmentOrchestratorV2:
                     )
 
             # Check status after detail extraction
-            current_status = self._assess_status(
+            current_status = await self._assess_status(
                 session.current_data,
                 product_type,
                 session.field_confidences,
@@ -265,7 +266,7 @@ class EnrichmentOrchestratorV2:
                     )
 
                 # Re-check status after producer page extraction
-                current_status = self._assess_status(
+                current_status = await self._assess_status(
                     session.current_data,
                     product_type,
                     session.field_confidences,
@@ -292,7 +293,7 @@ class EnrichmentOrchestratorV2:
                     )
                     break
 
-                current_status = self._assess_status(
+                current_status = await self._assess_status(
                     session.current_data,
                     product_type,
                     session.field_confidences,
@@ -386,7 +387,7 @@ class EnrichmentOrchestratorV2:
                     except Exception as e:
                         logger.warning("Failed to extract from %s: %s", url, e)
 
-            status_after = self._assess_status(
+            status_after = await self._assess_status(
                 session.current_data,
                 product_type,
                 session.field_confidences,
@@ -417,6 +418,7 @@ class EnrichmentOrchestratorV2:
                 success=True,
                 product_data=session.current_data,
                 sources_used=session.sources_used,
+                sources_searched=session.sources_searched,
                 fields_enriched=list(set(session.fields_enriched)),
                 status_before=status_before,
                 status_after=status_after,
@@ -830,21 +832,22 @@ class EnrichmentOrchestratorV2:
 
         return True, "match"
 
-    def _assess_status(
+    async def _assess_status(
         self,
         product_data: Dict[str, Any],
         product_type: str,
         confidences: Dict[str, float],
     ) -> str:
         """
-        Assess product status using QualityGateV2.
+        Assess product status using QualityGate (async-safe).
 
         Returns:
             Status string (skeleton, partial, complete, enriched)
         """
         try:
             quality_gate = self._get_quality_gate()
-            assessment = quality_gate.assess(
+            # Use async aassess method to avoid "cannot call from async context" errors
+            assessment = await quality_gate.aassess(
                 extracted_data=product_data,
                 product_type=product_type,
                 field_confidences=confidences,

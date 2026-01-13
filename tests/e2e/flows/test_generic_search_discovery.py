@@ -23,6 +23,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 
 from tests.e2e.conftest import e2e, requires_serpapi, requires_ai_service
+from tests.e2e.utils.test_products import PRODUCT_TYPE_IDS
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +38,10 @@ class TestGenericSearchDiscoveryFlow:
     SearchTerm configuration through product extraction and archival.
     """
 
+    @pytest.mark.parametrize("product_type", PRODUCT_TYPE_IDS)
     def test_search_terms_loaded_from_database(
         self,
+        product_type: str,
         db,
         search_term_factory,
         test_run_tracker,
@@ -54,47 +57,50 @@ class TestGenericSearchDiscoveryFlow:
         """
         from crawler.models import SearchTerm
 
+        # Build product-type-specific queries
+        product_label = product_type.replace("_", " ")
+
         # Create test SearchTerms
         term1 = search_term_factory(
-            search_query="best bourbon 2026",
+            search_query=f"best {product_label} 2026",
             category="best_lists",
-            product_type="whiskey",
+            product_type=product_type,
             max_results=5,
             priority=100,
             is_active=True,
         )
         term2 = search_term_factory(
-            search_query="top whiskey awards 2026",
+            search_query=f"top {product_label} awards 2026",
             category="awards",
-            product_type="whiskey",
+            product_type=product_type,
             max_results=10,
             priority=90,
             is_active=True,
         )
         term3 = search_term_factory(
-            search_query="inactive search term",
+            search_query=f"inactive {product_label} term",
             category="best_lists",
-            product_type="whiskey",
+            product_type=product_type,
             is_active=False,
         )
 
-        # Verify terms are in database
-        active_terms = SearchTerm.objects.filter(is_active=True)
+        # Verify terms are in database for this product type
+        active_terms = SearchTerm.objects.filter(is_active=True, product_type=product_type)
         assert active_terms.count() >= 2
 
         # Verify fields match spec
         loaded_term = SearchTerm.objects.get(id=term1.id)
-        assert loaded_term.search_query == "best bourbon 2026"
+        assert loaded_term.search_query == f"best {product_label} 2026"
         assert loaded_term.max_results == 5
         assert loaded_term.priority == 100
         assert loaded_term.category == "best_lists"
-        assert loaded_term.product_type == "whiskey"
+        assert loaded_term.product_type == product_type
 
         # Verify inactive term is filtered out
         active_queries = list(active_terms.values_list("search_query", flat=True))
-        assert "inactive search term" not in active_queries
+        assert f"inactive {product_label} term" not in active_queries
 
-        logger.info(f"Created {active_terms.count()} active SearchTerms")
+        logger.info(f"Created {active_terms.count()} active SearchTerms for {product_type}")
 
     def test_search_terms_priority_ordering(
         self,
@@ -159,8 +165,10 @@ class TestGenericSearchDiscoveryFlow:
         assert in_season.is_in_season() is True, "Current month term should be in season"
         # Note: out_of_season.is_in_season() depends on current month
 
+    @pytest.mark.parametrize("product_type", PRODUCT_TYPE_IDS)
     def test_search_term_max_results_enforcement(
         self,
+        product_type: str,
         db,
         search_term_factory,
     ):
@@ -172,21 +180,21 @@ class TestGenericSearchDiscoveryFlow:
         from crawler.models import SearchTerm
 
         # Valid max_results values
-        term = search_term_factory(max_results=15)
+        term = search_term_factory(max_results=15, product_type=product_type)
         assert term.max_results == 15
 
         # Test boundary values
-        term_min = search_term_factory(search_query="min results", max_results=1)
+        term_min = search_term_factory(search_query="min results", max_results=1, product_type=product_type)
         assert term_min.max_results == 1
 
-        term_max = search_term_factory(search_query="max results", max_results=20)
+        term_max = search_term_factory(search_query="max results", max_results=20, product_type=product_type)
         assert term_max.max_results == 20
 
         # Invalid values should fail validation
         invalid_term = SearchTerm(
             search_query="invalid term",
             category="best_lists",
-            product_type="whiskey",
+            product_type=product_type,
             max_results=0,  # Below minimum
         )
         with pytest.raises(ValidationError):
@@ -324,8 +332,11 @@ class TestGenericSearchDiscoveryFlow:
         assert source.source_type == "list_page"
 
     @requires_ai_service
-    def test_list_page_extraction_triggered(
+    @pytest.mark.parametrize("product_type", PRODUCT_TYPE_IDS)
+    @pytest.mark.asyncio
+    async def test_list_page_extraction_triggered(
         self,
+        product_type: str,
         db,
         ai_client,
         test_run_tracker,
@@ -339,40 +350,61 @@ class TestGenericSearchDiscoveryFlow:
         if not ai_client:
             pytest.skip("AI Enhancement Service not configured")
 
-        # Sample list page content
-        sample_content = """
-        <html>
-        <body>
-            <h1>Best Bourbon Whiskey 2026</h1>
-            <ol>
-                <li><a href="/products/buffalo-trace">Buffalo Trace Bourbon</a> - 45% ABV</li>
-                <li><a href="/products/woodford-reserve">Woodford Reserve</a> - 43.2% ABV</li>
-                <li><a href="/products/makers-mark">Maker's Mark</a> - 45% ABV</li>
-            </ol>
-        </body>
-        </html>
-        """
+        # Load base_fields.json fixture if FieldDefinitions don't exist
+        from crawler.models import FieldDefinition
+        from django.core.management import call_command
+        from asgiref.sync import sync_to_async
 
-        # Call AI extraction (async method, need to run with asyncio)
-        import asyncio
+        field_def_exists = await sync_to_async(FieldDefinition.objects.exists, thread_sensitive=True)()
+        if not field_def_exists:
+            logger.info("Loading base_fields.json fixture...")
+            await sync_to_async(call_command, thread_sensitive=True)("loaddata", "crawler/fixtures/base_fields.json", verbosity=0)
 
-        async def run_extraction():
-            return await ai_client.extract(
-                content=sample_content,
-                product_type="whiskey",
-                detect_multi_product=True,
-            )
+        # Product-type-specific sample content
+        sample_content_by_type = {
+            "whiskey": """
+            <html>
+            <body>
+                <h1>Best Bourbon Whiskey 2026</h1>
+                <ol>
+                    <li><a href="/products/buffalo-trace">Buffalo Trace Bourbon</a> - 45% ABV</li>
+                    <li><a href="/products/woodford-reserve">Woodford Reserve</a> - 43.2% ABV</li>
+                    <li><a href="/products/makers-mark">Maker's Mark</a> - 45% ABV</li>
+                </ol>
+            </body>
+            </html>
+            """,
+            "port_wine": """
+            <html>
+            <body>
+                <h1>Best Port Wines 2026</h1>
+                <ol>
+                    <li><a href="/products/taylors-20">Taylor's 20 Year Old Tawny Port</a> - 20% ABV</li>
+                    <li><a href="/products/grahams-10">Graham's 10 Year Old Tawny Port</a> - 20% ABV</li>
+                    <li><a href="/products/dows-vintage">Dow's Vintage Port 2017</a> - 20% ABV</li>
+                </ol>
+            </body>
+            </html>
+            """,
+        }
 
-        result = asyncio.get_event_loop().run_until_complete(run_extraction())
+        sample_content = sample_content_by_type.get(product_type, sample_content_by_type["whiskey"])
+
+        # Call AI extraction (async method using proper async/await)
+        result = await ai_client.extract(
+            content=sample_content,
+            product_type=product_type,
+            detect_multi_product=True,
+        )
         test_run_tracker.record_api_call("openai")
 
         # Verify extraction - result is ExtractionResultV2 object
-        assert result.success is True
+        assert result.success is True, f"Extraction failed: {result.error}"
         products = getattr(result, 'products', []) or []
         assert len(products) >= 1
 
         # Log extraction result
-        logger.info(f"Extracted {len(products)} products from list page")
+        logger.info(f"Extracted {len(products)} products from {product_type} list page")
 
     def test_wayback_service_available(
         self,

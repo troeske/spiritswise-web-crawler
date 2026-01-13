@@ -25,6 +25,7 @@ AIEnhancementClient and EnhancementResult are now aliases to V2 classes for back
 from crawler.services.ai_client_v2 import (
     AIClientV2,
     AIClientError,
+    SchemaConfigurationError,  # Raised when schema cannot be loaded from DB
     EnhancementResult,  # V1-compatible result class for backward compatibility
     ExtractedProductV2,
     ExtractionResultV2,
@@ -103,6 +104,7 @@ __all__ = [
     # AI Client V2 (V2 Architecture)
     "AIClientV2",
     "AIClientError",
+    "SchemaConfigurationError",
     "ExtractedProductV2",
     "ExtractionResultV2",
     "get_ai_client_v2",

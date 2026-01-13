@@ -962,6 +962,17 @@ class FieldDefinition(models.Model):
         help_text="Field name in the target model",
     )
 
+    # ============================================
+    # Field Derivation (for array fields)
+    # ============================================
+    derive_from = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+        help_text="Field name to derive this array field from (e.g., 'finish_flavors' derives from 'finish_description'). "
+                  "When set, AI will extract individual items from the prose description.",
+    )
+
     # Ordering and status
     sort_order = models.IntegerField(
         default=0,
@@ -1002,6 +1013,8 @@ class FieldDefinition(models.Model):
             schema["item_type"] = self.item_type
         if self.item_schema:
             schema["item_schema"] = self.item_schema
+        if self.derive_from:
+            schema["derive_from"] = self.derive_from
         return schema
 
 

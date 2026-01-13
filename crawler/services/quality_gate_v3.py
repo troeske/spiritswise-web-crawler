@@ -25,6 +25,7 @@ from asgiref.sync import sync_to_async
 
 from crawler.models import QualityGateConfig, ProductTypeConfig
 from crawler.services.config_service import get_config_service
+from crawler.services.ecp_calculator import get_ecp_calculator
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,32 @@ class QualityGateV3:
         ["finishing_cask", "maturation_notes"]
     ]
 
+    # Categories where primary_cask is NOT required for baseline
+    # (blended whiskies use dozens/hundreds of casks from multiple distilleries)
+    CATEGORIES_NO_PRIMARY_CASK_REQUIRED = [
+        "blended scotch whisky",
+        "blended scotch",
+        "blended whisky",
+        "blended whiskey",
+        "blended malt",
+        "blended malt scotch whisky",
+        "blended grain whisky",
+        "canadian whisky",
+        "canadian whiskey",
+    ]
+
+    # Categories where region is NOT required for baseline
+    # (blended whiskies source grains from multiple regions across Scotland)
+    CATEGORIES_NO_REGION_REQUIRED = [
+        "blended scotch whisky",
+        "blended scotch",
+        "blended whisky",
+        "blended whiskey",
+        "blended malt",
+        "blended malt scotch whisky",
+        "blended grain whisky",
+    ]
+
     def __init__(self, config_service=None):
         """Initialize with optional config service for testing."""
         self.config_service = config_service or get_config_service()
@@ -172,6 +199,21 @@ class QualityGateV3:
         else:
             logger.debug("Using default config for product_type=%s", product_type)
 
+        # Calculate ECP if not provided and field groups are available
+        ecp_by_group = {}
+        calculated_ecp_total = ecp_total
+        if calculated_ecp_total is None:
+            try:
+                ecp_calculator = get_ecp_calculator()
+                field_groups = ecp_calculator.load_field_groups_for_product_type(product_type)
+                if field_groups:
+                    ecp_by_group = ecp_calculator.calculate_ecp_by_group(confident_data, field_groups)
+                    calculated_ecp_total = ecp_calculator.calculate_total_ecp(ecp_by_group)
+                    logger.debug("Calculated ECP: %.2f%% from %d groups", calculated_ecp_total, len(field_groups))
+            except Exception as e:
+                logger.warning("Failed to calculate ECP: %s", e)
+                calculated_ecp_total = 0.0
+
         # Check rejection condition: no name means reject
         if "name" not in populated:
             logger.info("Product rejected: missing required field 'name'")
@@ -187,14 +229,19 @@ class QualityGateV3:
         # Get product style for exception checking (port wine)
         product_style = extracted_data.get("style", "").lower() if extracted_data.get("style") else None
 
-        status = self._determine_status(populated, config, product_type, product_style, ecp_total)
-        logger.debug("Determined status: %s", status.value)
+        # Get category from extracted data if not provided
+        effective_category = product_category or extracted_data.get("category")
+
+        status = self._determine_status(
+            populated, config, product_type, product_style, calculated_ecp_total, effective_category
+        )
+        logger.debug("Determined status: %s (category=%s)", status.value, effective_category)
 
         schema_fields = self._get_schema_fields(product_type)
         completeness = self._calculate_completeness(confident_data, schema_fields)
 
         missing_required, missing_or = self._get_missing_for_upgrade(
-            populated, status, config, product_type, product_style
+            populated, status, config, product_type, product_style, effective_category
         )
 
         priority = self._calculate_enrichment_priority(status, completeness)
@@ -211,7 +258,8 @@ class QualityGateV3:
             enrichment_priority=priority,
             needs_enrichment=needs_enrichment,
             low_confidence_fields=low_confidence,
-            ecp_total=ecp_total or 0.0
+            ecp_by_group=ecp_by_group,
+            ecp_total=calculated_ecp_total or 0.0
         )
 
         logger.info(
@@ -232,9 +280,19 @@ class QualityGateV3:
         if not confidences:
             return data
 
+        def get_confidence(key: str) -> float:
+            """Get confidence value, handling string values."""
+            val = confidences.get(key)
+            if val is None:
+                return 1.0
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return 1.0
+
         filtered = {
             k: v for k, v in data.items()
-            if (confidences.get(k) or 1.0) >= self.CONFIDENCE_THRESHOLD
+            if get_confidence(k) >= self.CONFIDENCE_THRESHOLD
         }
 
         removed_count = len(data) - len(filtered)
@@ -352,7 +410,8 @@ class QualityGateV3:
         config: Optional[QualityGateConfig],
         product_type: str,
         product_style: Optional[str] = None,
-        ecp_total: Optional[float] = None
+        ecp_total: Optional[float] = None,
+        product_category: Optional[str] = None
     ) -> ProductStatus:
         """
         Determine the highest status level the data qualifies for.
@@ -381,6 +440,25 @@ class QualityGateV3:
             baseline_exceptions = {}
             enriched_req = self.DEFAULT_ENRICHED_REQUIRED
             enriched_or = self.DEFAULT_ENRICHED_OR_FIELDS
+
+        # Adjust baseline requirements based on category
+        # Blended whiskies don't require primary_cask (they use dozens/hundreds of casks)
+        # and don't require region (they source from multiple regions)
+        if product_category:
+            category_lower = product_category.lower().strip()
+            removed_fields = []
+            if category_lower in self.CATEGORIES_NO_PRIMARY_CASK_REQUIRED:
+                baseline_req = [f for f in baseline_req if f != "primary_cask"]
+                removed_fields.append("primary_cask")
+            if category_lower in self.CATEGORIES_NO_REGION_REQUIRED:
+                baseline_req = [f for f in baseline_req if f != "region"]
+                partial_req = [f for f in partial_req if f != "region"]
+                removed_fields.append("region")
+            if removed_fields:
+                logger.debug(
+                    "Category '%s' - removing %s from baseline requirements",
+                    product_category, removed_fields
+                )
 
         # Build product data dict for exception checking
         product_data = {"style": product_style} if product_style else {}
@@ -459,7 +537,8 @@ class QualityGateV3:
         current_status: ProductStatus,
         config: Optional[QualityGateConfig],
         product_type: str,
-        product_style: Optional[str] = None
+        product_style: Optional[str] = None,
+        product_category: Optional[str] = None
     ) -> Tuple[List[str], List[List[str]]]:
         """
         Get fields needed to upgrade to next status level.
@@ -481,6 +560,15 @@ class QualityGateV3:
             baseline_exceptions = {}
             enriched_req = self.DEFAULT_ENRICHED_REQUIRED
             enriched_or = self.DEFAULT_ENRICHED_OR_FIELDS
+
+        # Adjust baseline requirements based on category (blends don't need primary_cask or region)
+        if product_category:
+            category_lower = product_category.lower().strip()
+            if category_lower in self.CATEGORIES_NO_PRIMARY_CASK_REQUIRED:
+                baseline_req = [f for f in baseline_req if f != "primary_cask"]
+            if category_lower in self.CATEGORIES_NO_REGION_REQUIRED:
+                baseline_req = [f for f in baseline_req if f != "region"]
+                partial_req = [f for f in partial_req if f != "region"]
 
         product_data = {"style": product_style} if product_style else {}
 
@@ -611,6 +699,17 @@ class QualityGateV3:
         else:
             logger.debug("Using default config for product_type=%s", product_type)
 
+        # Calculate ECP if not provided (async-safe)
+        calculated_ecp_total = ecp_total
+        if calculated_ecp_total is None:
+            try:
+                calculated_ecp_total = await self._acalculate_ecp(confident_data, product_type)
+                logger.debug("Calculated ECP (async): %.2f%%", calculated_ecp_total or 0.0)
+            except Exception as e:
+                logger.warning("Failed to calculate ECP (async): %s", e)
+                calculated_ecp_total = 0.0
+        ecp_total = calculated_ecp_total
+
         # Check rejection condition: no name means reject
         if "name" not in populated:
             logger.info("Product rejected: missing required field 'name'")
@@ -626,15 +725,20 @@ class QualityGateV3:
         # Get product style for exception checking (port wine)
         product_style = extracted_data.get("style", "").lower() if extracted_data.get("style") else None
 
-        status = self._determine_status(populated, config, product_type, product_style, ecp_total)
-        logger.debug("Determined status: %s", status.value)
+        # Get category from extracted data if not provided
+        effective_category = product_category or extracted_data.get("category")
+
+        status = self._determine_status(
+            populated, config, product_type, product_style, ecp_total, effective_category
+        )
+        logger.debug("Determined status: %s (category=%s)", status.value, effective_category)
 
         # Use async-safe schema fields loading
         schema_fields = await self._aget_schema_fields(product_type)
         completeness = self._calculate_completeness(confident_data, schema_fields)
 
         missing_required, missing_or = self._get_missing_for_upgrade(
-            populated, status, config, product_type, product_style
+            populated, status, config, product_type, product_style, effective_category
         )
 
         priority = self._calculate_enrichment_priority(status, completeness)
@@ -695,6 +799,33 @@ class QualityGateV3:
                 self.DEFAULT_PARTIAL_REQUIRED +
                 self.DEFAULT_BASELINE_REQUIRED
             ))
+
+    async def _acalculate_ecp(
+        self,
+        confident_data: Dict[str, Any],
+        product_type: str
+    ) -> float:
+        """
+        Async-safe ECP calculation.
+
+        Wraps the synchronous ECP calculator methods in sync_to_async.
+
+        Args:
+            confident_data: Product data with low-confidence fields filtered
+            product_type: Product type string
+
+        Returns:
+            ECP percentage (0-100), or 0.0 if calculation fails
+        """
+        def _calculate_ecp_sync():
+            ecp_calculator = get_ecp_calculator()
+            field_groups = ecp_calculator.load_field_groups_for_product_type(product_type)
+            if not field_groups:
+                return 0.0
+            ecp_by_group = ecp_calculator.calculate_ecp_by_group(confident_data, field_groups)
+            return ecp_calculator.calculate_total_ecp(ecp_by_group)
+
+        return await sync_to_async(_calculate_ecp_sync, thread_sensitive=True)()
 
 
 # Singleton instance

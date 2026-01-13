@@ -537,3 +537,170 @@ def discovery_job_factory(db):
         return DiscoveryJob.objects.create(**kwargs)
 
     return _create_discovery_job
+
+
+# =============================================================================
+# Parameterization Fixtures for Multi-Product-Type E2E Testing
+# =============================================================================
+
+@pytest.fixture
+def product_type_config(request, db):
+    """
+    Fixture that provides ProductTypeTestConfig for parameterized tests.
+
+    Usage:
+        @pytest.mark.parametrize("product_type_config", ["whiskey", "port_wine"], indirect=True)
+        def test_something(self, product_type_config):
+            # product_type_config is a ProductTypeTestConfig instance
+            ...
+    """
+    from tests.e2e.utils.test_products import get_test_config
+
+    product_type = request.param
+    return get_test_config(product_type)
+
+
+@pytest.fixture
+def test_product(request, db):
+    """
+    Fixture that provides a TestProduct for parameterized tests.
+
+    Usage with product type only (returns primary test product):
+        @pytest.mark.parametrize("test_product", ["whiskey", "port_wine"], indirect=True)
+        def test_something(self, test_product):
+            # test_product is the primary TestProduct for each type
+
+    Usage with specific product:
+        @pytest.mark.parametrize("test_product",
+            [("whiskey", "Frank August..."), ("port_wine", "Taylor's...")],
+            indirect=True)
+        def test_something(self, test_product):
+            # test_product is the specific TestProduct requested
+    """
+    from tests.e2e.utils.test_products import (
+        get_primary_test_product,
+        get_test_product_by_name,
+    )
+
+    param = request.param
+    if isinstance(param, tuple):
+        product_type, product_name = param
+        return get_test_product_by_name(product_type, product_name)
+    else:
+        # Param is just product_type, return primary product
+        return get_primary_test_product(param)
+
+
+@pytest.fixture
+def setup_product_type_configs(request, db):
+    """
+    Set up ProductTypeConfig, QualityGateConfig, EnrichmentConfig for a product type.
+
+    This fixture ensures the database has the necessary configuration records
+    for the specified product type.
+
+    Usage:
+        @pytest.mark.parametrize("setup_product_type_configs", ["whiskey", "port_wine"], indirect=True)
+        def test_something(self, setup_product_type_configs):
+            # Database is configured for the product type
+            ...
+
+    Returns:
+        ProductTypeConfig instance from the database
+    """
+    from crawler.models import ProductTypeConfig, QualityGateConfig, EnrichmentConfig
+    from tests.e2e.utils.test_products import get_test_config
+
+    product_type = request.param
+    config = get_test_config(product_type)
+
+    # Create or get ProductTypeConfig
+    product_type_config, _ = ProductTypeConfig.objects.get_or_create(
+        product_type=product_type,
+        defaults={
+            "display_name": config.display_name,
+            "is_active": True,
+            "max_sources_per_product": 5,
+            "max_serpapi_searches": 3,
+            "max_enrichment_time_seconds": 120,
+        }
+    )
+
+    # Create or get QualityGateConfig
+    QualityGateConfig.objects.get_or_create(
+        product_type_config=product_type_config,
+        defaults={
+            "skeleton_required_fields": config.skeleton_fields,
+            "partial_required_fields": config.partial_fields,
+            "partial_any_of_count": 2,
+            "partial_any_of_fields": ["description", "abv", "region", "country"],
+            "complete_required_fields": config.complete_fields,
+            "complete_any_of_count": 2,
+            "complete_any_of_fields": [
+                "nose_description",
+                "palate_description",
+                "finish_description",
+                "region",
+            ],
+        }
+    )
+
+    # Create EnrichmentConfigs based on product type
+    _create_enrichment_configs_for_type(product_type_config, product_type)
+
+    logger.info(f"Set up configuration for product type: {product_type}")
+    return product_type_config
+
+
+def _create_enrichment_configs_for_type(product_type_config, product_type: str):
+    """
+    Create enrichment configs for a product type.
+
+    Helper function used by setup_product_type_configs fixture.
+    """
+    from crawler.models import EnrichmentConfig
+
+    if product_type == "whiskey":
+        templates = [
+            (
+                "tasting_notes",
+                "{name} {brand} tasting notes review",
+                ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"],
+                10,
+            ),
+            (
+                "product_details",
+                "{name} {brand} bourbon abv alcohol content",
+                ["abv", "description", "volume_ml", "age_statement"],
+                8,
+            ),
+        ]
+    elif product_type == "port_wine":
+        templates = [
+            (
+                "tasting_notes",
+                "{name} {brand} port wine tasting notes review",
+                ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"],
+                10,
+            ),
+            (
+                "producer_info",
+                "{name} {brand} port house producer quinta",
+                ["producer_house", "quinta", "douro_subregion"],
+                8,
+            ),
+        ]
+    else:
+        templates = []
+
+    for template_name, search_template, target_fields, priority in templates:
+        EnrichmentConfig.objects.get_or_create(
+            product_type_config=product_type_config,
+            template_name=template_name,
+            defaults={
+                "search_template": search_template,
+                "target_fields": target_fields,
+                "priority": priority,
+                "is_active": True,
+            }
+        )

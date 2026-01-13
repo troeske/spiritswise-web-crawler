@@ -1774,37 +1774,64 @@ class TestEdgeCases:
 class TestGetDefaultSchema:
     """Tests for _get_default_schema method."""
 
-    def test_get_default_schema_returns_fallback_when_db_fails(self):
-        """_get_default_schema returns fallback fields when database query fails."""
-        from crawler.services.ai_client_v2 import AIClientV2
+    @pytest.mark.django_db
+    def test_get_default_schema_raises_error_when_db_fails(self):
+        """_get_default_schema raises SchemaConfigurationError when database query fails."""
+        from crawler.services.ai_client_v2 import AIClientV2, SchemaConfigurationError
+        from crawler.models import FieldDefinition
 
         client = AIClientV2(base_url="http://test:8000", api_key="test-key")
 
-        # Patch the model import inside the method
-        with patch('crawler.models.FieldDefinition') as mock_field_def:
-            mock_field_def.objects.filter.side_effect = Exception("DB error")
+        # Patch FieldDefinition.objects.filter to simulate DB error
+        with patch.object(FieldDefinition.objects, 'filter', side_effect=Exception("DB error")):
+            with pytest.raises(SchemaConfigurationError) as exc_info:
+                client._get_default_schema("whiskey")
 
-            schema = client._get_default_schema("whiskey")
+        # Error message should be informative
+        assert "Failed to load extraction schema" in str(exc_info.value)
+        assert "whiskey" in str(exc_info.value)
 
-        # Should return fallback fields
-        assert "name" in schema
-        assert "brand" in schema
-        assert "description" in schema
-        assert "abv" in schema
+    @pytest.mark.django_db
+    def test_get_default_schema_raises_error_when_no_fields_found(self):
+        """_get_default_schema raises SchemaConfigurationError when no FieldDefinition entries exist."""
+        from crawler.services.ai_client_v2 import AIClientV2, SchemaConfigurationError
+
+        client = AIClientV2(base_url="http://test:8000", api_key="test-key")
+
+        # No FieldDefinition entries in test DB
+        with pytest.raises(SchemaConfigurationError) as exc_info:
+            client._get_default_schema("whiskey")
+
+        # Error message should guide user to load fixtures
+        assert "No FieldDefinition entries found" in str(exc_info.value)
+        assert "base_fields.json" in str(exc_info.value)
 
     @pytest.mark.django_db
     def test_get_default_schema_includes_common_fields(self):
-        """_get_default_schema includes common product fields."""
+        """_get_default_schema includes common product fields when FieldDefinition entries exist."""
         from crawler.services.ai_client_v2 import AIClientV2
+        from crawler.models import FieldDefinition
+
+        # Create test FieldDefinition entries (shared fields with null product_type_config)
+        test_fields = ["name", "brand", "description", "abv", "nose_description"]
+        for field_name in test_fields:
+            FieldDefinition.objects.create(
+                field_name=field_name,
+                display_name=field_name.replace("_", " ").title(),
+                field_type="text",
+                is_active=True,
+                product_type_config=None,  # Shared field
+            )
 
         client = AIClientV2(base_url="http://test:8000", api_key="test-key")
 
-        # Get schema from database (uses fixtures/seeded data)
+        # Get schema from database
         schema = client._get_default_schema("whiskey")
 
         # Schema should be a list of field names
         assert isinstance(schema, list)
-        assert len(schema) > 0
-        # Common fields should be present (either from DB or fallback)
+        assert len(schema) == len(test_fields)
+        # Common fields should be present
         assert "name" in schema
         assert "brand" in schema
+        assert "nose_description" in schema

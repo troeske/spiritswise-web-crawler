@@ -326,7 +326,7 @@ def create_discovered_product(
 def create_port_wine_details(
     product: "DiscoveredProduct",
     style: str,
-    producer_house: str,
+    producer_house: Optional[str] = None,
     harvest_year: Optional[int] = None,
     indication_age: Optional[str] = None,
     quinta: Optional[str] = None,
@@ -339,7 +339,7 @@ def create_port_wine_details(
     Args:
         product: The DiscoveredProduct to link to
         style: Port wine style (ruby, tawny, vintage, etc.)
-        producer_house: Producer/house name
+        producer_house: Producer/house name (defaults to brand if not provided)
         harvest_year: Year of harvest/vintage
         indication_age: Age indication (e.g., "20 Year")
         quinta: Quinta (estate) name
@@ -349,6 +349,9 @@ def create_port_wine_details(
     Returns:
         PortWineDetails instance
     """
+    # Use product's brand as fallback for producer_house
+    if not producer_house:
+        producer_house = product.brand or "Unknown Producer"
     from crawler.models import PortWineDetails, PortStyleChoices
 
     # Map style string to choice
@@ -509,6 +512,79 @@ class TestDWWACompetitionFlow:
         self.extraction_results: List[Dict[str, Any]] = []
         # Initialize recorder for capturing intermediate step outputs
         self.recorder = get_recorder("DWWA Competition Flow")
+        # Note: enrichment configs are set up in the async test method via _async_setup_enrichment_configs
+
+    async def _async_setup_enrichment_configs(self):
+        """
+        Create EnrichmentConfig records for port_wine product type.
+
+        These configs define the SerpAPI search templates used for enrichment.
+        Without these, the enrichment orchestrator won't run any searches.
+        Uses sync_to_async for safe async context execution.
+        """
+        @sync_to_async
+        def create_configs():
+            from django.core.management import call_command
+            from crawler.models import ProductTypeConfig, EnrichmentConfig, QualityGateConfig, FieldDefinition
+
+            # Load base_fields.json fixture if FieldDefinitions don't exist
+            if not FieldDefinition.objects.exists():
+                logger.info("Loading base_fields.json fixture...")
+                call_command("loaddata", "crawler/fixtures/base_fields.json", verbosity=0)
+
+            # Create or get ProductTypeConfig for port_wine
+            product_type_config, _ = ProductTypeConfig.objects.get_or_create(
+                product_type="port_wine",
+                defaults={
+                    "display_name": "Port Wine",
+                    "is_active": True,
+                    "max_sources_per_product": 5,
+                    "max_serpapi_searches": 3,
+                    "max_enrichment_time_seconds": 120,
+                }
+            )
+
+            # Create QualityGateConfig for port_wine
+            QualityGateConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                defaults={
+                    "skeleton_required_fields": ["name"],
+                    "partial_required_fields": ["name", "brand"],
+                    "partial_any_of_count": 2,
+                    "partial_any_of_fields": ["description", "abv", "style", "producer_house"],
+                    "complete_required_fields": ["name", "brand", "abv", "description"],
+                    "complete_any_of_count": 2,
+                    "complete_any_of_fields": ["nose_description", "palate_description", "finish_description", "style"],
+                }
+            )
+
+            # Create EnrichmentConfig for tasting notes search
+            EnrichmentConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                template_name="tasting_notes",
+                defaults={
+                    "search_template": "{name} {brand} port tasting notes review",
+                    "target_fields": ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"],
+                    "priority": 10,
+                    "is_active": True,
+                }
+            )
+
+            # Create EnrichmentConfig for product details search
+            EnrichmentConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                template_name="product_details",
+                defaults={
+                    "search_template": "{name} {brand} port wine abv alcohol content",
+                    "target_fields": ["abv", "description", "volume_ml", "style"],
+                    "priority": 8,
+                    "is_active": True,
+                }
+            )
+
+            logger.info("Created enrichment configs for port_wine product type")
+
+        await create_configs()
 
     async def test_dwwa_competition_flow(
         self,
@@ -538,6 +614,9 @@ class TestDWWACompetitionFlow:
         # Skip if AI client not configured
         if ai_client is None:
             pytest.skip("AI Enhancement Service not configured")
+
+        # Setup enrichment configs in async context for proper transaction handling
+        await self._async_setup_enrichment_configs()
 
         logger.info("=" * 60)
         logger.info("Starting DWWA Competition Flow E2E Test")

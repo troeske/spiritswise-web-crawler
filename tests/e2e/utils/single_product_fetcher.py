@@ -66,6 +66,38 @@ PRODUCT_SEARCH_TEMPLATES = [
     "{name} buy online",              # Retailer pages (last resort)
 ]
 
+# Product-type-specific search templates
+# These are optimized for each product type's typical search patterns
+PRODUCT_SEARCH_TEMPLATES_BY_TYPE = {
+    "whiskey": [
+        "{name} official site",
+        "{name} {brand}",
+        "{name} whiskey bourbon",
+        "{name} tasting notes review",
+        "{name} buy online",
+    ],
+    "port_wine": [
+        "{name} official site",
+        "{name} {brand} port",
+        "{name} port wine",
+        "{name} port tasting notes review",
+        "{name} port buy online",
+    ],
+}
+
+
+def get_search_templates(product_type: str) -> List[str]:
+    """
+    Get search templates optimized for a specific product type.
+
+    Args:
+        product_type: Product type identifier (whiskey, port_wine, etc.)
+
+    Returns:
+        List of search template strings with placeholders
+    """
+    return PRODUCT_SEARCH_TEMPLATES_BY_TYPE.get(product_type, PRODUCT_SEARCH_TEMPLATES)
+
 # Domains to prioritize (official/trusted sources)
 PRIORITY_DOMAINS = [
     "official",      # Official brand sites
@@ -243,7 +275,7 @@ async def search_for_product_page(
     from crawler.discovery.serpapi.client import SerpAPIClient
 
     if templates is None:
-        templates = PRODUCT_SEARCH_TEMPLATES
+        templates = get_search_templates(product_type)
 
     api_key = os.getenv("SERPAPI_API_KEY") or os.getenv("SERPAPI_KEY")
     if not api_key:
@@ -542,8 +574,9 @@ def _check_product_indicators(content: str) -> bool:
 
     content_lower = content.lower()
 
-    # Product-related keywords for whiskey/spirits
+    # Product-related keywords for whiskey/spirits and port wine
     product_keywords = [
+        # Whiskey/spirits keywords
         "whisky", "whiskey", "bourbon", "scotch",
         "abv", "alcohol", "proof",
         "tasting notes", "palate", "nose", "finish",
@@ -551,6 +584,11 @@ def _check_product_indicators(content: str) -> bool:
         "distillery", "distilled",
         "price", "add to cart", "buy now",
         "product", "description",
+        # Port wine keywords
+        "port wine", "porto", "tawny", "ruby", "vintage port",
+        "douro", "quinta", "colheita", "lbv", "late bottled",
+        "fortified", "taylor", "graham", "fonseca", "dow",
+        "10 year", "20 year", "30 year", "40 year",
     ]
 
     # Count keyword matches

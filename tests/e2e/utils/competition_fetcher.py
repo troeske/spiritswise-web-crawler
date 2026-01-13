@@ -316,13 +316,19 @@ async def extract_products_with_validation(
     """
     Extract products from page content and validate them.
 
-    Uses AIClientV2 for extraction, then validates each product to ensure:
+    Uses AIClientV2 for extraction (which includes ContentPreprocessor for
+    intelligent content cleaning with ~93% token savings), then validates
+    each product to ensure:
     - Product has a valid name (not "Unknown Product")
     - Product has minimum required fields
     - Product meets confidence threshold
 
+    NOTE: Content preprocessing is handled by AIClientV2 internally via
+    ContentPreprocessor. This ensures E2E tests use the exact same code
+    path as production.
+
     Args:
-        content: HTML content to extract from
+        content: HTML content to extract from (raw, will be preprocessed by AIClientV2)
         url: Source URL for context
         product_type: Expected product type (whiskey, port_wine)
         product_category: Optional category filter
@@ -337,23 +343,32 @@ async def extract_products_with_validation(
     """
     from crawler.services.ai_client_v2 import get_ai_client_v2
 
+    # NOTE: We pass raw content to AIClientV2 - it handles preprocessing via
+    # ContentPreprocessor which uses trafilatura for ~93% token savings and
+    # intelligently detects list pages to preserve structure when needed.
+    # This ensures E2E tests exercise the exact same code path as production.
+    original_length = len(content)
+    logger.info(
+        f"Passing content to AIClientV2 for preprocessing and extraction: {original_length:,} chars"
+    )
+
     # Start recording extraction step
     if recorder:
         recorder.start_step(
             "ai_extract",
-            f"AI extraction for {product_type} products",
+            f"AI extraction for {product_type} products (with ContentPreprocessor)",
             {
                 "url": url,
                 "product_type": product_type,
                 "product_category": product_category,
-                "content_length": len(content),
+                "original_content_length": original_length,
             }
         )
 
     extraction_start = time.time()
     client = get_ai_client_v2()
 
-    # Call AI extraction
+    # Call AI extraction - uses full schema from database (all DiscoveredProduct + details fields)
     try:
         result = await client.extract(
             content=content,

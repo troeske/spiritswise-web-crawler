@@ -1,12 +1,17 @@
 """
 E2E Test: IWSC Competition Discovery Flow (Flow 1)
 
-Tests the complete IWSC competition discovery pipeline using V2 architecture:
+Tests the complete IWSC competition discovery pipeline using V3 architecture:
 - CompetitionOrchestratorV2 for orchestration
 - AIExtractorV2 for content extraction
 - Real AI Enhancement Service at https://api.spiritswise.tech/api/v2/extract/
-- QualityGateV2 for quality assessment
-- EnrichmentOrchestratorV2 for SerpAPI enrichment (taste profiles)
+- QualityGateV3 for quality assessment (V3 status hierarchy)
+- EnrichmentOrchestratorV3 for SerpAPI enrichment with V3 features:
+  - V3 budget defaults (6 searches, 8 sources, 180s timeout)
+  - Members-only site detection and budget refund
+  - Dedicated awards search
+  - ECP (Enrichment Completion Percentage) calculation
+  - 90% ECP threshold for COMPLETE status
 - SmartRouter with FULL tier escalation (Tier 1 → 2 → 3)
 
 This test:
@@ -92,7 +97,7 @@ def generate_fingerprint(name: str, brand: str) -> str:
 # and does NOT fall back to raw httpx. If all tiers fail, it raises RuntimeError.
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def create_crawled_source(
     url: str,
     title: str,
@@ -142,7 +147,7 @@ def create_crawled_source(
                 raise
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def create_discovered_product(
     name: str,
     brand: str,
@@ -156,13 +161,14 @@ def create_discovered_product(
 
     fingerprint = generate_fingerprint(name, brand or "")
 
-    # Map quality status to model status
+    # Map quality status to model status (V3 status hierarchy)
     status_map = {
         "rejected": DiscoveredProductStatus.REJECTED,
         "skeleton": DiscoveredProductStatus.INCOMPLETE,
         "partial": DiscoveredProductStatus.PARTIAL,
-        "complete": DiscoveredProductStatus.COMPLETE,
-        "enriched": DiscoveredProductStatus.VERIFIED,
+        "baseline": DiscoveredProductStatus.PARTIAL,  # V3: BASELINE maps to PARTIAL
+        "enriched": DiscoveredProductStatus.VERIFIED,  # V3: ENRICHED maps to VERIFIED
+        "complete": DiscoveredProductStatus.COMPLETE,  # V3: COMPLETE maps to COMPLETE
     }
     status = status_map.get(quality_status, DiscoveredProductStatus.INCOMPLETE)
 
@@ -230,7 +236,7 @@ def create_discovered_product(
     return product
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def update_discovered_product(
     product_id: UUID,
     extracted_data: Dict[str, Any],
@@ -242,13 +248,14 @@ def update_discovered_product(
 
     product = DiscoveredProduct.objects.get(id=product_id)
 
-    # Map quality status to model status
+    # Map quality status to model status (V3 status hierarchy)
     status_map = {
         "rejected": DiscoveredProductStatus.REJECTED,
         "skeleton": DiscoveredProductStatus.INCOMPLETE,
         "partial": DiscoveredProductStatus.PARTIAL,
-        "complete": DiscoveredProductStatus.COMPLETE,
-        "enriched": DiscoveredProductStatus.VERIFIED,
+        "baseline": DiscoveredProductStatus.PARTIAL,  # V3: BASELINE maps to PARTIAL
+        "enriched": DiscoveredProductStatus.VERIFIED,  # V3: ENRICHED maps to VERIFIED
+        "complete": DiscoveredProductStatus.COMPLETE,  # V3: COMPLETE maps to COMPLETE
     }
     product.status = status_map.get(quality_status, product.status)
 
@@ -286,7 +293,7 @@ def update_discovered_product(
     return product
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def create_product_award(
     product: "DiscoveredProduct",
     competition: str,
@@ -333,7 +340,7 @@ def create_product_award(
     return award
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def link_product_to_source(
     product: "DiscoveredProduct",
     source: "CrawledSource",
@@ -366,21 +373,21 @@ def link_product_to_source(
     return link
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def get_discovered_product_by_id(product_id: UUID) -> "DiscoveredProduct":
     """Get a DiscoveredProduct by its ID."""
     from crawler.models import DiscoveredProduct
     return DiscoveredProduct.objects.get(pk=product_id)
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def get_product_awards(product: "DiscoveredProduct") -> List["ProductAward"]:
     """Get all awards for a product."""
     from crawler.models import ProductAward
     return list(ProductAward.objects.filter(product=product))
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def get_iwsc_award_for_product(product: "DiscoveredProduct", competition: str, year: int) -> Optional["ProductAward"]:
     """Get IWSC award for a product."""
     from crawler.models import ProductAward
@@ -391,7 +398,7 @@ def get_iwsc_award_for_product(product: "DiscoveredProduct", competition: str, y
     ).first()
 
 
-@sync_to_async
+@sync_to_async(thread_sensitive=True)
 def get_product_sources(product: "DiscoveredProduct") -> List["ProductSource"]:
     """Get all ProductSource links for a product."""
     from crawler.models import ProductSource
@@ -424,69 +431,95 @@ class TestIWSCCompetitionFlow:
         self.extraction_results: List[Dict[str, Any]] = []
         # Initialize recorder for capturing intermediate step outputs
         self.recorder = get_recorder("IWSC Competition Flow")
-        # Setup enrichment configs for whiskey
-        self._setup_enrichment_configs()
+        # Note: enrichment configs are set up in the async test method via _async_setup_enrichment_configs
 
-    def _setup_enrichment_configs(self):
+    async def _async_setup_enrichment_configs(self):
         """
         Create EnrichmentConfig records for whiskey product type.
 
         These configs define the SerpAPI search templates used for enrichment.
         Without these, the enrichment orchestrator won't run any searches.
+        Uses sync_to_async for safe async context execution.
         """
-        from crawler.models import ProductTypeConfig, EnrichmentConfig, QualityGateConfig
+        @sync_to_async(thread_sensitive=True)
+        def create_configs():
+            from django.core.management import call_command
+            from crawler.models import ProductTypeConfig, EnrichmentConfig, QualityGateConfig, FieldDefinition
 
-        # Create or get ProductTypeConfig for whiskey
-        product_type_config, _ = ProductTypeConfig.objects.get_or_create(
-            product_type="whiskey",
-            defaults={
-                "display_name": "Whiskey",
-                "is_active": True,
-                "max_sources_per_product": 5,
-                "max_serpapi_searches": 3,
-                "max_enrichment_time_seconds": 120,
-            }
-        )
+            # Load base_fields.json fixture if FieldDefinitions don't exist
+            if not FieldDefinition.objects.exists():
+                logger.info("Loading base_fields.json fixture...")
+                call_command("loaddata", "base_fields.json", verbosity=0)
 
-        # Create QualityGateConfig for whiskey
-        QualityGateConfig.objects.get_or_create(
-            product_type_config=product_type_config,
-            defaults={
-                "skeleton_required_fields": ["name"],
-                "partial_required_fields": ["name", "brand"],
-                "partial_any_of_count": 2,
-                "partial_any_of_fields": ["description", "abv", "region", "country"],
-                "complete_required_fields": ["name", "brand", "abv", "description"],
-                "complete_any_of_count": 2,
-                "complete_any_of_fields": ["nose_description", "palate_description", "finish_description", "region"],
-            }
-        )
+            # Load V3 pipeline fixtures for ECP calculation (field groups)
+            from crawler.models import FieldGroup
+            if not FieldGroup.objects.filter(product_type_config__product_type="whiskey").exists():
+                logger.info("Loading whiskey_pipeline_v3.json fixture for ECP field groups...")
+                try:
+                    call_command("loaddata", "whiskey_pipeline_v3.json", verbosity=0)
+                except Exception as e:
+                    logger.warning(f"Could not load whiskey_pipeline_v3.json: {e}")
 
-        # Create EnrichmentConfig for tasting notes search
-        EnrichmentConfig.objects.get_or_create(
-            product_type_config=product_type_config,
-            template_name="tasting_notes",
-            defaults={
-                "search_template": "{name} {brand} tasting notes review",
-                "target_fields": ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"],
-                "priority": 10,
-                "is_active": True,
-            }
-        )
+            # Create or get ProductTypeConfig for whiskey
+            product_type_config, _ = ProductTypeConfig.objects.get_or_create(
+                product_type="whiskey",
+                defaults={
+                    "display_name": "Whiskey",
+                    "is_active": True,
+                    "max_sources_per_product": 5,
+                    "max_serpapi_searches": 3,
+                    "max_enrichment_time_seconds": 120,
+                }
+            )
 
-        # Create EnrichmentConfig for product details search
-        EnrichmentConfig.objects.get_or_create(
-            product_type_config=product_type_config,
-            template_name="product_details",
-            defaults={
-                "search_template": "{name} {brand} whisky abv alcohol content",
-                "target_fields": ["abv", "description", "volume_ml", "age_statement"],
-                "priority": 8,
-                "is_active": True,
-            }
-        )
+            # Create QualityGateConfig for whiskey (V3 status hierarchy)
+            QualityGateConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                defaults={
+                    # V3 Status Hierarchy: SKELETON → PARTIAL → BASELINE → ENRICHED → COMPLETE
+                    "skeleton_required_fields": ["name"],
+                    "partial_required_fields": ["name", "brand", "abv", "country", "category"],
+                    # BASELINE: has tasting profile fields (descriptions + flavors)
+                    "baseline_required_fields": [
+                        "name", "brand", "abv", "country", "category",
+                        "description", "primary_aromas", "palate_flavors"
+                    ],
+                    # ENRICHED: has mouthfeel + complexity OR finishing info
+                    "enriched_required_fields": ["mouthfeel"],
+                    "enriched_or_fields": [
+                        ["complexity", "overall_complexity"],
+                        ["finishing_cask", "maturation_notes", "finish_description"]
+                    ],
+                }
+            )
 
-        logger.info("Created enrichment configs for whiskey product type")
+            # Create EnrichmentConfig for tasting notes search
+            EnrichmentConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                template_name="tasting_notes",
+                defaults={
+                    "search_template": "{name} {brand} tasting notes review",
+                    "target_fields": ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors", "finish_flavors"],
+                    "priority": 10,
+                    "is_active": True,
+                }
+            )
+
+            # Create EnrichmentConfig for product details search
+            EnrichmentConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                template_name="product_details",
+                defaults={
+                    "search_template": "{name} {brand} whisky abv alcohol content",
+                    "target_fields": ["abv", "description", "volume_ml", "age_statement"],
+                    "priority": 8,
+                    "is_active": True,
+                }
+            )
+
+            logger.info("Created enrichment configs for whiskey product type")
+
+        await create_configs()
 
     async def test_iwsc_competition_flow(
         self,
@@ -516,6 +549,9 @@ class TestIWSCCompetitionFlow:
         if ai_client is None:
             pytest.skip("AI Enhancement Service not configured")
 
+        # Setup enrichment configs in async context for proper transaction handling
+        await self._async_setup_enrichment_configs()
+
         logger.info("=" * 60)
         logger.info("Starting IWSC Competition Flow E2E Test")
         logger.info("=" * 60)
@@ -534,7 +570,7 @@ class TestIWSCCompetitionFlow:
             CompetitionOrchestratorV2,
             get_competition_orchestrator_v2,
         )
-        from crawler.services.quality_gate_v2 import ProductStatus
+        from crawler.services.quality_gate_v3 import ProductStatus
 
         orchestrator = get_competition_orchestrator_v2()
 
@@ -786,11 +822,11 @@ class TestIWSCCompetitionFlow:
 
         logger.info(f"Processing product: {name} by {brand}")
 
-        # Get quality assessment (PRE-ENRICHMENT)
-        from crawler.services.quality_gate_v2 import get_quality_gate_v2, ProductStatus
-        from crawler.services.enrichment_orchestrator_v2 import EnrichmentOrchestratorV2
+        # Get quality assessment (PRE-ENRICHMENT) - Using V3 pipeline
+        from crawler.services.quality_gate_v3 import get_quality_gate_v3, ProductStatus
+        from crawler.services.enrichment_orchestrator_v3 import EnrichmentOrchestratorV3
 
-        gate = get_quality_gate_v2()
+        gate = get_quality_gate_v3()
         field_confidences = product_data.pop("field_confidences", {})
         overall_confidence = product_data.pop("overall_confidence", 0.7)
 
@@ -857,7 +893,7 @@ class TestIWSCCompetitionFlow:
             {"product_name": name, "product_id": str(product.id)}
         )
 
-        enrichment_orchestrator = EnrichmentOrchestratorV2()
+        enrichment_orchestrator = EnrichmentOrchestratorV3()
         enrichment_result = await enrichment_orchestrator.enrich_product(
             product_id=str(product.id),
             product_type=PRODUCT_TYPE,
@@ -924,6 +960,7 @@ class TestIWSCCompetitionFlow:
 
             final_status = post_enrichment_assessment.status.value
             final_score = post_enrichment_assessment.completeness_score
+            final_ecp = getattr(post_enrichment_assessment, 'ecp_total', 0.0)
         else:
             logger.warning(f"Enrichment failed for {name}: {enrichment_result.error}")
             self.recorder.complete_step(
@@ -933,6 +970,7 @@ class TestIWSCCompetitionFlow:
             )
             final_status = pre_enrichment_assessment.status.value
             final_score = pre_enrichment_assessment.completeness_score
+            final_ecp = getattr(pre_enrichment_assessment, 'ecp_total', 0.0)
 
         # Record in report collector
         report_collector.add_product({
@@ -979,7 +1017,7 @@ class TestIWSCCompetitionFlow:
             "fields_enriched": enrichment_result.fields_enriched if enrichment_result.success else [],
         })
 
-        # Store extraction result for verification
+        # Store extraction result for verification (including enrichment source URLs)
         self.extraction_results.append({
             "product_id": product.id,
             "source_id": source.id,
@@ -987,8 +1025,12 @@ class TestIWSCCompetitionFlow:
             "product_data": enrichment_result.product_data if enrichment_result.success else product_data,
             "quality_status_before": pre_enrichment_assessment.status.value,
             "quality_status_after": final_status,
+            "ecp_total": final_ecp,
             "enrichment_success": enrichment_result.success,
             "fields_enriched": enrichment_result.fields_enriched if enrichment_result.success else [],
+            "enrichment_sources": enrichment_result.sources_used if enrichment_result.success else [],
+            "sources_searched": enrichment_result.sources_searched if enrichment_result.success else [],
+            "sources_rejected": enrichment_result.sources_rejected if enrichment_result.success else [],
         })
 
     async def _verify_all_products(self, report_collector):
@@ -1093,9 +1135,14 @@ class TestIWSCCompetitionFlow:
                 "award_id": str(result["award_id"]),
                 "quality_status_before": result["quality_status_before"],
                 "quality_status_after": result["quality_status_after"],
+                "ecp_total": result.get("ecp_total", 0.0),
                 "enrichment_success": result["enrichment_success"],
                 "fields_enriched": result["fields_enriched"],
                 "product_data": self._serialize_product_data(result["product_data"]),
+                # Include enrichment source URLs for verification
+                "enrichment_sources": result.get("enrichment_sources", []),
+                "sources_searched": result.get("sources_searched", []),
+                "sources_rejected": result.get("sources_rejected", []),
             }
             export_data["products"].append(product_export)
 
@@ -1185,16 +1232,16 @@ async def test_ai_extractor_v2_available():
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_quality_gate_v2_available():
-    """Verify QualityGateV2 is available."""
-    from crawler.services.quality_gate_v2 import (
-        QualityGateV2,
-        get_quality_gate_v2,
+async def test_quality_gate_v3_available():
+    """Verify QualityGateV3 is available."""
+    from crawler.services.quality_gate_v3 import (
+        QualityGateV3,
+        get_quality_gate_v3,
         ProductStatus,
     )
 
-    gate = get_quality_gate_v2()
-    assert gate is not None, "QualityGateV2 not available"
+    gate = get_quality_gate_v3()
+    assert gate is not None, "QualityGateV3 not available"
     assert hasattr(gate, "aassess"), "Missing aassess async method"
 
     # Test basic assessment (async version)
@@ -1205,4 +1252,4 @@ async def test_quality_gate_v2_available():
     assert result.status in [ProductStatus.SKELETON, ProductStatus.PARTIAL], \
         f"Unexpected status for basic product: {result.status}"
 
-    logger.info("QualityGateV2 is available and configured")
+    logger.info("QualityGateV3 is available and configured")

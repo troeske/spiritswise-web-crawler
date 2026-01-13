@@ -50,9 +50,16 @@ from tests.e2e.utils.single_product_fetcher import (
     fetch_product_page,
     extract_product_from_page,
     PRODUCT_SEARCH_TEMPLATES,
+    get_search_templates,
 )
 from tests.e2e.utils.test_recorder import TestStepRecorder, get_recorder
 from tests.e2e.utils.data_verifier import DataVerifier
+from tests.e2e.utils.test_products import (
+    PRODUCT_TYPE_CONFIGS,
+    PRODUCT_TYPE_IDS,
+    get_primary_test_product,
+    get_test_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -60,10 +67,6 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Test Constants
 # =============================================================================
-
-# The product for this E2E test
-PRODUCT_NAME = "Frank August Small Batch Kentucky Straight Bourbon Whiskey"
-PRODUCT_TYPE = "whiskey"
 
 # Source type for product pages
 SOURCE_TYPE = "retailer_page"
@@ -132,7 +135,7 @@ def create_discovered_product(
     name: str,
     brand: str,
     source_url: str,
-    product_type: str = PRODUCT_TYPE,
+    product_type: str = "whiskey",
     extracted_data: Optional[Dict[str, Any]] = None,
     quality_status: str = "skeleton",
 ) -> "DiscoveredProduct":
@@ -322,8 +325,8 @@ class TestSingleProductE2EFlow:
     """
     E2E test for Single Product Page Flow.
 
-    Extracts Frank August bourbon from product page, enriches it,
-    and exports to JSON.
+    Parameterized to test multiple product types (whiskey, port_wine).
+    Each product type uses its primary test product for extraction and enrichment.
     """
 
     @pytest.fixture(autouse=True)
@@ -334,79 +337,113 @@ class TestSingleProductE2EFlow:
         self.source_id: Optional[UUID] = None
         self.extraction_result: Optional[Dict[str, Any]] = None
         self.recorder = get_recorder("Single Product Flow")
-        self._setup_enrichment_configs()
 
-    def _setup_enrichment_configs(self):
-        """Create EnrichmentConfig records for whiskey product type."""
-        from crawler.models import ProductTypeConfig, EnrichmentConfig, QualityGateConfig
+    async def _setup_enrichment_configs_for_type(self, product_type: str):
+        """Create EnrichmentConfig records for the specified product type."""
+        from crawler.models import ProductTypeConfig, EnrichmentConfig, QualityGateConfig, FieldDefinition
+        from django.core.management import call_command
 
-        product_type_config, _ = ProductTypeConfig.objects.get_or_create(
-            product_type="whiskey",
-            defaults={
-                "display_name": "Whiskey",
-                "is_active": True,
-                "max_sources_per_product": 5,
-                "max_serpapi_searches": 3,
-                "max_enrichment_time_seconds": 120,
-            }
-        )
+        config = get_test_config(product_type)
 
-        QualityGateConfig.objects.get_or_create(
-            product_type_config=product_type_config,
-            defaults={
-                "skeleton_required_fields": ["name"],
-                "partial_required_fields": ["name", "brand"],
-                "partial_any_of_count": 2,
-                "partial_any_of_fields": ["description", "abv", "region", "country"],
-                "complete_required_fields": ["name", "brand", "abv", "description"],
-                "complete_any_of_count": 2,
-                "complete_any_of_fields": ["nose_description", "palate_description", "finish_description", "region"],
-            }
-        )
+        @sync_to_async
+        def create_configs():
+            # Load base_fields.json fixture if FieldDefinitions don't exist
+            if not FieldDefinition.objects.exists():
+                logger.info("Loading base_fields.json fixture...")
+                call_command("loaddata", "crawler/fixtures/base_fields.json", verbosity=0)
 
-        EnrichmentConfig.objects.get_or_create(
-            product_type_config=product_type_config,
-            template_name="tasting_notes",
-            defaults={
-                "search_template": "{name} {brand} tasting notes review",
-                "target_fields": ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"],
-                "priority": 10,
-                "is_active": True,
-            }
-        )
+            product_type_config, _ = ProductTypeConfig.objects.get_or_create(
+                product_type=product_type,
+                defaults={
+                    "display_name": config.display_name,
+                    "is_active": True,
+                    "max_sources_per_product": 5,
+                    "max_serpapi_searches": 3,
+                    "max_enrichment_time_seconds": 120,
+                }
+            )
 
-        EnrichmentConfig.objects.get_or_create(
-            product_type_config=product_type_config,
-            template_name="product_details",
-            defaults={
-                "search_template": "{name} {brand} bourbon abv alcohol content",
-                "target_fields": ["abv", "description", "volume_ml", "age_statement"],
-                "priority": 8,
-                "is_active": True,
-            }
-        )
+            QualityGateConfig.objects.get_or_create(
+                product_type_config=product_type_config,
+                defaults={
+                    "skeleton_required_fields": config.skeleton_fields,
+                    "partial_required_fields": config.partial_fields,
+                    "partial_any_of_count": 2,
+                    "partial_any_of_fields": ["description", "abv", "region", "country"],
+                    "complete_required_fields": config.complete_fields,
+                    "complete_any_of_count": 2,
+                    "complete_any_of_fields": ["nose_description", "palate_description", "finish_description", "region"],
+                }
+            )
 
-        logger.info("Created enrichment configs for whiskey product type")
+            # Product-type-specific enrichment templates
+            if product_type == "whiskey":
+                templates = [
+                    ("tasting_notes", "{name} {brand} tasting notes review",
+                     ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"], 10),
+                    ("product_details", "{name} {brand} bourbon abv alcohol content",
+                     ["abv", "description", "volume_ml", "age_statement"], 8),
+                ]
+            elif product_type == "port_wine":
+                templates = [
+                    ("tasting_notes", "{name} {brand} port wine tasting notes review",
+                     ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"], 10),
+                    ("producer_info", "{name} {brand} port house producer quinta",
+                     ["producer_house", "quinta", "douro_subregion"], 8),
+                ]
+            else:
+                templates = []
 
-    async def test_frank_august_single_product_flow(
+            for template_name, search_template, target_fields, priority in templates:
+                EnrichmentConfig.objects.get_or_create(
+                    product_type_config=product_type_config,
+                    template_name=template_name,
+                    defaults={
+                        "search_template": search_template,
+                        "target_fields": target_fields,
+                        "priority": priority,
+                        "is_active": True,
+                    }
+                )
+
+            logger.info(f"Created enrichment configs for {product_type} product type")
+
+        await create_configs()
+
+    @pytest.mark.parametrize("product_type", PRODUCT_TYPE_IDS, ids=PRODUCT_TYPE_IDS)
+    async def test_single_product_flow(
         self,
+        product_type: str,
         ai_client,
         test_run_tracker,
         report_collector,
         quality_gate,
     ):
         """
-        Main test: Discover, extract and enrich Frank August bourbon.
+        Main test: Discover, extract and enrich a product.
+
+        Parameterized to run for each product type (whiskey, port_wine).
+        Uses the primary test product for each type.
 
         Steps:
-        1. Search for product page via SerpAPI (template progression)
-        2. Fetch product page via SmartRouter
-        3. Extract product data using AI
-        4. Create database records
-        5. Enrich product via SerpAPI + AI
-        6. Export enriched product to JSON
-        7. Verify all records created
+        1. Set up enrichment configs for the product type
+        2. Search for product page via SerpAPI (template progression)
+        3. Fetch product page via SmartRouter
+        4. Extract product data using AI
+        5. Create database records
+        6. Enrich product via SerpAPI + AI
+        7. Export enriched product to JSON
+        8. Verify all records created
         """
+        # Set up configurations for this product type
+        await self._setup_enrichment_configs_for_type(product_type)
+
+        # Get test product for this type
+        test_product = get_primary_test_product(product_type)
+        product_name = test_product.name
+        brand = test_product.brand
+        search_templates = get_search_templates(product_type)
+
         start_time = time.time()
 
         # Skip if services not configured
@@ -414,24 +451,24 @@ class TestSingleProductE2EFlow:
             pytest.skip("AI Enhancement Service not configured")
 
         logger.info("=" * 60)
-        logger.info("Starting Single Product E2E Test (Dynamic Discovery)")
-        logger.info(f"Product: {PRODUCT_NAME}")
-        logger.info(f"Brand: Frank August")
-        logger.info(f"Search Templates: {PRODUCT_SEARCH_TEMPLATES}")
+        logger.info(f"Starting Single Product E2E Test ({product_type})")
+        logger.info(f"Product: {product_name}")
+        logger.info(f"Brand: {brand}")
+        logger.info(f"Search Templates: {search_templates}")
         logger.info("=" * 60)
 
         # Step 1-3: Dynamic discovery (search + fetch + extract)
         logger.info("Starting dynamic product discovery...")
         discovery_result = await discover_and_extract_product(
-            product_name=PRODUCT_NAME,
-            brand="Frank August",
-            product_type=PRODUCT_TYPE,
+            product_name=product_name,
+            brand=brand,
+            product_type=product_type,
             recorder=self.recorder,
         )
 
         if not discovery_result.success:
             raise RuntimeError(
-                f"Failed to discover product '{PRODUCT_NAME}'. "
+                f"Failed to discover product '{product_name}'. "
                 f"Error: {discovery_result.error}. "
                 f"Templates tried: {discovery_result.templates_tried}. "
                 f"This needs investigation."
@@ -470,7 +507,7 @@ class TestSingleProductE2EFlow:
 
         source = await create_crawled_source(
             url=product_url,
-            title=f"Product Page - {product_data.get('name', PRODUCT_NAME)}",
+            title=f"Product Page - {product_data.get('name', product_name)}",
             raw_content=fetch_result.content,
             source_type=SOURCE_TYPE,
         )
@@ -495,14 +532,14 @@ class TestSingleProductE2EFlow:
 
         pre_assessment = await gate.aassess(
             extracted_data=product_data,
-            product_type=PRODUCT_TYPE,
+            product_type=product_type,
             field_confidences=field_confidences,
         )
 
         logger.info(f"PRE-ENRICHMENT Quality: {pre_assessment.status.value}")
 
         self.recorder.record_quality_assessment(
-            product_name=product_data.get("name", PRODUCT_NAME),
+            product_name=product_data.get("name", product_name),
             status=pre_assessment.status.value,
             completeness_score=pre_assessment.completeness_score,
             missing_fields=pre_assessment.missing_required_fields + pre_assessment.missing_any_of_fields,
@@ -510,14 +547,14 @@ class TestSingleProductE2EFlow:
         )
 
         # Step 5: Create DiscoveredProduct
-        name = product_data.get("name", PRODUCT_NAME)
-        brand = product_data.get("brand", "Frank August")
+        extracted_name = product_data.get("name", product_name)
+        extracted_brand = product_data.get("brand", brand)
 
         product = await create_discovered_product(
-            name=name,
-            brand=brand,
+            name=extracted_name,
+            brand=extracted_brand,
             source_url=product_url,
-            product_type=PRODUCT_TYPE,
+            product_type=product_type,
             extracted_data=product_data,
             quality_status=pre_assessment.status.value,
         )
@@ -534,11 +571,11 @@ class TestSingleProductE2EFlow:
         )
 
         # Step 7: ENRICHMENT
-        logger.info(f"Starting enrichment for {name}...")
+        logger.info(f"Starting enrichment for {extracted_name}...")
         self.recorder.start_step(
             "enrichment",
-            f"Enriching {name[:30]}... via SerpAPI + AI",
-            {"product_name": name, "product_id": str(product.id)}
+            f"Enriching {extracted_name[:30]}... via SerpAPI + AI",
+            {"product_name": extracted_name, "product_id": str(product.id)}
         )
 
         from crawler.services.enrichment_orchestrator_v2 import EnrichmentOrchestratorV2
@@ -546,7 +583,7 @@ class TestSingleProductE2EFlow:
 
         enrichment_result = await enrichment_orchestrator.enrich_product(
             product_id=str(product.id),
-            product_type=PRODUCT_TYPE,
+            product_type=product_type,
             initial_data=product_data.copy(),
             initial_confidences=field_confidences,
         )
@@ -573,7 +610,7 @@ class TestSingleProductE2EFlow:
             )
 
             self.recorder.record_enrichment_result(
-                product_name=name,
+                product_name=extracted_name,
                 status_before=enrichment_result.status_before,
                 status_after=enrichment_result.status_after,
                 fields_enriched=enrichment_result.fields_enriched,
@@ -593,14 +630,14 @@ class TestSingleProductE2EFlow:
             # POST-ENRICHMENT Quality Assessment
             post_assessment = await gate.aassess(
                 extracted_data=enriched_data,
-                product_type=PRODUCT_TYPE,
+                product_type=product_type,
                 field_confidences=field_confidences,
             )
 
             logger.info(f"POST-ENRICHMENT Quality: {post_assessment.status.value}")
 
             self.recorder.record_quality_assessment(
-                product_name=f"{name} (post-enrichment)",
+                product_name=f"{extracted_name} (post-enrichment)",
                 status=post_assessment.status.value,
                 completeness_score=post_assessment.completeness_score,
                 missing_fields=post_assessment.missing_required_fields + post_assessment.missing_any_of_fields,
@@ -636,9 +673,9 @@ class TestSingleProductE2EFlow:
         # Record in report collector
         report_collector.add_product({
             "id": str(product.id),
-            "name": name,
-            "brand": brand,
-            "product_type": PRODUCT_TYPE,
+            "name": extracted_name,
+            "brand": extracted_brand,
+            "product_type": product_type,
             "status": final_status,
             "source_url": product_url,
             "enriched": enrichment_result.success,
@@ -656,7 +693,8 @@ class TestSingleProductE2EFlow:
             products_created=1,
             duration_seconds=duration,
             details={
-                "product_name": name,
+                "product_name": extracted_name,
+                "product_type": product_type,
                 "product_id": str(product.id),
                 "source_id": str(source.id),
                 "enrichment_success": enrichment_result.success,
@@ -667,7 +705,7 @@ class TestSingleProductE2EFlow:
 
         logger.info("=" * 60)
         logger.info(f"Single Product Flow completed in {duration:.1f}s")
-        logger.info(f"Product: {name}")
+        logger.info(f"Product: {extracted_name}")
         logger.info(f"Status: {pre_assessment.status.value} -> {final_status}")
         logger.info(f"Enrichment: {'SUCCESS' if enrichment_result.success else 'FAILED'}")
         if enrichment_result.success:
@@ -676,7 +714,7 @@ class TestSingleProductE2EFlow:
 
         # Save recorder output
         self.recorder.set_summary({
-            "product_name": name,
+            "product_name": extracted_name,
             "product_id": str(product.id),
             "source_id": str(source.id),
             "status_before": pre_assessment.status.value,
@@ -689,7 +727,7 @@ class TestSingleProductE2EFlow:
         logger.info(f"Test recording saved to: {output_path}")
 
         # Export enriched product to JSON
-        json_output_path = await self._export_enriched_product_to_json()
+        json_output_path = await self._export_enriched_product_to_json(extracted_name, product_type)
         logger.info(f"Enriched product exported to: {json_output_path}")
 
         # Assert product was created
@@ -728,17 +766,18 @@ class TestSingleProductE2EFlow:
 
         logger.info(f"Verified product {self.product_id}: {product.name}")
 
-    async def _export_enriched_product_to_json(self) -> str:
+    async def _export_enriched_product_to_json(self, product_name: str, product_type: str) -> str:
         """Export the enriched product to a JSON file for inspection."""
         output_dir = Path(__file__).parent.parent / "outputs"
         output_dir.mkdir(exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-        output_path = output_dir / f"enriched_product_single_{timestamp}.json"
+        output_path = output_dir / f"enriched_product_{product_type}_{timestamp}.json"
 
         export_data = {
             "export_timestamp": datetime.now().isoformat(),
-            "product_name": PRODUCT_NAME,
+            "product_name": product_name,
+            "product_type": product_type,
             "product": self._serialize_product_data(self.extraction_result) if self.extraction_result else {},
         }
 
@@ -774,17 +813,26 @@ class TestSingleProductE2EFlow:
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_frank_august_urls_configured():
-    """Verify Frank August URLs are properly configured."""
-    frank_august_urls = get_frank_august_urls()
-    assert len(frank_august_urls) >= 1, f"Expected at least 1 Frank August URL, got {len(frank_august_urls)}"
+async def test_product_search_templates_configured():
+    """Verify product search templates are properly configured for dynamic discovery."""
+    from tests.e2e.utils.single_product_fetcher import PRODUCT_SEARCH_TEMPLATES
 
-    for url in frank_august_urls:
-        assert url.url.startswith("http"), f"Invalid URL: {url.url}"
-        assert url.source_name, f"Missing source_name for {url.url}"
-        assert url.product_name, f"Missing product_name for {url.url}"
+    # Verify templates are defined
+    assert len(PRODUCT_SEARCH_TEMPLATES) >= 1, (
+        f"Expected at least 1 search template, got {len(PRODUCT_SEARCH_TEMPLATES)}"
+    )
 
-    logger.info(f"Verified {len(frank_august_urls)} Frank August URLs")
+    # Verify templates have required placeholders
+    for template in PRODUCT_SEARCH_TEMPLATES:
+        assert "{name}" in template, f"Template missing {{name}} placeholder: {template}"
+
+    # Verify official/direct search template exists first
+    first_template = PRODUCT_SEARCH_TEMPLATES[0]
+    assert "official" in first_template.lower() or "site" in first_template.lower(), (
+        f"First template should prioritize official sources: {first_template}"
+    )
+
+    logger.info(f"Verified {len(PRODUCT_SEARCH_TEMPLATES)} search templates configured")
 
 
 @pytest.mark.e2e
