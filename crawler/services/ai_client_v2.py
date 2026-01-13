@@ -31,10 +31,10 @@ from crawler.services.content_preprocessor import (
 
 logger = logging.getLogger(__name__)
 
-# Reduced schema for multi-product extraction (list pages)
-# Uses only essential fields to stay under 16K output token limit
+# Extended schema for multi-product extraction (list pages)
+# Captures core identification + taste profiles available on listicles
 # Full 76-field schema generates ~1000+ tokens per product
-# Skeleton schema generates ~200-300 tokens per product
+# Extended schema (~23 fields) generates ~400-500 tokens per product
 MULTI_PRODUCT_SKELETON_SCHEMA = [
     # Core identification fields (required)
     "name",
@@ -58,6 +58,18 @@ MULTI_PRODUCT_SKELETON_SCHEMA = [
     # Detail page URL for follow-up extraction
     # Competition sites often have "View Details" links with more info
     "detail_url",
+    # Taste profile descriptions (prose - source of truth for derived fields)
+    # Many listicles include tasting notes that we should capture upfront
+    "nose_description",
+    "palate_description",
+    "finish_description",
+    "mouthfeel",
+    # Taste profile arrays (extracted flavor notes)
+    "primary_aromas",
+    "palate_flavors",
+    "finish_flavors",
+    # Price information (often included on listicles)
+    "prices",
 ]
 
 
