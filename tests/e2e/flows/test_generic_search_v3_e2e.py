@@ -140,6 +140,10 @@ class ProductEnrichmentResult:
     cross_contamination_detected: bool = False
     match_validation_failures: List[str] = field(default_factory=list)
 
+    # Enriched data - actual field values (nose_description, palate_flavors, etc.)
+    enriched_data: Dict[str, Any] = field(default_factory=dict)
+    initial_data: Dict[str, Any] = field(default_factory=dict)
+
     # Timing
     enrichment_time_seconds: float = 0.0
     error: Optional[str] = None
@@ -786,6 +790,7 @@ class TestGenericSearchV3E2EFlow:
                 brand=brand,
                 status_before=product_info["initial_status"],
                 ecp_before=product_info["initial_ecp"],
+                initial_data=initial_data.copy(),  # Store initial state
             )
 
             try:
@@ -830,6 +835,9 @@ class TestGenericSearchV3E2EFlow:
 
                 result.status_after = final_assessment.status.value
                 result.ecp_after = final_assessment.ecp_total
+
+                # Store enriched data for debugging/analysis
+                result.enriched_data = enrichment_result.product_data.copy()
 
                 # Update product in database with enriched data
                 await update_discovered_product(

@@ -555,9 +555,9 @@ class EnrichmentPipelineV3:
                 session.sources_searched.append(url)
 
                 try:
-                    # Extract with full schema
+                    # Extract with full schema, passing target product for matching
                     extracted, confidences = await self._fetch_and_extract(
-                        url, product_type, []
+                        url, product_type, [], target_product=product_data
                     )
 
                     if extracted:
@@ -760,7 +760,7 @@ class EnrichmentPipelineV3:
                     )
 
                     extracted, confidences = await self._fetch_and_extract(
-                        url, product_type, target_fields
+                        url, product_type, target_fields, target_product=merged_data
                     )
 
                     if extracted:
@@ -1240,21 +1240,137 @@ class EnrichmentPipelineV3:
             logger.warning("Search failed for query '%s': %s", query[:50], str(e))
             return []
 
+    def _find_best_matching_product(
+        self,
+        products: List[Any],
+        target_data: Dict[str, Any],
+    ) -> Optional[Any]:
+        """
+        Find the product from extraction results that best matches the target.
+
+        When a page contains multiple products (e.g., bulleit.com lists Bourbon,
+        Rye, etc.), this method finds the one that matches our target product
+        instead of blindly taking products[0].
+
+        Matching criteria (in order of importance):
+        1. Name token overlap (>= 30% of target name tokens)
+        2. Brand match (case-insensitive)
+        3. Category match (bourbon vs rye, single malt vs blended)
+
+        Args:
+            products: List of ExtractedProduct from AI extraction.
+            target_data: Target product data with 'name', 'brand', 'category'.
+
+        Returns:
+            Best matching product, or None if no good match found.
+        """
+        if not products:
+            return None
+
+        if len(products) == 1:
+            return products[0]
+
+        target_name = (target_data.get("name") or "").lower()
+        target_brand = (target_data.get("brand") or "").lower()
+        target_category = (target_data.get("category") or "").lower()
+
+        # Tokenize target name for overlap calculation
+        target_tokens = set(target_name.split())
+
+        best_match = None
+        best_score = -1
+
+        for product in products:
+            extracted = product.extracted_data or {}
+            extracted_name = (extracted.get("name") or "").lower()
+            extracted_brand = (extracted.get("brand") or "").lower()
+            extracted_category = (extracted.get("category") or "").lower()
+
+            score = 0
+
+            # Name token overlap (most important)
+            extracted_tokens = set(extracted_name.split())
+            if target_tokens and extracted_tokens:
+                overlap = len(target_tokens & extracted_tokens)
+                overlap_ratio = overlap / len(target_tokens)
+                score += overlap_ratio * 50  # Up to 50 points
+
+            # Brand match
+            if target_brand and extracted_brand:
+                if target_brand == extracted_brand:
+                    score += 30  # Exact match
+                elif target_brand in extracted_brand or extracted_brand in target_brand:
+                    score += 20  # Partial match
+
+            # Category match (penalize mismatches)
+            if target_category and extracted_category:
+                # Check for mutually exclusive categories
+                bourbon_keywords = {"bourbon"}
+                rye_keywords = {"rye"}
+                single_malt_keywords = {"single malt", "singlemalt"}
+                blended_keywords = {"blend", "blended"}
+
+                target_is_bourbon = any(k in target_category for k in bourbon_keywords)
+                extracted_is_rye = any(k in extracted_category for k in rye_keywords)
+
+                target_is_single_malt = any(k in target_category for k in single_malt_keywords)
+                extracted_is_blended = any(k in extracted_category for k in blended_keywords)
+
+                # Penalize category mismatches
+                if target_is_bourbon and extracted_is_rye:
+                    score -= 40
+                elif target_is_single_malt and extracted_is_blended:
+                    score -= 40
+                elif target_category == extracted_category:
+                    score += 20  # Exact category match bonus
+
+            logger.debug(
+                "Product match score for '%s': %.1f (target: '%s')",
+                extracted_name[:30],
+                score,
+                target_name[:30],
+            )
+
+            if score > best_score:
+                best_score = score
+                best_match = product
+
+        # Only return if we have a reasonable match (score > 0)
+        if best_score > 0:
+            logger.info(
+                "Selected best matching product: '%s' (score: %.1f)",
+                (best_match.extracted_data or {}).get("name", "Unknown")[:40],
+                best_score,
+            )
+            return best_match
+
+        # No good match - fall back to first product but log warning
+        logger.warning(
+            "No good product match found (best score: %.1f), using first product",
+            best_score,
+        )
+        return products[0]
+
     async def _fetch_and_extract(
         self,
         url: str,
         product_type: str,
         target_fields: List[str],
+        target_product: Optional[Dict[str, Any]] = None,
     ) -> Tuple[Dict[str, Any], Dict[str, float]]:
         """
         Fetch URL content and extract product data.
 
-        Uses httpx for fetching and AIClientV2 for extraction.
+        Uses httpx for fetching and AIClientV2 for extraction. When multiple
+        products are extracted from a page, uses target_product to select the
+        best matching one instead of blindly taking the first.
 
         Args:
             url: Source URL to fetch.
             product_type: Product type for extraction schema.
             target_fields: Fields to prioritize in extraction (from EnrichmentConfig).
+            target_product: Target product data for matching (name, brand, category).
+                If provided and multiple products extracted, selects best match.
 
         Returns:
             Tuple of (extracted_data, field_confidences). Returns empty dicts
@@ -1311,7 +1427,19 @@ class EnrichmentPipelineV3:
                 )
                 return {}, {}
 
-            product = result.products[0]
+            # Select best matching product when multiple are found
+            if len(result.products) > 1 and target_product:
+                logger.info(
+                    "Multiple products (%d) extracted from %s, selecting best match",
+                    len(result.products),
+                    url,
+                )
+                product = self._find_best_matching_product(
+                    result.products, target_product
+                )
+            else:
+                product = result.products[0]
+
             extracted_data = product.extracted_data or {}
             field_confidences = product.field_confidences or {}
 
