@@ -880,6 +880,26 @@ class ProductTypeConfig(models.Model):
     )
 
     # ============================================
+    # ECP (Enrichment Completion Percentage) Settings - moved from PipelineConfig
+    # ============================================
+
+    ecp_complete_threshold = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=90.0,
+        help_text="ECP percentage required for COMPLETE status (V3 default: 90%)",
+    )
+
+    # ============================================
+    # Status Thresholds (V3 JSON structure) - moved from PipelineConfig
+    # ============================================
+
+    status_thresholds = models.JSONField(
+        default=dict,
+        help_text="Status requirements per level (skeleton, partial, baseline, enriched, complete)",
+    )
+
+    # ============================================
     # Timestamps
     # ============================================
 
