@@ -260,10 +260,33 @@ Enhance source tracking with comprehensive audit trail.
   - **Completed:**
   - **Notes:**
 
+- [ ] **2.2.5** Create database migration for source tracking persistence
+  - **Spec Reference:** Section 5.6.2
+  - Create migration `0045_add_enrichment_source_tracking.py`
+  - Add `enrichment_sources_searched` JSONField to DiscoveredProduct
+  - Add `enrichment_sources_used` JSONField to DiscoveredProduct
+  - Add `enrichment_sources_rejected` JSONField to DiscoveredProduct
+  - Add `field_provenance` JSONField to DiscoveredProduct
+  - Add `enrichment_steps_completed` IntegerField to DiscoveredProduct
+  - Add `last_enrichment_at` DateTimeField to DiscoveredProduct
+  - **Status:**
+  - **Completed:**
+  - **Notes:**
+
+- [ ] **2.2.6** Update product save logic to persist source tracking
+  - Update `_save_product()` in product_pipeline.py
+  - Update `_save_product()` in discovery_orchestrator_v3.py
+  - Ensure sources are persisted after enrichment completes
+  - **Status:**
+  - **Completed:**
+  - **Notes:**
+
 #### Acceptance Criteria
 - [ ] All unit tests pass
 - [ ] Can trace each field back to source URL
 - [ ] All rejected sources have reasons logged
+- [ ] Source tracking data persists to database after enrichment
+- [ ] Can query products by enrichment sources used
 
 ---
 
@@ -461,13 +484,13 @@ Create test data and fixtures for E2E testing.
 | Phase | Total Tasks | Completed | In Progress | Blocked |
 |-------|-------------|-----------|-------------|---------|
 | Phase 1 | 14 | 0 | 0 | 0 |
-| Phase 2 | 12 | 0 | 0 | 0 |
+| Phase 2 | 14 | 0 | 0 | 0 |
 | Phase 3 | 8 | 0 | 0 | 0 |
 | Phase 4 | 6 | 0 | 0 | 0 |
-| **Total** | **40** | **0** | **0** | **0** |
+| **Total** | **42** | **0** | **0** | **0** |
 
 **Last Updated:** 2026-01-13
-**Updated By:** Updated to 2-step pipeline (removed detail page extraction task)
+**Updated By:** Added database migration tasks for source tracking persistence (2.2.5, 2.2.6)
 
 ---
 

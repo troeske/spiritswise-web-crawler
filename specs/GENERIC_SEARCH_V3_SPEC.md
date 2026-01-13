@@ -428,6 +428,68 @@ class DiscoveryResultV3:
     status_progression: List[str]     # ["skeleton", "partial", "baseline"]
 ```
 
+#### 5.6.2 Database Persistence (CRITICAL GAP)
+
+**Current State:** Source tracking is implemented at runtime but NOT persisted to database.
+The `EnrichmentResult` tracks sources during enrichment, but this data is lost after the
+operation completes.
+
+**Required Database Schema Changes:**
+
+Add the following fields to `DiscoveredProduct` model:
+
+```python
+# In crawler/models.py - DiscoveredProduct model
+
+# ============================================================
+# V3: Enrichment Source Tracking Fields
+# Spec Reference: GENERIC_SEARCH_V3_SPEC.md Section 5.6.2
+# ============================================================
+
+enrichment_sources_searched = models.JSONField(
+    default=list,
+    blank=True,
+    help_text="V3: All URLs searched/attempted during enrichment",
+)
+
+enrichment_sources_used = models.JSONField(
+    default=list,
+    blank=True,
+    help_text="V3: URLs that successfully contributed data during enrichment",
+)
+
+enrichment_sources_rejected = models.JSONField(
+    default=list,
+    blank=True,
+    help_text="V3: URLs rejected during enrichment with reasons [{url, reason, timestamp}]",
+)
+
+field_provenance = models.JSONField(
+    default=dict,
+    blank=True,
+    help_text="V3: Mapping of field_name → source_url for audit trail",
+)
+
+enrichment_steps_completed = models.IntegerField(
+    default=0,
+    help_text="V3: Number of enrichment steps completed (0-2 for generic search)",
+)
+
+last_enrichment_at = models.DateTimeField(
+    null=True,
+    blank=True,
+    help_text="V3: Timestamp of last enrichment attempt",
+)
+```
+
+**Migration Required:** `0045_add_enrichment_source_tracking.py`
+
+**Benefits:**
+- Full audit trail for data provenance
+- Debug failed enrichments by checking rejected sources
+- Identify high-value sources by analyzing `sources_used`
+- Track field origins for conflict resolution
+
 ### 5.7 Duplicate Detection (FEAT-007)
 
 #### 5.7.1 URL-Based Deduplication
