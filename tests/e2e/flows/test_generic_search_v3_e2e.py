@@ -324,6 +324,8 @@ def update_discovered_product(
     enriched_data: Dict[str, Any],
     quality_status: str,
     source_tracking: Optional[Dict[str, Any]] = None,
+    ecp_total: Optional[float] = None,
+    ecp_by_group: Optional[Dict[str, Dict]] = None,
 ) -> "DiscoveredProduct":
     """Update a DiscoveredProduct with enriched data and V3 source tracking."""
     from crawler.models import DiscoveredProduct, DiscoveredProductStatus
@@ -387,8 +389,14 @@ def update_discovered_product(
         if hasattr(product, "last_enrichment_at"):
             product.last_enrichment_at = timezone.now()
 
+    # Update V3 ECP fields
+    if ecp_total is not None and hasattr(product, "ecp_total"):
+        product.ecp_total = Decimal(str(ecp_total))
+    if ecp_by_group is not None and hasattr(product, "enrichment_completion"):
+        product.enrichment_completion = ecp_by_group
+
     product.save()
-    logger.info(f"Updated DiscoveredProduct: {product.id} (status: {quality_status})")
+    logger.info(f"Updated DiscoveredProduct: {product.id} (status: {quality_status}, ecp: {ecp_total:.1f}%)" if ecp_total else f"Updated DiscoveredProduct: {product.id} (status: {quality_status})")
     return product
 
 
@@ -425,6 +433,7 @@ def setup_enrichment_configs(product_type: str) -> None:
         EnrichmentConfig,
         QualityGateConfig,
         FieldDefinition,
+        FieldGroup,
     )
 
     # Load base_fields.json fixture if needed
@@ -491,7 +500,40 @@ def setup_enrichment_configs(product_type: str) -> None:
             }
         )
 
-    logger.info(f"Set up enrichment configs for {product_type}")
+    # Create FieldGroups for ECP calculation (V3)
+    # Without these, ECP will always be 0.0
+    field_groups = [
+        ("basic_product_info", "Basic Product Info",
+         ["product_type", "category", "abv", "volume_ml", "description", "age_statement", "country", "region", "bottler"], 1),
+        ("tasting_appearance", "Tasting Profile - Appearance",
+         ["color_description", "color_intensity", "clarity", "viscosity"], 2),
+        ("tasting_nose", "Tasting Profile - Nose",
+         ["nose_description", "primary_aromas", "primary_intensity", "secondary_aromas", "aroma_evolution"], 3),
+        ("tasting_palate", "Tasting Profile - Palate",
+         ["initial_taste", "mid_palate_evolution", "palate_flavors", "palate_description", "flavor_intensity", "complexity", "mouthfeel"], 4),
+        ("tasting_finish", "Tasting Profile - Finish",
+         ["finish_length", "warmth", "dryness", "finish_flavors", "finish_evolution", "finish_description", "final_notes"], 5),
+        ("tasting_overall", "Tasting Profile - Overall",
+         ["balance", "overall_complexity", "uniqueness", "drinkability", "price_quality_ratio", "experience_level", "serving_recommendation", "food_pairings"], 6),
+        ("cask_info", "Cask Info",
+         ["primary_cask", "finishing_cask", "wood_type", "cask_treatment", "maturation_notes"], 7),
+        ("whiskey_details", "Whiskey-Specific Details",
+         ["whiskey_type", "distillery", "mash_bill", "cask_strength", "single_cask", "cask_number", "vintage_year", "bottling_year", "batch_number", "peated", "peat_level", "peat_ppm", "natural_color", "non_chill_filtered"], 8),
+    ]
+
+    for group_key, display_name, fields, sort_order in field_groups:
+        FieldGroup.objects.get_or_create(
+            product_type_config=product_type_config,
+            group_key=group_key,
+            defaults={
+                "display_name": display_name,
+                "fields": fields,
+                "sort_order": sort_order,
+                "is_active": True,
+            }
+        )
+
+    logger.info(f"Set up enrichment configs and field groups for {product_type}")
 
 
 # =============================================================================
@@ -839,7 +881,7 @@ class TestGenericSearchV3E2EFlow:
                 # Store enriched data for debugging/analysis
                 result.enriched_data = enrichment_result.product_data.copy()
 
-                # Update product in database with enriched data
+                # Update product in database with enriched data and ECP
                 await update_discovered_product(
                     product_id=product.id,
                     enriched_data=enrichment_result.product_data,
@@ -851,7 +893,9 @@ class TestGenericSearchV3E2EFlow:
                         "field_provenance": result.field_provenance,
                         "step_1_completed": result.step_1_producer_completed,
                         "step_2_completed": result.step_2_review_completed,
-                    }
+                    },
+                    ecp_total=final_assessment.ecp_total,
+                    ecp_by_group=final_assessment.ecp_by_group,
                 )
 
                 test_run_tracker.record_api_call("ai_service")
