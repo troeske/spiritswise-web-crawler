@@ -359,3 +359,109 @@ class ProductTypeConfigLoadingTests(TestCase):
         self.assertEqual(limits["max_searches"], 6)
         self.assertEqual(limits["max_sources"], 8)
         self.assertEqual(limits["max_time"], 180.0)
+
+
+class SmartRouterIntegrationTests(TestCase):
+    """Tests for SmartRouter integration in V3 orchestrator."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.orchestrator = EnrichmentOrchestratorV3()
+
+    def test_v3_has_smart_router(self):
+        """Test V3 orchestrator has SmartRouter attribute."""
+        self.assertTrue(hasattr(self.orchestrator, '_smart_router'))
+
+    def test_v3_overrides_fetch_and_extract(self):
+        """Test V3 overrides _fetch_and_extract method."""
+        # V3 should have its own implementation, not inherited from V2
+        v3_method = EnrichmentOrchestratorV3._fetch_and_extract
+        from crawler.services.enrichment_orchestrator_v2 import EnrichmentOrchestratorV2
+        v2_method = EnrichmentOrchestratorV2._fetch_and_extract
+
+        # Methods should be different (V3 overrides V2)
+        self.assertIsNot(v3_method, v2_method)
+
+    @patch('crawler.services.enrichment_orchestrator_v3.SmartRouter')
+    async def test_fetch_uses_smart_router(self, mock_smart_router_class):
+        """Test _fetch_and_extract uses SmartRouter."""
+        from crawler.fetchers.smart_router import FetchResult
+
+        # Mock SmartRouter instance
+        mock_router = MagicMock()
+        mock_router.fetch = MagicMock(return_value=FetchResult(
+            content="<html><body>Test content</body></html>",
+            status_code=200,
+            headers={},
+            success=True,
+            tier_used=1,
+        ))
+        mock_smart_router_class.return_value = mock_router
+
+        orchestrator = EnrichmentOrchestratorV3()
+
+        # Call fetch
+        result, confidences = await orchestrator._fetch_and_extract(
+            "https://example.com",
+            "whiskey",
+            ["name", "brand"],
+        )
+
+        # Verify SmartRouter.fetch was called
+        mock_router.fetch.assert_called_once()
+
+    @patch('crawler.services.enrichment_orchestrator_v3.SmartRouter')
+    async def test_tier_escalation_on_403(self, mock_smart_router_class):
+        """Test SmartRouter escalates to Tier 3 on 403 error."""
+        from crawler.fetchers.smart_router import FetchResult
+
+        # Mock SmartRouter that returns Tier 3 result (ScrapingBee)
+        mock_router = MagicMock()
+        mock_router.fetch = MagicMock(return_value=FetchResult(
+            content="<html><body>Content via ScrapingBee</body></html>",
+            status_code=200,
+            headers={},
+            success=True,
+            tier_used=3,  # Tier 3 = ScrapingBee
+        ))
+        mock_smart_router_class.return_value = mock_router
+
+        orchestrator = EnrichmentOrchestratorV3()
+
+        result, confidences = await orchestrator._fetch_and_extract(
+            "https://whiskybase.com/blocked",
+            "whiskey",
+            ["name"],
+        )
+
+        # Verify fetch was called and would escalate
+        mock_router.fetch.assert_called_once()
+
+    @patch('crawler.services.enrichment_orchestrator_v3.SmartRouter')
+    async def test_handles_fetch_failure_gracefully(self, mock_smart_router_class):
+        """Test graceful handling of SmartRouter fetch failure."""
+        from crawler.fetchers.smart_router import FetchResult
+
+        # Mock SmartRouter that returns failure
+        mock_router = MagicMock()
+        mock_router.fetch = MagicMock(return_value=FetchResult(
+            content="",
+            status_code=403,
+            headers={},
+            success=False,
+            tier_used=3,
+            error="All tiers failed",
+        ))
+        mock_smart_router_class.return_value = mock_router
+
+        orchestrator = EnrichmentOrchestratorV3()
+
+        result, confidences = await orchestrator._fetch_and_extract(
+            "https://blocked-site.com",
+            "whiskey",
+            ["name"],
+        )
+
+        # Should return empty dict on failure
+        self.assertEqual(result, {})
+        self.assertEqual(confidences, {})

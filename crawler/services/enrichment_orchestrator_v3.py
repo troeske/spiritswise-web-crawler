@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from crawler.fetchers.smart_router import SmartRouter, FetchResult
 from crawler.models import ProductTypeConfig
 from crawler.services.ai_client_v2 import AIClientV2, get_ai_client_v2
 from crawler.services.enrichment_orchestrator_v2 import (
@@ -116,6 +117,7 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
         ai_client: Optional[AIClientV2] = None,
         serp_client: Optional[Any] = None,
         quality_gate: Optional[QualityGateV3] = None,
+        smart_router: Optional[SmartRouter] = None,
     ):
         """
         Initialize V3 orchestrator.
@@ -124,13 +126,15 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
             ai_client: AIClientV2 instance (optional, creates default)
             serp_client: SerpAPI client (optional, creates default)
             quality_gate: QualityGateV3 instance (optional, creates default)
+            smart_router: SmartRouter instance (optional, creates default)
         """
         # Don't call super().__init__ to avoid V2 quality gate initialization
         self.ai_client = ai_client
         self._serp_client = serp_client
         self._quality_gate_v3 = quality_gate
+        self._smart_router = smart_router
 
-        logger.debug("EnrichmentOrchestratorV3 initialized with V3 budget defaults")
+        logger.debug("EnrichmentOrchestratorV3 initialized with V3 budget defaults and SmartRouter")
 
     @property
     def quality_gate(self) -> QualityGateV3:
@@ -515,6 +519,107 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
             logger.debug("No awards found in search")
 
         return (awards, sources)
+
+    def _get_smart_router(self) -> SmartRouter:
+        """Get or create SmartRouter instance."""
+        if self._smart_router is None:
+            self._smart_router = SmartRouter()
+        return self._smart_router
+
+    async def _fetch_and_extract(
+        self,
+        url: str,
+        product_type: str,
+        target_fields: List[str],
+    ) -> Tuple[Dict[str, Any], Dict[str, float]]:
+        """
+        Fetch URL content using SmartRouter and extract product data.
+
+        V3 Override: Uses SmartRouter instead of direct httpx to enable
+        automatic tier escalation to ScrapingBee for 403 errors.
+
+        Tier escalation:
+        - Tier 1: httpx (fast, free)
+        - Tier 2: Playwright (JavaScript rendering)
+        - Tier 3: ScrapingBee (blocked sites, 403 errors)
+
+        Args:
+            url: Source URL to fetch
+            product_type: Product type for extraction
+            target_fields: Fields to prioritize in extraction
+
+        Returns:
+            Tuple of (extracted_data, field_confidences)
+        """
+        try:
+            # Use SmartRouter for automatic tier escalation
+            router = self._get_smart_router()
+            result = await router.fetch(url)
+
+            if not result.success:
+                logger.warning(
+                    "SmartRouter fetch failed for %s: %s (tier %d)",
+                    url,
+                    result.error,
+                    result.tier_used,
+                )
+                return {}, {}
+
+            content = result.content
+            logger.debug(
+                "SmartRouter fetched %s successfully (tier %d)",
+                url,
+                result.tier_used,
+            )
+
+        except Exception as e:
+            logger.warning("SmartRouter exception fetching %s: %s", url, str(e))
+            return {}, {}
+
+        if not content:
+            return {}, {}
+
+        try:
+            ai_client = self._get_ai_client()
+
+            extraction_schema = target_fields if target_fields else None
+
+            extraction_result = await ai_client.extract(
+                content=content,
+                source_url=url,
+                product_type=product_type,
+                extraction_schema=extraction_schema,
+            )
+
+            if not extraction_result.success or not extraction_result.products:
+                logger.debug(
+                    "No products extracted from %s: %s",
+                    url,
+                    extraction_result.error or "empty result",
+                )
+                return {}, {}
+
+            product = extraction_result.products[0]
+
+            # Extract fields and confidences
+            extracted_data = product.data if hasattr(product, "data") else product
+            field_confidences = (
+                product.confidences
+                if hasattr(product, "confidences")
+                else {}
+            )
+
+            logger.debug(
+                "Extracted %d fields from %s",
+                len(extracted_data),
+                url,
+            )
+
+            return extracted_data, field_confidences
+
+        except Exception as e:
+            logger.warning("AI extraction failed for %s: %s", url, str(e))
+            return {}, {}
 
     def _create_session(
         self,
