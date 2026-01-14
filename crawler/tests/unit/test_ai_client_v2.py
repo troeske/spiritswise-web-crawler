@@ -1808,7 +1808,7 @@ class TestGetDefaultSchema:
 
     @pytest.mark.django_db
     def test_get_default_schema_includes_common_fields(self):
-        """_get_default_schema includes common product fields when FieldDefinition entries exist."""
+        """_get_default_schema returns full schema dicts when FieldDefinition entries exist."""
         from crawler.services.ai_client_v2 import AIClientV2
         from crawler.models import FieldDefinition
 
@@ -1819,6 +1819,7 @@ class TestGetDefaultSchema:
                 field_name=field_name,
                 display_name=field_name.replace("_", " ").title(),
                 field_type="text",
+                description=f"Description for {field_name}",
                 is_active=True,
                 product_type_config=None,  # Shared field
             )
@@ -1828,10 +1829,21 @@ class TestGetDefaultSchema:
         # Get schema from database
         schema = client._get_default_schema("whiskey")
 
-        # Schema should be a list of field names
+        # Schema should be a list of dicts (not just field names)
         assert isinstance(schema, list)
         assert len(schema) == len(test_fields)
+        assert all(isinstance(item, dict) for item in schema)
+
+        # Extract field names from schema dicts
+        schema_field_names = [item["name"] for item in schema]
+
         # Common fields should be present
-        assert "name" in schema
-        assert "brand" in schema
-        assert "nose_description" in schema
+        assert "name" in schema_field_names
+        assert "brand" in schema_field_names
+        assert "nose_description" in schema_field_names
+
+        # Each schema item should have required keys
+        for item in schema:
+            assert "name" in item
+            assert "type" in item
+            assert "description" in item

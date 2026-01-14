@@ -995,6 +995,12 @@ class FieldDefinition(models.Model):
         help_text="Schema for object/array items (awards, ratings, etc.)",
     )
 
+    format_hint = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Format specification for AI extraction (e.g., 'YYYY-YYYY for date ranges')",
+    )
+
     # ============================================
     # Model Mapping (where to store extracted data)
     # ============================================
@@ -1043,26 +1049,98 @@ class FieldDefinition(models.Model):
 
     def to_extraction_schema(self) -> dict:
         """
-        Convert to schema format for AI Service request.
+        Convert field definition to schema dict for AI extraction.
 
         Returns a dictionary suitable for inclusion in the extraction_schema
-        sent to the AI service.
+        sent to the AI service. Includes:
+        - name: Field name for reference
+        - type: Data type (string, integer, array, etc.)
+        - description: Detailed description for AI
+        - examples: Sample values (if defined)
+        - derive_from: Source field for derivation (if defined)
+        - derive_instruction: Human-readable derivation instruction
+        - allowed_values: Valid enum values (if defined)
+        - enum_instruction: Constraint instruction for enums
+        - item_schema: Schema for nested objects (if defined)
+        - format_hint: Format specification (if defined)
         """
         schema = {
+            "name": self.field_name,
             "type": self.field_type,
             "description": self.description,
         }
+
+        # Add examples if present
         if self.examples:
             schema["examples"] = self.examples
-        if self.allowed_values:
-            schema["allowed_values"] = self.allowed_values
-        if self.item_type:
-            schema["item_type"] = self.item_type
-        if self.item_schema:
-            schema["item_schema"] = self.item_schema
+
+        # Add derive_from with instruction if present
         if self.derive_from:
             schema["derive_from"] = self.derive_from
+            schema["derive_instruction"] = (
+                f"If {self.field_name} is not explicitly found, "
+                f"derive by parsing the {self.derive_from} field"
+            )
+
+        # Add allowed_values with enum instruction if present
+        if self.allowed_values:
+            schema["allowed_values"] = self.allowed_values
+            schema["enum_instruction"] = (
+                f"MUST be one of: {', '.join(str(v) for v in self.allowed_values)}"
+            )
+
+        # Add item_type for arrays
+        if self.item_type:
+            schema["item_type"] = self.item_type
+
+        # Add item_schema for nested types
+        if self.item_schema:
+            schema["item_schema"] = self.item_schema
+
+        # Add format_hint if present
+        if self.format_hint:
+            schema["format_hint"] = self.format_hint
+
         return schema
+
+    @classmethod
+    def get_schema_for_product_type(
+        cls,
+        product_type: str,
+        include_common: bool = True,
+    ) -> list[dict]:
+        """
+        Get extraction schema for a product type.
+
+        Retrieves all field definitions relevant to a specific product type,
+        converts them to extraction schema format, and returns as a list.
+
+        Args:
+            product_type: Product type identifier (e.g., "whiskey", "port_wine")
+            include_common: Whether to include common/shared fields (default True)
+
+        Returns:
+            List of schema dicts ready for AI service extraction
+        """
+        # Get fields specific to this product type via ProductTypeConfig
+        type_specific_fields = cls.objects.filter(
+            product_type_config__product_type=product_type,
+            is_active=True,
+        )
+
+        if include_common:
+            # Get common/shared fields (product_type_config is null)
+            common_fields = cls.objects.filter(
+                product_type_config__isnull=True,
+                is_active=True,
+            )
+            # Combine both querysets
+            all_fields = common_fields | type_specific_fields
+        else:
+            all_fields = type_specific_fields
+
+        # Convert to schema format and return as list
+        return [field.to_extraction_schema() for field in all_fields.distinct()]
 
 
 class QualityGateConfig(models.Model):
@@ -1726,6 +1804,20 @@ class CrawlerSource(models.Model):
         default=True, help_text="Checked Terms of Service compliance"
     )
     compliance_notes = models.TextField(blank=True, help_text="Notes on compliance requirements")
+
+    # Manual Overrides for Adaptive Fetching
+    # Used for competition sites (IWSC, DWWA) or known problematic domains
+    manual_tier_override = models.IntegerField(
+        null=True,
+        blank=True,
+        choices=[(1, "Tier 1 - httpx"), (2, "Tier 2 - Playwright"), (3, "Tier 3 - ScrapingBee")],
+        help_text="Force specific tier for this source (overrides adaptive selection)",
+    )
+    manual_timeout_override = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text="Force specific timeout in milliseconds for this source",
+    )
 
     # Status Tracking
     last_crawl_at = models.DateTimeField(null=True, blank=True)

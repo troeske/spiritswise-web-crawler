@@ -8,7 +8,7 @@ Features:
 - Async httpx client with configurable timeout
 - Bearer token authentication
 - Content preprocessing integration (93% token savings)
-- Schema-driven extraction requests
+- Schema-driven extraction requests with full field definitions
 - Retry with exponential backoff
 - Graceful error handling for API failures
 """
@@ -16,7 +16,7 @@ Features:
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import httpx
 from django.conf import settings
@@ -79,6 +79,9 @@ MULTI_PRODUCT_SKELETON_SCHEMA = [
     "prices",
 ]
 
+# Type alias for schema - can be list of field names (strings) or full schema dicts
+SchemaType = Union[List[str], List[Dict[str, Any]]]
+
 
 class AIClientError(Exception):
     """Error from AI Client V2 operations."""
@@ -112,7 +115,7 @@ class EnhancementResult:
     """
     V1-compatible result format for backward compatibility with content_processor.py.
 
-    V1→V2 Migration: This class provides backward compatibility with code
+    V1->V2 Migration: This class provides backward compatibility with code
     that expects the V1 AIEnhancementClient result format.
     """
 
@@ -146,7 +149,7 @@ class AIClientV2:
 
     Features:
     - Content preprocessing for token cost reduction
-    - Schema-driven extraction requests
+    - Schema-driven extraction requests with full field definitions
     - Retry with exponential backoff
     - Configurable timeout
     """
@@ -207,7 +210,7 @@ class AIClientV2:
         source_url: str = "",
         product_type: str = "whiskey",
         product_category: Optional[str] = None,
-        extraction_schema: Optional[List[str]] = None,
+        extraction_schema: Optional[SchemaType] = None,
         detect_multi_product: bool = False,
     ) -> ExtractionResultV2:
         """
@@ -218,7 +221,9 @@ class AIClientV2:
             source_url: URL where content was fetched
             product_type: Product type (whiskey, port_wine, etc.)
             product_category: Optional category hint (bourbon, tawny, etc.)
-            extraction_schema: Optional list of fields to extract (defaults to all)
+            extraction_schema: Optional schema to use - can be list of field names (strings)
+                              or full schema dicts with descriptions. Defaults to full schema
+                              from database.
             detect_multi_product: Whether to detect if this is a multi-product/list page
 
         Returns:
@@ -275,8 +280,8 @@ class AIClientV2:
             # Send request with retry logic
             response = await self._send_request(payload)
 
-            # Parse response
-            return self._parse_response(response)
+            # Parse response and validate enum fields
+            return self._parse_response(response, schema)
 
         except AIClientError as e:
             logger.error("AI Client V2 error for %s: %s", source_url, str(e))
@@ -315,7 +320,7 @@ class AIClientV2:
         source_url: str,
         product_type: str,
         product_category: Optional[str],
-        extraction_schema: List[str],
+        extraction_schema: SchemaType,
     ) -> Dict[str, Any]:
         """
         Build V2 API request payload.
@@ -325,7 +330,7 @@ class AIClientV2:
             source_url: URL where content was fetched
             product_type: Product type for extraction
             product_category: Optional category hint
-            extraction_schema: Fields to extract
+            extraction_schema: Fields to extract - can be list of field names or full schema dicts
 
         Returns:
             Request payload dictionary
@@ -436,12 +441,19 @@ class AIClientV2:
 
         raise AIClientError(f"Max retries ({self.max_retries}) exceeded: {last_error}")
 
-    def _parse_response(self, response: httpx.Response) -> ExtractionResultV2:
+    def _parse_response(
+        self,
+        response: httpx.Response,
+        schema: Optional[SchemaType] = None,
+    ) -> ExtractionResultV2:
         """
         Parse V2 API response into ExtractionResultV2.
 
         Args:
             response: httpx Response object
+            schema: Optional extraction schema for enum validation.
+                   If provided and contains allowed_values, enum fields
+                   will be validated.
 
         Returns:
             ExtractionResultV2 with parsed data or error
@@ -484,9 +496,29 @@ class AIClientV2:
 
         # Parse products from response
         products = []
+
+        # Check if schema has enum fields for validation
+        # Only validate if schema is a list of dicts (full schema, not just field names)
+        can_validate_enums = (
+            schema
+            and isinstance(schema, list)
+            and len(schema) > 0
+            and isinstance(schema[0], dict)
+        )
+
         for product_data in data.get("products", []):
             extracted_data = product_data.get("extracted_data", {})
             api_confidence = product_data.get("confidence", 0.0)
+
+            # Validate enum fields if full schema provided
+            if can_validate_enums and extracted_data:
+                validated_data, validation_warnings = self._validate_enum_fields(
+                    extracted_data, schema
+                )
+                # Log warnings for invalid enum values (helpful for debugging)
+                for warning in validation_warnings:
+                    logger.warning("Enum validation: %s", warning)
+                extracted_data = validated_data
 
             # If API doesn't return confidence, calculate based on extracted fields
             if api_confidence == 0.0 and extracted_data:
@@ -574,18 +606,92 @@ class AIClientV2:
 
         return round(score, 2)
 
-    def _get_default_schema(self, product_type: str) -> List[str]:
+    def _validate_enum_fields(
+        self,
+        response_data: Dict[str, Any],
+        schema: List[Dict[str, Any]],
+    ) -> tuple[Dict[str, Any], List[str]]:
         """
-        Get default extraction schema from FieldDefinition config.
+        Validate AI response against schema enum constraints.
 
-        Retrieves all active field names for the specified product type
-        from the database configuration, including shared fields.
+        Validates that fields with allowed_values (enum fields) contain valid values.
+        Invalid values are set to None and warnings are generated for logging/debugging.
+        Case-insensitive matching is used for string enums.
+
+        Args:
+            response_data: Dictionary of extracted field values from AI
+            schema: List of schema dicts with field definitions
+
+        Returns:
+            Tuple of (validated_data, warnings):
+            - validated_data: Copy of response_data with invalid enums set to None
+            - warnings: List of warning messages for invalid values
+        """
+        validated = response_data.copy()
+        warnings: List[str] = []
+
+        # Build lookup of enum constraints: field_name -> allowed_values (lowercase)
+        enum_constraints: Dict[str, List[str]] = {}
+        for field_def in schema:
+            field_name = field_def.get("name")
+            allowed_values = field_def.get("allowed_values")
+            if field_name and allowed_values and isinstance(allowed_values, list):
+                # Store lowercase versions for case-insensitive matching
+                enum_constraints[field_name] = [str(v).lower() for v in allowed_values]
+
+        # Validate each field with enum constraints
+        for field_name, allowed_lower in enum_constraints.items():
+            value = validated.get(field_name)
+
+            # Skip null/empty values - these are valid (field not extracted)
+            if value is None or (isinstance(value, str) and not value.strip()):
+                validated[field_name] = None
+                continue
+
+            # Normalize string value for comparison
+            value_str = str(value).strip()
+            value_lower = value_str.lower()
+
+            if value_lower in allowed_lower:
+                # Valid match - normalize to lowercase to ensure consistency
+                validated[field_name] = value_lower
+            else:
+                # Invalid value - set to None and log warning
+                warnings.append(
+                    f"Invalid value '{value}' for enum field '{field_name}'. "
+                    f"Expected one of: {[v for v in allowed_lower]}"
+                )
+                validated[field_name] = None
+
+        return validated, warnings
+
+    def _get_default_schema(self, product_type: str) -> List[Dict[str, Any]]:
+        """
+        Get full extraction schema from FieldDefinition config.
+
+        Retrieves all active field definitions for the specified product type
+        from the database configuration, including shared fields. Returns full
+        schema dictionaries with descriptions, examples, derive_from relationships,
+        and enum constraints - not just field names.
+
+        This enables the AI service to understand field semantics and constraints
+        for better extraction quality.
 
         Args:
             product_type: Product type (whiskey, port_wine, etc.)
 
         Returns:
-            List of field names to extract
+            List of schema dicts with full field definitions including:
+            - name: Field name
+            - type: Data type (string, integer, array, etc.)
+            - description: Detailed description for AI extraction
+            - examples: Sample values (if defined)
+            - derive_from: Source field for derivation (if defined)
+            - derive_instruction: Human-readable derivation instruction
+            - allowed_values: Valid enum values (if defined)
+            - enum_instruction: Constraint instruction for enums
+            - item_schema: Schema for nested objects (if defined)
+            - format_hint: Format specification (if defined)
 
         Raises:
             SchemaConfigurationError: If schema cannot be loaded from database.
@@ -594,23 +700,17 @@ class AIClientV2:
         from crawler.models import FieldDefinition
 
         try:
-            # Get fields for this product type OR shared fields (null product_type_config)
-            fields = FieldDefinition.objects.filter(
-                is_active=True
-            ).filter(
-                Q(product_type_config__isnull=True) |
-                Q(product_type_config__product_type=product_type)
-            )
+            # Use the FieldDefinition.get_schema_for_product_type() classmethod
+            # which returns full schema dicts with descriptions, not just field names
+            schema = FieldDefinition.get_schema_for_product_type(product_type)
 
-            field_names = list(fields.values_list("field_name", flat=True).distinct())
-
-            if field_names:
+            if schema:
                 logger.debug(
-                    "Retrieved %d fields from FieldDefinition for %s",
-                    len(field_names),
+                    "Retrieved %d field definitions from FieldDefinition for %s",
+                    len(schema),
                     product_type,
                 )
-                return field_names
+                return schema
 
             # No fields found - this is a configuration error
             error_msg = (
@@ -650,11 +750,17 @@ class AIClientV2:
 
             raise SchemaConfigurationError(error_msg) from e
 
-    async def _aget_default_schema(self, product_type: str) -> List[str]:
+    async def _aget_default_schema(self, product_type: str) -> List[Dict[str, Any]]:
         """
         Async-safe version of _get_default_schema.
 
         Uses sync_to_async to wrap database access for async contexts.
+
+        Args:
+            product_type: Product type (whiskey, port_wine, etc.)
+
+        Returns:
+            List of schema dicts with full field definitions
         """
         from asgiref.sync import sync_to_async
         return await sync_to_async(self._get_default_schema, thread_sensitive=True)(product_type)
@@ -670,7 +776,7 @@ class AIClientV2:
 
         Wraps the V2 extract() method and converts the result to V1's EnhancementResult format.
 
-        V1→V2 Migration: This method provides a drop-in replacement for the V1
+        V1->V2 Migration: This method provides a drop-in replacement for the V1
         AIEnhancementClient.enhance_from_crawler() method.
 
         Args:

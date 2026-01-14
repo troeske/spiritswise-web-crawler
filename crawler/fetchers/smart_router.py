@@ -7,17 +7,22 @@ Orchestrates fetching across three tiers:
 - Tier 3: ScrapingBee proxy service (blocked sites)
 
 Features:
-- Tier escalation on failure
+- Domain intelligence integration for adaptive behavior
+- Smart tier selection based on historical performance
+- Adaptive timeouts based on domain response patterns
+- Heuristic-based escalation (Cloudflare, CAPTCHA detection)
+- Feedback recording for continuous learning
 - Age gate detection and bypass
-- requires_tier3 flag for skipping lower tiers
 - Error logging to CrawlError model
 - Monitoring integration (Task Group 9)
 """
 
 import logging
 import traceback
+import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, Optional, TYPE_CHECKING
+from urllib.parse import urlparse
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -28,7 +33,32 @@ from .tier1_httpx import Tier1HttpxFetcher, FetchResponse
 from .tier2_playwright import Tier2PlaywrightFetcher
 from .tier3_scrapingbee import Tier3ScrapingBeeFetcher
 
+if TYPE_CHECKING:
+    from .domain_intelligence import DomainIntelligenceStore, DomainProfile
+
 logger = logging.getLogger(__name__)
+
+
+def extract_domain(url: str) -> str:
+    """
+    Extract domain from URL.
+
+    Args:
+        url: Full URL string
+
+    Returns:
+        Domain name (e.g., "example.com" or "api.example.com")
+    """
+    try:
+        parsed = urlparse(url)
+        if parsed.netloc:
+            # Remove port if present
+            domain = parsed.netloc.split(":")[0]
+            return domain
+        # Fallback: try to extract from path-like strings
+        return url.split("/")[0] if "/" in url else url
+    except Exception:
+        return url or ""
 
 
 @dataclass
@@ -66,18 +96,21 @@ class SmartRouter:
         self,
         redis_client=None,
         timeout: Optional[float] = None,
+        domain_store: Optional["DomainIntelligenceStore"] = None,
     ):
         """
         Initialize Smart Router.
 
         Args:
             redis_client: Redis client for cookie caching
-            timeout: Request timeout (shared across tiers)
+            timeout: Request timeout (shared across tiers, used as fallback)
+            domain_store: DomainIntelligenceStore for adaptive behavior
         """
         self.timeout = timeout or getattr(
             settings, "CRAWLER_REQUEST_TIMEOUT", 30
         )
         self.redis_client = redis_client
+        self._domain_store = domain_store
 
         # Lazy initialization of fetchers
         self._tier1_fetcher: Optional[Tier1HttpxFetcher] = None
@@ -125,6 +158,19 @@ class SmartRouter:
         if self._tier2_fetcher:
             await self._tier2_fetcher.close()
 
+    def _get_domain_profile(self, domain: str) -> "DomainProfile":
+        """Get domain profile from store or create default."""
+        if self._domain_store:
+            return self._domain_store.get_profile(domain)
+        # Fallback: create default profile
+        from .domain_intelligence import DomainProfile
+        return DomainProfile(domain=domain)
+
+    def _save_domain_profile(self, profile: "DomainProfile") -> None:
+        """Save domain profile to store if available."""
+        if self._domain_store:
+            self._domain_store.save_profile(profile)
+
     async def fetch(
         self,
         url: str,
@@ -135,6 +181,12 @@ class SmartRouter:
         """
         Fetch URL content using Smart Router tier escalation.
 
+        Integrates with domain intelligence for:
+        - Smart tier selection based on domain history
+        - Adaptive timeouts based on domain response patterns
+        - Heuristic-based escalation (Cloudflare, CAPTCHA, JS detection)
+        - Feedback recording for continuous learning
+
         Args:
             url: URL to fetch
             source: CrawlerSource instance (for cookies and tier3 flag)
@@ -144,8 +196,18 @@ class SmartRouter:
         Returns:
             FetchResult with content and metadata
         """
+        # Import domain intelligence components
+        from .smart_tier_selector import SmartTierSelector
+        from .adaptive_timeout import AdaptiveTimeout
+        from .escalation_heuristics import EscalationHeuristics
+        from .feedback_recorder import FeedbackRecorder
+
         # Add Sentry breadcrumb for this fetch
         self._add_fetch_breadcrumb(url, source)
+
+        # Extract domain and get profile
+        domain = extract_domain(url)
+        profile = self._get_domain_profile(domain)
 
         # Get source configuration
         cookies = {}
@@ -155,22 +217,34 @@ class SmartRouter:
             cookies = source.age_gate_cookies or {}
             requires_tier3 = source.requires_tier3
 
-        # Determine starting tier
+        # Determine starting tier using SmartTierSelector
         if force_tier:
             start_tier = force_tier
-        elif requires_tier3:
-            start_tier = 3
-            logger.info(f"Skipping to Tier 3 for {url} (requires_tier3=True)")
         else:
-            start_tier = 1
+            start_tier = SmartTierSelector.select_starting_tier(profile, source)
+            if start_tier > 1:
+                logger.info(
+                    f"Smart tier selection: starting at Tier {start_tier} "
+                    f"for {domain} (js_heavy={profile.likely_js_heavy}, "
+                    f"bot_protected={profile.likely_bot_protected})"
+                )
 
         # Attempt tiers in sequence
         result = None
         last_error = None
         tier_used = start_tier
+        escalation_reason = None
 
         for tier in range(start_tier, 4):
             tier_used = tier
+            attempt = tier - start_tier
+
+            # Get adaptive timeout for this attempt
+            timeout_ms = AdaptiveTimeout.get_timeout(profile, attempt=attempt)
+            timeout_sec = timeout_ms / 1000.0
+
+            # Track response time
+            start_time = time.time()
 
             try:
                 if tier == 1:
@@ -180,8 +254,35 @@ class SmartRouter:
                 elif tier == 3:
                     result = await self._try_tier3(url, cookies, crawl_job, source)
 
+                response_time_ms = int((time.time() - start_time) * 1000)
+
                 if result and result.success:
-                    # Check for age gate
+                    # Check for soft failures using heuristics
+                    if tier < 3:
+                        escalation = EscalationHeuristics.should_escalate(
+                            status_code=result.status_code,
+                            content=result.content,
+                            domain_profile=profile,
+                            current_tier=tier,
+                        )
+
+                        if escalation.should_escalate:
+                            escalation_reason = escalation.reason
+                            logger.info(
+                                f"Heuristic escalation at Tier {tier} for {url}: "
+                                f"{escalation.reason}"
+                            )
+                            # Record this as a "soft failure" and escalate
+                            profile = FeedbackRecorder.record_fetch_result(
+                                profile=profile,
+                                tier=tier,
+                                success=False,
+                                response_time_ms=response_time_ms,
+                                escalation_reason=escalation.reason,
+                            )
+                            continue
+
+                    # Also check for age gate (existing logic)
                     if tier < 3:
                         age_gate = detect_age_gate(result.content)
                         if age_gate.is_age_gate:
@@ -189,10 +290,26 @@ class SmartRouter:
                                 f"Age gate detected at Tier {tier} for {url}: "
                                 f"{age_gate.reason}"
                             )
-                            # Escalate to next tier
+                            # Record and escalate
+                            profile = FeedbackRecorder.record_fetch_result(
+                                profile=profile,
+                                tier=tier,
+                                success=False,
+                                response_time_ms=response_time_ms,
+                                escalation_reason=f"age_gate: {age_gate.reason}",
+                            )
                             continue
 
-                    # Success - reset failure counter
+                    # Success - record feedback and save profile
+                    profile = FeedbackRecorder.record_fetch_result(
+                        profile=profile,
+                        tier=tier,
+                        success=True,
+                        response_time_ms=response_time_ms,
+                    )
+                    self._save_domain_profile(profile)
+
+                    # Reset failure counter in monitoring
                     await self._record_success(source)
 
                     return FetchResult(
@@ -204,17 +321,41 @@ class SmartRouter:
                     )
 
                 else:
-                    # Fetch failed - log and escalate
+                    # Fetch failed - record feedback and escalate
                     last_error = result.error if result else "Unknown error"
+                    timed_out = "timeout" in last_error.lower() if last_error else False
+
+                    profile = FeedbackRecorder.record_fetch_result(
+                        profile=profile,
+                        tier=tier,
+                        success=False,
+                        response_time_ms=response_time_ms,
+                        timed_out=timed_out,
+                        escalation_reason=last_error,
+                    )
+
                     logger.warning(
                         f"Tier {tier} failed for {url}: {last_error}"
                     )
 
             except Exception as e:
                 last_error = str(e)
+                response_time_ms = int((time.time() - start_time) * 1000)
+                timed_out = "timeout" in last_error.lower()
+
+                profile = FeedbackRecorder.record_fetch_result(
+                    profile=profile,
+                    tier=tier,
+                    success=False,
+                    response_time_ms=response_time_ms,
+                    timed_out=timed_out,
+                    escalation_reason=last_error,
+                )
+
                 logger.error(f"Tier {tier} exception for {url}: {e}")
 
-        # All tiers failed - record failure and log error
+        # All tiers failed - save profile and record failure
+        self._save_domain_profile(profile)
         await self._record_failure(source, url, tier_used)
         await self._log_error(
             source=source,

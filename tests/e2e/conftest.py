@@ -704,3 +704,131 @@ def _create_enrichment_configs_for_type(product_type_config, product_type: str):
                 "is_active": True,
             }
         )
+
+
+# =============================================================================
+# Domain Intelligence Fixtures
+# =============================================================================
+
+@pytest.fixture(scope="session")
+def redis_client():
+    """
+    Session-scoped fixture for Redis client.
+
+    Uses Django's cache framework to get the Redis client.
+    Returns None if Redis is not configured.
+    """
+    try:
+        from django.core.cache import cache
+
+        # Check if cache is configured with Redis
+        if hasattr(cache, "client"):
+            client = cache.client.get_client()
+            # Verify connection
+            client.ping()
+            logger.info("Redis client connected successfully")
+            return client
+        logger.warning("Cache does not have Redis client")
+        return None
+    except Exception as e:
+        logger.warning(f"Could not connect to Redis: {e}")
+        return None
+
+
+@pytest.fixture(scope="session")
+def domain_store():
+    """
+    Create DomainIntelligenceStore connected to Redis.
+
+    Uses Django's cache framework which is already configured for Redis.
+    Session-scoped so profiles persist across tests.
+    """
+    from crawler.fetchers.domain_intelligence import DomainIntelligenceStore
+
+    store = DomainIntelligenceStore()
+    logger.info("Created DomainIntelligenceStore with Redis backend")
+    return store
+
+
+@pytest.fixture(scope="function")
+def clear_domain_profiles(domain_store):
+    """
+    Clear domain profiles before a test.
+
+    Use this fixture when you need a clean slate for domain intelligence.
+    """
+    from django.core.cache import cache
+
+    # Clear all domain profile keys
+    # Note: This is a simple approach; production might need pattern-based clearing
+    cache.clear()
+    logger.info("Cleared all domain profiles from cache")
+    yield
+    # Optionally clear after test too
+    # cache.clear()
+
+
+@pytest.fixture(scope="session")
+def smart_router_with_intelligence(domain_store, redis_client):
+    """
+    SmartRouter with domain intelligence enabled.
+
+    Session-scoped so it can learn across tests.
+    """
+    from crawler.fetchers.smart_router import SmartRouter
+
+    router = SmartRouter(
+        redis_client=redis_client,
+        domain_store=domain_store,
+        timeout=30,
+    )
+    logger.info("Created SmartRouter with domain intelligence")
+    yield router
+
+
+@pytest.fixture(scope="function")
+def test_state_manager(request):
+    """
+    Create TestStateManager for crash recovery.
+
+    Automatically uses the test name as the state identifier.
+    """
+    from tests.e2e.utils.test_state_manager import TestStateManager
+
+    test_name = request.node.name
+    manager = TestStateManager(test_name)
+    logger.info(f"Created TestStateManager for test: {test_name}")
+    return manager
+
+
+@pytest.fixture(scope="function")
+def results_exporter(request):
+    """
+    Create ResultsExporter for comprehensive test output.
+
+    Automatically uses the test name for file naming.
+    """
+    from tests.e2e.utils.results_exporter import ResultsExporter
+
+    test_name = request.node.name
+    exporter = ResultsExporter(test_name)
+    logger.info(f"Created ResultsExporter for test: {test_name}, output: {exporter.get_filepath()}")
+    return exporter
+
+
+@pytest.fixture(scope="function")
+def domain_intelligence_test_context(domain_store, test_state_manager, results_exporter):
+    """
+    Combined fixture providing all domain intelligence test infrastructure.
+
+    Includes:
+    - domain_store: DomainIntelligenceStore
+    - state_manager: TestStateManager for crash recovery
+    - results_exporter: ResultsExporter for output
+
+    Usage:
+        def test_something(self, domain_intelligence_test_context):
+            store, state_mgr, exporter = domain_intelligence_test_context
+            ...
+    """
+    return (domain_store, test_state_manager, results_exporter)
