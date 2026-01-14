@@ -601,17 +601,28 @@ class EnrichmentOrchestratorV3(EnrichmentOrchestratorV2):
 
             product = extraction_result.products[0]
 
-            # Extract fields and confidences
-            extracted_data = product.data if hasattr(product, "data") else product
-            field_confidences = (
-                product.confidences
-                if hasattr(product, "confidences")
-                else {}
-            )
+            # Extract fields and confidences from ExtractedProductV2
+            # ExtractedProductV2 uses 'extracted_data' and 'field_confidences' attributes
+            if hasattr(product, "extracted_data"):
+                extracted_data = product.extracted_data
+            elif hasattr(product, "data"):
+                extracted_data = product.data
+            elif isinstance(product, dict):
+                extracted_data = product
+            else:
+                logger.warning("Unknown product format from AI: %s", type(product))
+                return {}, {}
+
+            if hasattr(product, "field_confidences"):
+                field_confidences = product.field_confidences
+            elif hasattr(product, "confidences"):
+                field_confidences = product.confidences
+            else:
+                field_confidences = {}
 
             logger.debug(
                 "Extracted %d fields from %s",
-                len(extracted_data),
+                len(extracted_data) if isinstance(extracted_data, dict) else 0,
                 url,
             )
 
