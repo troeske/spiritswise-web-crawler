@@ -42,13 +42,32 @@ def set_sqlite_wal_mode(sender, connection, **kwargs):
 
 connection_created.connect(set_sqlite_wal_mode)
 
-# Test Cache - use local memory cache
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-        "LOCATION": "unique-snowflake",
+# Test Cache - Use Redis for E2E tests (real domain intelligence tracking)
+# Falls back to local memory cache if Redis not available
+import redis as redis_lib
+_redis_available = False
+try:
+    _test_redis = redis_lib.Redis(host='localhost', port=6379, db=3)
+    _test_redis.ping()
+    _redis_available = True
+    _test_redis.close()
+except Exception:
+    pass
+
+if _redis_available:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://localhost:6379/3",  # Use DB 3 for tests
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "unique-snowflake",
+        }
+    }
 
 # Test Celery - run tasks synchronously
 CELERY_TASK_ALWAYS_EAGER = True

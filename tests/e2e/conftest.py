@@ -715,21 +715,19 @@ def redis_client():
     """
     Session-scoped fixture for Redis client.
 
-    Uses Django's cache framework to get the Redis client.
-    Returns None if Redis is not configured.
+    Creates a direct Redis connection for E2E tests.
+    Uses DB 3 to avoid conflicts with other services.
+    Returns None if Redis is not available.
     """
     try:
-        from django.core.cache import cache
+        import redis
 
-        # Check if cache is configured with Redis
-        if hasattr(cache, "client"):
-            client = cache.client.get_client()
-            # Verify connection
-            client.ping()
-            logger.info("Redis client connected successfully")
-            return client
-        logger.warning("Cache does not have Redis client")
-        return None
+        # Create direct Redis connection (same DB as test cache settings)
+        client = redis.Redis(host='localhost', port=6379, db=3)
+        # Verify connection
+        client.ping()
+        logger.info("Redis client connected successfully (direct connection)")
+        return client
     except Exception as e:
         logger.warning(f"Could not connect to Redis: {e}")
         return None
