@@ -224,24 +224,21 @@ class TestSingleProductWhiskeyE2E:
 
                     # Extract product
                     try:
-                        extraction_result = await ai_client.extract_products(
+                        extraction_result = await ai_client.extract(
                             content=fetch_result.content,
                             source_url=url,
                             product_type=PRODUCT_TYPE,
-                            extraction_context={
-                                "source_type": "product_page",
-                                "single_product": True,
-                            }
                         )
 
-                        raw_products = extraction_result.get("products", [])
+                        raw_products = extraction_result.products if extraction_result.success else []
                         if raw_products:
-                            extracted = raw_products[0]
+                            p = raw_products[0]
+                            extracted = p.extracted_data if hasattr(p, 'extracted_data') else p
                             result_data["extracted_product"] = {
                                 "name": extracted.get("name"),
                                 "brand": extracted.get("brand"),
                                 "abv": extracted.get("abv"),
-                                "description": extracted.get("description", "")[:200],
+                                "description": (extracted.get("description") or "")[:200],
                             }
 
                             # Validate extraction
@@ -469,20 +466,16 @@ class TestSingleProductWhiskeyE2E:
                 pytest.skip(f"Could not fetch test page: {result.error}")
 
             # Extract product
-            extraction_result = await ai_client.extract_products(
+            extraction_result = await ai_client.extract(
                 content=result.content,
                 source_url=test_url,
                 product_type="whiskey",
-                extraction_context={
-                    "source_type": "product_page",
-                    "single_product": True,
-                    "priority_fields": ["abv", "name", "brand"],
-                }
             )
 
-            products = extraction_result.get("products", [])
+            products = extraction_result.products if extraction_result.success else []
             if products:
-                product = products[0]
+                p = products[0]
+                product = p.extracted_data if hasattr(p, 'extracted_data') else p
                 abv = product.get("abv")
 
                 exporter.add_product({

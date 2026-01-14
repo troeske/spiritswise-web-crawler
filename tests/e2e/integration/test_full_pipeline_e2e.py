@@ -464,24 +464,20 @@ class TestFullPipelineE2E:
 
         # Extract products
         try:
-            extraction_result = await ai_client.extract_products(
+            extraction_result = await ai_client.extract(
                 content=result.content,
                 source_url=url,
                 product_type=product_type,
-                extraction_context={
-                    "source_type": "competition",
-                    "competition_name": competition,
-                    "year": year,
-                }
             )
 
-            raw_products = extraction_result.get("products", [])
-            for p in raw_products[:target_count]:
-                name = p.get("name", "").strip()
+            raw_products = extraction_result.products if extraction_result.success else []
+            for prod in raw_products[:target_count]:
+                data = prod.extracted_data if hasattr(prod, 'extracted_data') else prod
+                name = (data.get("name", "") if isinstance(data, dict) else "").strip()
                 if name and name.lower() not in ["unknown", ""]:
                     products.append({
                         "name": name,
-                        "brand": p.get("brand", ""),
+                        "brand": data.get("brand", ""),
                         "product_type": product_type,
                         "status": "SKELETON",
                         "flow": "competition",
@@ -567,19 +563,20 @@ class TestFullPipelineE2E:
 
                 # Extract products
                 try:
-                    extraction_result = await ai_client.extract_products(
+                    extraction_result = await ai_client.extract(
                         content=fetch_result.content,
                         source_url=url,
                         product_type=product_type,
-                        extraction_context={"source_type": "listicle"}
                     )
 
-                    for p in extraction_result.get("products", [])[:2]:
-                        name = p.get("name", "").strip()
+                    raw_products = extraction_result.products if extraction_result.success else []
+                    for prod in raw_products[:2]:
+                        data = prod.extracted_data if hasattr(prod, 'extracted_data') else prod
+                        name = (data.get("name", "") if isinstance(data, dict) else "").strip()
                         if name and name.lower() not in ["unknown", ""] and len(products) < target_count:
                             products.append({
                                 "name": name,
-                                "brand": p.get("brand", ""),
+                                "brand": data.get("brand", ""),
                                 "product_type": product_type,
                                 "status": "SKELETON",
                                 "flow": "generic_search",
@@ -640,19 +637,19 @@ class TestFullPipelineE2E:
             # Extract product
             try:
                 product_type = "port_wine" if "port" in url.lower() else "whiskey"
-                extraction_result = await ai_client.extract_products(
+                extraction_result = await ai_client.extract(
                     content=result.content,
                     source_url=url,
                     product_type=product_type,
-                    extraction_context={"source_type": "product_page", "single_product": True}
                 )
 
-                raw_products = extraction_result.get("products", [])
+                raw_products = extraction_result.products if extraction_result.success else []
                 if raw_products:
-                    p = raw_products[0]
+                    prod = raw_products[0]
+                    data = prod.extracted_data if hasattr(prod, 'extracted_data') else prod
                     products.append({
-                        "name": p.get("name", "Unknown"),
-                        "brand": p.get("brand", ""),
+                        "name": data.get("name", "Unknown"),
+                        "brand": data.get("brand", ""),
                         "product_type": product_type,
                         "status": "SKELETON",
                         "flow": "single_product",
@@ -667,7 +664,7 @@ class TestFullPipelineE2E:
                             "tier_used": result.tier_used,
                         }
                     })
-                    logger.info(f"  Extracted: {p.get('name')} from {domain}")
+                    logger.info(f"  Extracted: {data.get('name')} from {domain}")
 
             except Exception as e:
                 logger.error(f"  Extraction failed for {domain}: {e}")

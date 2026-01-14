@@ -222,20 +222,16 @@ class TestSingleProductPortE2E:
 
                     # Extract product with port-specific context
                     try:
-                        extraction_result = await ai_client.extract_products(
+                        extraction_result = await ai_client.extract(
                             content=fetch_result.content,
                             source_url=url,
                             product_type=PRODUCT_TYPE,
-                            extraction_context={
-                                "source_type": "product_page",
-                                "single_product": True,
-                                "expected_fields": ["style", "vintage", "producer_house"],
-                            }
                         )
 
-                        raw_products = extraction_result.get("products", [])
+                        raw_products = extraction_result.products if extraction_result.success else []
                         if raw_products:
-                            extracted = raw_products[0]
+                            p = raw_products[0]
+                            extracted = p.extracted_data if hasattr(p, 'extracted_data') else p
 
                             # Check port-specific fields
                             style = extracted.get("style", "")
@@ -419,18 +415,16 @@ class TestSingleProductPortE2E:
             if not result.success:
                 pytest.skip(f"Could not fetch test page: {result.error}")
 
-            extraction_result = await ai_client.extract_products(
+            extraction_result = await ai_client.extract(
                 content=result.content,
                 source_url=test_url,
                 product_type="port_wine",
-                extraction_context={
-                    "priority_fields": ["style", "name", "vintage"],
-                }
             )
 
-            products = extraction_result.get("products", [])
+            products = extraction_result.products if extraction_result.success else []
             if products:
-                product = products[0]
+                p = products[0]
+                product = p.extracted_data if hasattr(p, 'extracted_data') else p
                 style = product.get("style", "")
 
                 style_match = style.lower() == expected_style.lower()

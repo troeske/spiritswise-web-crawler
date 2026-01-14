@@ -240,35 +240,31 @@ class TestGenericSearchPortE2E:
 
                 # Extract port wines using AI
                 try:
-                    extraction_result = await ai_client.extract_products(
+                    extraction_result = await ai_client.extract(
                         content=fetch_result.content,
                         source_url=url,
                         product_type=PRODUCT_TYPE,
-                        extraction_context={
-                            "source_type": "listicle",
-                            "source_domain": domain,
-                            "expected_fields": ["style", "vintage", "producer_house"],
-                        }
                     )
 
-                    raw_products = extraction_result.get("products", [])
+                    raw_products = extraction_result.products if extraction_result.success else []
                     logger.info(f"Extracted {len(raw_products)} products from {domain}")
 
                     for p in raw_products[:MAX_PRODUCTS_TO_EXTRACT]:
-                        name = p.get("name", "").strip()
+                        data = p.extracted_data if hasattr(p, 'extracted_data') else p
+                        name = (data.get("name", "") if isinstance(data, dict) else "").strip()
                         if name and name.lower() not in ["unknown", ""]:
                             # Check for port wine indicators
                             is_port = (
                                 "port" in name.lower() or
-                                p.get("style", "").lower() in ["tawny", "ruby", "vintage", "lbv", "colheita", "white"] or
-                                p.get("product_type", "").lower() == "port_wine"
+                                data.get("style", "").lower() in ["tawny", "ruby", "vintage", "lbv", "colheita", "white"] or
+                                data.get("product_type", "").lower() == "port_wine"
                             )
 
                             if is_port:
-                                p["source_url"] = url
-                                p["source_domain"] = domain
-                                p["tier_used"] = fetch_result.tier_used
-                                all_products.append(p)
+                                data["source_url"] = url
+                                data["source_domain"] = domain
+                                data["tier_used"] = fetch_result.tier_used
+                                all_products.append(data)
 
                 except Exception as e:
                     logger.error(f"Product extraction failed for {url}: {e}")
@@ -485,25 +481,23 @@ class TestGenericSearchPortE2E:
 
                 # Extract with port-specific context
                 try:
-                    extraction_result = await ai_client.extract_products(
+                    extraction_result = await ai_client.extract(
                         content=fetch_result.content,
                         source_url=url,
                         product_type="port_wine",
-                        extraction_context={
-                            "expected_fields": ["style", "vintage", "producer_house", "quinta"],
-                        }
                     )
 
-                    products = extraction_result.get("products", [])
+                    products = extraction_result.products if extraction_result.success else []
                     for p in products[:3]:
+                        data = p.extracted_data if hasattr(p, 'extracted_data') else p
                         port_fields_results.append({
                             "source": domain,
-                            "name": p.get("name"),
-                            "style": p.get("style"),
-                            "vintage": p.get("vintage"),
-                            "producer_house": p.get("producer_house"),
-                            "quinta": p.get("quinta"),
-                            "abv": p.get("abv"),
+                            "name": data.get("name"),
+                            "style": data.get("style"),
+                            "vintage": data.get("vintage"),
+                            "producer_house": data.get("producer_house"),
+                            "quinta": data.get("quinta"),
+                            "abv": data.get("abv"),
                         })
 
                 except Exception as e:

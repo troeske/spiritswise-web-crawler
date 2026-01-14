@@ -247,27 +247,24 @@ class TestGenericSearchWhiskeyE2E:
 
                 # Extract products using AI
                 try:
-                    extraction_result = await ai_client.extract_products(
+                    extraction_result = await ai_client.extract(
                         content=fetch_result.content,
                         source_url=url,
                         product_type=PRODUCT_TYPE,
-                        extraction_context={
-                            "source_type": "listicle",
-                            "source_domain": domain,
-                        }
                     )
 
-                    raw_products = extraction_result.get("products", [])
+                    raw_products = extraction_result.products if extraction_result.success else []
                     logger.info(f"Extracted {len(raw_products)} products from {domain}")
 
                     # Add source tracking to products
                     for p in raw_products[:MAX_PRODUCTS_TO_EXTRACT]:
-                        name = p.get("name", "").strip()
+                        data = p.extracted_data if hasattr(p, 'extracted_data') else p
+                        name = (data.get("name", "") if isinstance(data, dict) else "").strip()
                         if name and name.lower() not in ["unknown", ""]:
-                            p["source_url"] = url
-                            p["source_domain"] = domain
-                            p["tier_used"] = fetch_result.tier_used
-                            all_products.append(p)
+                            data["source_url"] = url
+                            data["source_domain"] = domain
+                            data["tier_used"] = fetch_result.tier_used
+                            all_products.append(data)
 
                 except Exception as e:
                     logger.error(f"Product extraction failed for {url}: {e}")

@@ -201,34 +201,30 @@ class TestDWWACompetitionE2E:
                 logger.info("Extracting port wines using AI Enhancement Service...")
 
                 try:
-                    extraction_result = await ai_client.extract_products(
+                    extraction_result = await ai_client.extract(
                         content=page_content,
                         source_url=DWWA_URL,
                         product_type=PRODUCT_TYPE,
-                        extraction_context={
-                            "source_type": "competition",
-                            "competition_name": COMPETITION_NAME,
-                            "year": COMPETITION_YEAR,
-                            "expected_fields": ["style", "vintage", "producer_house"],
-                        }
                     )
 
-                    raw_products = extraction_result.get("products", [])
+                    raw_products = extraction_result.products if extraction_result.success else []
                     logger.info(f"Extracted {len(raw_products)} raw products")
 
                     # Filter for port wines and validate
                     valid_products = []
                     for p in raw_products[:TARGET_PRODUCT_COUNT]:
-                        name = p.get("name", "").strip()
+                        # Access extracted_data dict for product fields
+                        data = p.extracted_data if hasattr(p, 'extracted_data') else p
+                        name = (data.get("name", "") if isinstance(data, dict) else "").strip()
                         if name and name.lower() not in ["unknown", "unknown product", ""]:
                             # Check for port-specific indicators
                             is_port = (
                                 "port" in name.lower() or
-                                p.get("style", "").lower() in ["tawny", "ruby", "vintage", "lbv", "colheita"] or
-                                p.get("product_type", "").lower() == "port_wine"
+                                data.get("style", "").lower() in ["tawny", "ruby", "vintage", "lbv", "colheita"] or
+                                data.get("product_type", "").lower() == "port_wine"
                             )
                             if is_port or PRODUCT_TYPE == "port_wine":
-                                valid_products.append(p)
+                                valid_products.append(data)
 
                     state_manager.save_state({
                         "extracted_products": valid_products,
