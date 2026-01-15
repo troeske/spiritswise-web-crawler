@@ -91,5 +91,5 @@ SENTRY_DSN = ""
 # Test crawler settings
 # Note: E2E tests require longer timeouts for real network calls
 CRAWLER_REQUEST_TIMEOUT = 30  # Increased for E2E tests with real external services
-CRAWLER_MAX_RETRIES = 0
+CRAWLER_MAX_RETRIES = 1  # At least 1 for E2E tests (0 means no attempts at all)
 CRAWLER_RATE_LIMIT_DELAY = 0

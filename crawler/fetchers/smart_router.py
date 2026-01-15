@@ -41,19 +41,22 @@ logger = logging.getLogger(__name__)
 
 def extract_domain(url: str) -> str:
     """
-    Extract domain from URL.
+    Extract domain from URL, normalizing www. prefix.
 
     Args:
         url: Full URL string
 
     Returns:
-        Domain name (e.g., "example.com" or "api.example.com")
+        Domain name without www. prefix (e.g., "example.com")
     """
     try:
         parsed = urlparse(url)
         if parsed.netloc:
             # Remove port if present
             domain = parsed.netloc.split(":")[0]
+            # Normalize: strip www. prefix for consistent caching
+            if domain.startswith("www."):
+                domain = domain[4:]
             return domain
         # Fallback: try to extract from path-like strings
         return url.split("/")[0] if "/" in url else url

@@ -335,6 +335,17 @@ class AIClientV2:
         Returns:
             Request payload dictionary
         """
+        # Convert schema dicts to field names for API
+        # The VPS API expects extraction_schema to be a list of strings (field names)
+        # If schema contains dicts, extract just the field names
+        api_schema = extraction_schema
+        if extraction_schema and isinstance(extraction_schema[0], dict):
+            api_schema = [field.get("name") for field in extraction_schema if field.get("name")]
+            logger.debug(
+                "Converted %d schema dicts to field names for API",
+                len(api_schema),
+            )
+
         payload = {
             "source_data": {
                 "content": preprocessed.content,
@@ -342,7 +353,7 @@ class AIClientV2:
                 "type": preprocessed.content_type.value,
             },
             "product_type": product_type,
-            "extraction_schema": extraction_schema,
+            "extraction_schema": api_schema,
             "options": {
                 "detect_multi_product": True,
                 "max_products": 10,

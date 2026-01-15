@@ -35,6 +35,7 @@ class EscalationResult:
 
     should_escalate: bool
     reason: Optional[str] = None
+    recommended_tier: Optional[int] = None
 
 
 class EscalationHeuristics:
@@ -85,6 +86,7 @@ class EscalationHeuristics:
             return EscalationResult(
                 should_escalate=True,
                 reason=f"HTTP {status_code} status code",
+                recommended_tier=current_tier + 1,
             )
 
         # Check content-based escalation (only for 200 responses)
@@ -94,6 +96,7 @@ class EscalationHeuristics:
                 return EscalationResult(
                     should_escalate=True,
                     reason="Cloudflare challenge detected",
+                    recommended_tier=current_tier + 1,
                 )
 
             # CAPTCHA page
@@ -101,6 +104,7 @@ class EscalationHeuristics:
                 return EscalationResult(
                     should_escalate=True,
                     reason="CAPTCHA challenge detected",
+                    recommended_tier=current_tier + 1,
                 )
 
             # JavaScript placeholder
@@ -108,6 +112,7 @@ class EscalationHeuristics:
                 return EscalationResult(
                     should_escalate=True,
                     reason="JavaScript placeholder page - requires JS rendering",
+                    recommended_tier=current_tier + 1,
                 )
 
             # Empty or loading page
@@ -115,6 +120,7 @@ class EscalationHeuristics:
                 return EscalationResult(
                     should_escalate=True,
                     reason="Empty or loading page detected",
+                    recommended_tier=current_tier + 1,
                 )
 
         # Check historical success rate for this tier
@@ -123,6 +129,7 @@ class EscalationHeuristics:
             return EscalationResult(
                 should_escalate=True,
                 reason=f"Low success rate for tier {current_tier}: {tier_success_rate:.0%}",
+                recommended_tier=current_tier + 1,
             )
 
         # No escalation needed

@@ -1014,6 +1014,56 @@ class TestGenericSearchV3E2EFlow:
 
         logger.info(f"Test results exported to: {output_path}")
 
+        # Export enriched products in standard format (per user request)
+        enriched_export = {
+            "export_timestamp": datetime.utcnow().isoformat(),
+            "flow_type": "generic_search_v3",
+            "product_type": product_type,
+            "search_query": search_query,
+            "total_products": len(self.enrichment_results),
+            "products": []
+        }
+
+        for result in self.enrichment_results:
+            product_export = {
+                "product_id": result.product_id,
+                "name": result.product_name,
+                "brand": result.brand,
+                "status_before": result.status_before,
+                "status_after": result.status_after,
+                "ecp_before": result.ecp_before,
+                "ecp_after": result.ecp_after,
+                "enrichment_time_seconds": result.enrichment_time_seconds,
+                "pipeline_steps": {
+                    "step_1_producer": {
+                        "completed": result.step_1_producer_completed,
+                        "url": result.step_1_producer_url,
+                        "fields_enriched": result.step_1_fields_enriched,
+                    },
+                    "step_2_review": {
+                        "completed": result.step_2_review_completed,
+                        "sources_used": result.step_2_sources_used,
+                        "fields_enriched": result.step_2_fields_enriched,
+                    },
+                },
+                "source_tracking": {
+                    "sources_searched": result.sources_searched,
+                    "sources_used": result.sources_used,
+                    "sources_rejected": result.sources_rejected,
+                    "field_provenance": result.field_provenance,
+                },
+                "initial_data": result.initial_data,
+                "enriched_data": result.enriched_data,
+                "error": result.error,
+            }
+            enriched_export["products"].append(product_export)
+
+        enriched_path = output_dir / f"enriched_products_{timestamp}.json"
+        with open(enriched_path, "w", encoding="utf-8") as f:
+            json.dump(enriched_export, f, indent=2, ensure_ascii=False, default=str)
+
+        logger.info(f"Enriched products exported to: {enriched_path}")
+
         # Save recorder output
         try:
             recorder_path = self.recorder.save()

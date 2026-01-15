@@ -18,10 +18,14 @@ Spec Reference: E2E_DOMAIN_INTELLIGENCE_TEST_SUITE.md - Task 2.1
 
 import asyncio
 import hashlib
+import json
 import logging
 import os
+import time
 import pytest
+from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -39,6 +43,42 @@ COMPETITION_NAME = "IWSC"
 COMPETITION_YEAR = 2024
 PRODUCT_TYPE = "whiskey"
 TARGET_PRODUCT_COUNT = 5
+PRODUCTS_TO_ENRICH = 3  # Enrich top 3 products
+
+
+@dataclass
+class ProductEnrichmentResult:
+    """Result of enriching a single product via 2-step pipeline."""
+
+    product_id: Optional[str] = None
+    product_name: str = ""
+    brand: str = ""
+
+    # Status progression
+    status_before: str = ""
+    status_after: str = ""
+    ecp_before: float = 0.0
+    ecp_after: float = 0.0
+
+    # Pipeline tracking
+    step_1_completed: bool = False
+    step_1_url: Optional[str] = None
+    step_2_completed: bool = False
+
+    # Source tracking
+    sources_searched: List[str] = field(default_factory=list)
+    sources_used: List[str] = field(default_factory=list)
+    sources_rejected: List[Dict[str, str]] = field(default_factory=list)
+    field_provenance: Dict[str, str] = field(default_factory=dict)
+    fields_enriched: List[str] = field(default_factory=list)
+
+    # Data
+    initial_data: Dict[str, Any] = field(default_factory=dict)
+    enriched_data: Dict[str, Any] = field(default_factory=dict)
+
+    # Timing
+    enrichment_time_seconds: float = 0.0
+    error: Optional[str] = None
 
 
 @pytest.fixture(scope="function")
@@ -57,6 +97,110 @@ def generate_fingerprint(name: str, brand: str) -> str:
     """Generate unique fingerprint for product deduplication."""
     base = f"{name.lower().strip()}:{brand.lower().strip() if brand else ''}"
     return hashlib.sha256(base.encode()).hexdigest()
+
+
+@sync_to_async(thread_sensitive=True)
+def setup_enrichment_configs(product_type: str) -> None:
+    """Set up ProductTypeConfig, QualityGateConfig, EnrichmentConfig, and FieldGroups."""
+    from django.core.management import call_command
+    from crawler.models import (
+        ProductTypeConfig,
+        EnrichmentConfig,
+        QualityGateConfig,
+        FieldDefinition,
+        FieldGroup,
+    )
+
+    # Load base_fields.json fixture if needed
+    if not FieldDefinition.objects.exists():
+        logger.info("Loading base_fields.json fixture...")
+        try:
+            call_command("loaddata", "base_fields.json", verbosity=0)
+        except Exception as e:
+            logger.warning(f"Could not load base_fields fixture: {e}")
+
+    # Create or get ProductTypeConfig
+    product_type_config, _ = ProductTypeConfig.objects.get_or_create(
+        product_type=product_type,
+        defaults={
+            "display_name": product_type.replace("_", " ").title(),
+            "is_active": True,
+            "max_sources_per_product": 8,
+            "max_serpapi_searches": 6,
+            "max_enrichment_time_seconds": 180,
+        }
+    )
+
+    # Create QualityGateConfig for V3 status hierarchy
+    QualityGateConfig.objects.get_or_create(
+        product_type_config=product_type_config,
+        defaults={
+            "skeleton_required_fields": ["name"],
+            "partial_required_fields": ["name", "brand", "abv", "country", "category"],
+            "baseline_required_fields": [
+                "name", "brand", "abv", "country", "category",
+                "description", "primary_aromas", "palate_flavors"
+            ],
+            "enriched_required_fields": ["mouthfeel"],
+        }
+    )
+
+    # Create EnrichmentConfigs for whiskey
+    configs = [
+        ("tasting_notes", "{name} {brand} tasting notes review",
+         ["nose_description", "palate_description", "finish_description", "primary_aromas", "palate_flavors"], 10),
+        ("product_details", "{name} {brand} whisky abv alcohol content",
+         ["abv", "description", "volume_ml", "age_statement"], 8),
+        ("awards", "{name} {brand} whisky awards medals",
+         ["awards"], 5),
+    ]
+
+    for template_name, search_template, target_fields, priority in configs:
+        EnrichmentConfig.objects.get_or_create(
+            product_type_config=product_type_config,
+            template_name=template_name,
+            defaults={
+                "search_template": search_template,
+                "target_fields": target_fields,
+                "priority": priority,
+                "is_active": True,
+            }
+        )
+
+    # Create FieldGroups for ECP calculation (V3)
+    # Without these, ECP will always be 0.0
+    field_groups = [
+        ("basic_product_info", "Basic Product Info",
+         ["product_type", "category", "abv", "volume_ml", "description", "age_statement", "country", "region", "bottler"], 1),
+        ("tasting_appearance", "Tasting Profile - Appearance",
+         ["color_description", "color_intensity", "clarity", "viscosity"], 2),
+        ("tasting_nose", "Tasting Profile - Nose",
+         ["nose_description", "primary_aromas", "primary_intensity", "secondary_aromas", "aroma_evolution"], 3),
+        ("tasting_palate", "Tasting Profile - Palate",
+         ["initial_taste", "mid_palate_evolution", "palate_flavors", "palate_description", "flavor_intensity", "complexity", "mouthfeel"], 4),
+        ("tasting_finish", "Tasting Profile - Finish",
+         ["finish_length", "warmth", "dryness", "finish_flavors", "finish_evolution", "finish_description", "final_notes"], 5),
+        ("tasting_overall", "Tasting Profile - Overall",
+         ["balance", "overall_complexity", "uniqueness", "drinkability", "price_quality_ratio", "experience_level", "serving_recommendation", "food_pairings"], 6),
+        ("cask_info", "Cask Info",
+         ["primary_cask", "finishing_cask", "wood_type", "cask_treatment", "maturation_notes"], 7),
+        ("whiskey_details", "Whiskey-Specific Details",
+         ["whiskey_type", "distillery", "mash_bill", "cask_strength", "single_cask", "cask_number", "vintage_year", "bottling_year", "batch_number", "peated", "peat_level", "peat_ppm", "natural_color", "non_chill_filtered"], 8),
+    ]
+
+    for group_key, display_name, fields, sort_order in field_groups:
+        FieldGroup.objects.get_or_create(
+            product_type_config=product_type_config,
+            group_key=group_key,
+            defaults={
+                "display_name": display_name,
+                "fields": fields,
+                "sort_order": sort_order,
+                "is_active": True,
+            }
+        )
+
+    logger.info(f"Set up enrichment configs and field groups for {product_type}")
 
 
 @pytest.mark.e2e
@@ -138,6 +282,7 @@ class TestIWSCCompetitionE2E:
 
         products_created = []
         awards_created = []
+        fetch_result = None  # Store router result separately
 
         try:
             # Step 1: Fetch IWSC page
@@ -146,7 +291,7 @@ class TestIWSCCompetitionE2E:
                 logger.info(f"Fetching IWSC page: {IWSC_URL}")
 
                 fetch_start = datetime.utcnow()
-                result = await router.fetch(IWSC_URL)
+                fetch_result = await router.fetch(IWSC_URL)
                 fetch_time_ms = int((datetime.utcnow() - fetch_start).total_seconds() * 1000)
 
                 # Get domain profile
@@ -154,9 +299,9 @@ class TestIWSCCompetitionE2E:
 
                 fetch_data = {
                     "url": IWSC_URL,
-                    "success": result.success,
-                    "tier_used": result.tier_used,
-                    "content_length": len(result.content) if result.content else 0,
+                    "success": fetch_result.success,
+                    "tier_used": fetch_result.tier_used,
+                    "content_length": len(fetch_result.content) if fetch_result.content else 0,
                     "fetch_time_ms": fetch_time_ms,
                     "domain_profile": {
                         "likely_js_heavy": profile.likely_js_heavy,
@@ -171,23 +316,23 @@ class TestIWSCCompetitionE2E:
                     "likely_js_heavy": profile.likely_js_heavy,
                     "likely_bot_protected": profile.likely_bot_protected,
                     "recommended_tier": profile.recommended_tier,
-                    "tier_used": result.tier_used,
+                    "tier_used": fetch_result.tier_used,
                 })
 
-                if not result.success:
+                if not fetch_result.success:
                     exporter.add_error({
                         "step": "fetch_page",
-                        "error": result.error or "Fetch failed",
+                        "error": fetch_result.error or "Fetch failed",
                     })
-                    pytest.fail(f"Failed to fetch IWSC page: {result.error}")
+                    pytest.fail(f"Failed to fetch IWSC page: {fetch_result.error}")
 
                 logger.info(
-                    f"Fetched IWSC page: tier={result.tier_used}, "
-                    f"content_length={len(result.content) if result.content else 0}"
+                    f"Fetched IWSC page: tier={fetch_result.tier_used}, "
+                    f"content_length={len(fetch_result.content) if fetch_result.content else 0}"
                 )
 
                 state_manager.mark_step_complete("fetch_page")
-                page_content = result.content
+                page_content = fetch_result.content
             else:
                 # Load from state
                 state = state_manager.get_state()
@@ -247,13 +392,15 @@ class TestIWSCCompetitionE2E:
                     created_products = []
                     created_awards = []
 
-                    # Create CrawledSource
-                    source = CrawledSource.objects.create(
+                    # Create or get CrawledSource (avoid duplicate URL errors)
+                    source, _ = CrawledSource.objects.get_or_create(
                         url=IWSC_URL,
-                        title=f"{COMPETITION_NAME} {COMPETITION_YEAR} Results",
-                        source_type="award_page",
-                        raw_content=page_content[:50000] if page_content else "",
-                        crawled_at=datetime.now(),
+                        defaults={
+                            "title": f"{COMPETITION_NAME} {COMPETITION_YEAR} Results",
+                            "source_type": "award_page",
+                            "raw_content": page_content[:50000] if page_content else "",
+                            "crawled_at": datetime.now(),
+                        }
                     )
 
                     for p_data in valid_products:
@@ -265,16 +412,18 @@ class TestIWSCCompetitionE2E:
                         if brand_name:
                             brand, _ = DiscoveredBrand.objects.get_or_create(name=brand_name)
 
-                        # Create product
+                        # Create or get product (avoid duplicate fingerprint errors)
                         fingerprint = generate_fingerprint(name, brand_name)
-                        product = DiscoveredProduct.objects.create(
-                            name=name,
-                            brand=brand,
-                            product_type=ProductType.WHISKEY,
+                        product, created = DiscoveredProduct.objects.get_or_create(
                             fingerprint=fingerprint,
-                            source_url=IWSC_URL,
-                            abv=p_data.get("abv"),
-                            description=p_data.get("description", ""),
+                            defaults={
+                                "name": name,
+                                "brand": brand,
+                                "product_type": ProductType.WHISKEY,
+                                "source_url": IWSC_URL,
+                                "abv": p_data.get("abv"),
+                                "description": p_data.get("description", ""),
+                            }
                         )
 
                         created_products.append({
@@ -286,13 +435,28 @@ class TestIWSCCompetitionE2E:
                         })
 
                         # Create award
-                        medal = p_data.get("medal", p_data.get("award", "Gold"))
-                        award = ProductAward.objects.create(
+                        medal = p_data.get("medal", p_data.get("award", "gold"))
+                        # Normalize medal to valid choices
+                        medal_lower = medal.lower() if medal else "gold"
+                        if "gold" in medal_lower:
+                            medal = "gold"
+                        elif "silver" in medal_lower:
+                            medal = "silver"
+                        elif "bronze" in medal_lower:
+                            medal = "bronze"
+                        else:
+                            medal = "gold"
+
+                        award, _ = ProductAward.objects.get_or_create(
                             product=product,
-                            competition_name=COMPETITION_NAME,
-                            competition_year=COMPETITION_YEAR,
-                            medal_type=medal,
-                            source=source,
+                            competition=COMPETITION_NAME,
+                            year=COMPETITION_YEAR,
+                            defaults={
+                                "competition_country": "UK",
+                                "medal": medal,
+                                "award_category": "Whisky",
+                                "score": p_data.get("score"),
+                            }
                         )
 
                         created_awards.append({
@@ -318,7 +482,107 @@ class TestIWSCCompetitionE2E:
                 products_created = state.get("products_created", [])
                 awards_created = state.get("awards_created", [])
 
-            # Step 4: Add products to exporter
+            # Step 4: Enrich products using 2-step pipeline
+            enrichment_results: List[ProductEnrichmentResult] = []
+
+            if not state_manager.is_step_complete("enrich_products"):
+                state_manager.set_current_step("enrich_products")
+                logger.info(f"Enriching top {PRODUCTS_TO_ENRICH} products using 2-step pipeline...")
+
+                # Set up enrichment configs (ProductTypeConfig, FieldGroups, etc.)
+                await setup_enrichment_configs(PRODUCT_TYPE)
+
+                # Import enrichment components
+                from crawler.services.enrichment_pipeline_v3 import get_enrichment_pipeline_v3
+                from crawler.services.quality_gate_v3 import get_quality_gate_v3
+
+                pipeline = get_enrichment_pipeline_v3(ai_client=ai_client)
+                gate = get_quality_gate_v3()
+
+                # Enrich top N products
+                products_to_enrich = list(zip(valid_products, products_created))[:PRODUCTS_TO_ENRICH]
+
+                for idx, (p_data, p_created) in enumerate(products_to_enrich):
+                    name = p_data.get("name", "Unknown")
+                    brand = p_data.get("brand", "")
+
+                    logger.info(f"\n--- Enriching Product {idx+1}/{len(products_to_enrich)}: {name[:50]} ---")
+
+                    enrichment_start = time.time()
+
+                    # Create result tracker
+                    result = ProductEnrichmentResult(
+                        product_id=p_created["id"],
+                        product_name=name,
+                        brand=brand,
+                        initial_data=p_data.copy(),
+                    )
+
+                    try:
+                        # Assess initial quality
+                        initial_assessment = await gate.aassess(
+                            extracted_data=p_data,
+                            product_type=PRODUCT_TYPE,
+                        )
+                        result.status_before = initial_assessment.status.value
+                        result.ecp_before = initial_assessment.ecp_total
+
+                        # Execute 2-step enrichment pipeline
+                        enrichment_result = await pipeline.enrich_product(
+                            product_data=p_data,
+                            product_type=PRODUCT_TYPE,
+                        )
+
+                        # Track pipeline results
+                        result.step_1_completed = enrichment_result.step_1_completed
+                        result.step_2_completed = enrichment_result.step_2_completed
+                        result.sources_searched = enrichment_result.sources_searched
+                        result.sources_used = enrichment_result.sources_used
+                        result.sources_rejected = enrichment_result.sources_rejected
+                        result.field_provenance = enrichment_result.field_provenance
+                        result.fields_enriched = enrichment_result.fields_enriched
+
+                        if enrichment_result.sources_used:
+                            result.step_1_url = enrichment_result.sources_used[0]
+
+                        # Assess final quality
+                        final_assessment = await gate.aassess(
+                            extracted_data=enrichment_result.product_data,
+                            product_type=PRODUCT_TYPE,
+                        )
+
+                        result.status_after = final_assessment.status.value
+                        result.ecp_after = final_assessment.ecp_total
+                        result.enriched_data = enrichment_result.product_data.copy()
+
+                    except Exception as e:
+                        result.error = str(e)
+                        result.status_after = result.status_before
+                        result.ecp_after = result.ecp_before
+                        result.enriched_data = p_data.copy()
+                        logger.error(f"Enrichment failed for {name}: {e}")
+
+                    result.enrichment_time_seconds = time.time() - enrichment_start
+                    enrichment_results.append(result)
+
+                    logger.info(
+                        f"Enriched {name[:30]}: {result.status_before} -> {result.status_after} "
+                        f"(ECP: {result.ecp_before:.1f}% -> {result.ecp_after:.1f}%) "
+                        f"[Fields: {len(result.fields_enriched)}, Sources: {len(result.sources_used)}]"
+                    )
+
+                state_manager.mark_step_complete("enrich_products")
+
+            # Step 5: Add products to exporter
+            # Get tier_used from state if not available from fresh run
+            tier_used = 2
+            if fetch_result is not None:
+                tier_used = fetch_result.tier_used
+            else:
+                state = state_manager.get_state()
+                fetch_data = state.get("fetch_result", {})
+                tier_used = fetch_data.get("tier_used", 2)
+
             for p in products_created:
                 exporter.add_product({
                     "id": p["id"],
@@ -332,19 +596,31 @@ class TestIWSCCompetitionE2E:
                     "sources_used": [{
                         "url": IWSC_URL,
                         "source_type": "competition",
-                        "tier_used": result.tier_used if 'result' in dir() else 2,
+                        "tier_used": tier_used,
                     }],
                     "domain_intelligence": {
                         "primary_domain": IWSC_DOMAIN,
-                        "tier_used": result.tier_used if 'result' in dir() else 2,
+                        "tier_used": tier_used,
                     }
                 })
 
             # Update metrics
+            products_reaching_baseline = sum(
+                1 for r in enrichment_results
+                if r.status_after in ["baseline", "enriched", "complete"]
+            )
+            avg_ecp_improvement = (
+                sum(r.ecp_after - r.ecp_before for r in enrichment_results) / len(enrichment_results)
+                if enrichment_results else 0
+            )
+
             exporter.set_metrics({
                 "test_completed": datetime.utcnow().isoformat(),
                 "products_created": len(products_created),
                 "awards_created": len(awards_created),
+                "products_enriched": len(enrichment_results),
+                "products_reaching_baseline": products_reaching_baseline,
+                "avg_ecp_improvement": avg_ecp_improvement,
                 "competition": COMPETITION_NAME,
                 "year": COMPETITION_YEAR,
             })
@@ -353,12 +629,100 @@ class TestIWSCCompetitionE2E:
             output_path = exporter.finalize("COMPLETED")
             state_manager.set_status("COMPLETED")
 
-            logger.info(f"IWSC Competition E2E test completed. Results: {output_path}")
+            # Export enriched products JSON with full product data
+            enriched_export = {
+                "export_timestamp": datetime.utcnow().isoformat(),
+                "competition": COMPETITION_NAME,
+                "year": COMPETITION_YEAR,
+                "total_products": len(enrichment_results),
+                "products": []
+            }
+
+            for result in enrichment_results:
+                # Merge initial and enriched data for complete product view
+                product_data = result.initial_data.copy()
+                product_data.update(result.enriched_data)
+
+                product_entry = {
+                    "product_id": result.product_id,
+                    "source_id": str(uuid4()),  # Placeholder
+                    "award_id": str(uuid4()),  # Placeholder
+                    "quality_status_before": result.status_before,
+                    "quality_status_after": result.status_after,
+                    "ecp_total": result.ecp_after,
+                    "enrichment_success": result.error is None,
+                    "fields_enriched": result.fields_enriched,
+                    "product_data": {
+                        "name": product_data.get("name"),
+                        "brand": product_data.get("brand"),
+                        "description": product_data.get("description"),
+                        "abv": product_data.get("abv"),
+                        "country": product_data.get("country"),
+                        "region": product_data.get("region"),
+                        "category": product_data.get("category"),
+                        "style": product_data.get("style"),
+                        "volume_ml": product_data.get("volume_ml"),
+                        "age_statement": product_data.get("age_statement"),
+                        "vintage": product_data.get("vintage"),
+                        "awards": [{
+                            "competition": COMPETITION_NAME,
+                            "year": COMPETITION_YEAR,
+                            "medal": product_data.get("medal", product_data.get("award", "Gold")),
+                            "score": product_data.get("score")
+                        }],
+                        "producer": product_data.get("producer"),
+                        "distillery": product_data.get("distillery"),
+                        "detail_url": product_data.get("detail_url"),
+                        "source_url": IWSC_URL,
+                        "food_pairings": product_data.get("food_pairings", []),
+                        "grape_varieties": product_data.get("grape_varieties", []),
+                        "prices": product_data.get("prices", []),
+                        "finish_description": product_data.get("finish_description"),
+                        "finish_flavors": product_data.get("finish_flavors", []),
+                        "nose_description": product_data.get("nose_description"),
+                        "primary_aromas": product_data.get("primary_aromas", []),
+                        "secondary_aromas": product_data.get("secondary_aromas", []),
+                        "palate_description": product_data.get("palate_description"),
+                        "palate_flavors": product_data.get("palate_flavors", []),
+                        "whiskey_type": product_data.get("whiskey_type"),
+                        "cask_strength": product_data.get("cask_strength"),
+                        "primary_cask": product_data.get("primary_cask"),
+                        "maturation_notes": product_data.get("maturation_notes"),
+                        "batch_number": product_data.get("batch_number"),
+                        "peated": product_data.get("peated"),
+                        "peat_level": product_data.get("peat_level"),
+                        "images": product_data.get("images"),
+                        "color_description": product_data.get("color_description"),
+                    },
+                    "enrichment_sources": result.sources_used,
+                    "sources_searched": result.sources_searched,
+                    "sources_rejected": result.sources_rejected,
+                }
+                enriched_export["products"].append(product_entry)
+
+            # Write enriched products JSON
+            enriched_path = Path(__file__).parent.parent / "outputs" / f"enriched_products_{datetime.utcnow().strftime('%Y-%m-%d_%H%M%S')}.json"
+            with open(enriched_path, "w") as f:
+                json.dump(enriched_export, f, indent=2, default=str)
+
+            logger.info(f"Enriched products exported to: {enriched_path}")
+
+            # Log summary
+            logger.info("\n" + "=" * 70)
+            logger.info("IWSC COMPETITION E2E FLOW RESULTS")
+            logger.info("=" * 70)
             logger.info(f"Products created: {len(products_created)}")
             logger.info(f"Awards created: {len(awards_created)}")
+            logger.info(f"Products enriched: {len(enrichment_results)}")
+            logger.info(f"Products reaching BASELINE: {products_reaching_baseline}/{len(enrichment_results)}")
+            logger.info(f"Average ECP improvement: +{avg_ecp_improvement:.1f}%")
+            logger.info(f"Results exported to: {output_path}")
+            logger.info(f"Enriched products: {enriched_path}")
+            logger.info("=" * 70)
 
             # Assertions
             assert len(products_created) > 0, "Expected at least 1 product created"
+            assert len(enrichment_results) > 0, "Expected at least 1 product enriched"
 
         finally:
             await router.close()
@@ -407,7 +771,7 @@ class TestIWSCCompetitionE2E:
                 "likely_js_heavy": profile.likely_js_heavy,
                 "recommended_tier": profile.recommended_tier,
                 "tier_used": result.tier_used,
-                "success": result.success,
+                "success": fetch_result.success,
             })
 
             output_path = exporter.finalize("COMPLETED")
