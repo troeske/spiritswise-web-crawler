@@ -31,11 +31,14 @@ from crawler.services.content_preprocessor import (
 
 logger = logging.getLogger(__name__)
 
-# Extended schema for multi-product extraction (list pages)
-# Captures core identification + taste profiles available on listicles
-# With GPT-4.1's 32K output token limit, we can include more fields
-# Full 76-field schema generates ~1000+ tokens per product
-# Extended schema (~30 fields) generates ~500-600 tokens per product
+# DEPRECATED: Skeleton schema kept for backward compatibility only.
+# As of 2026-01-15, we use full schema from database for all extractions.
+# GPT-4.1's 32K output token limit supports full schema for 20+ products.
+# To add/modify fields, update crawler/fixtures/base_fields.json
+#
+# Historical context: This schema was used when we had 16K output token limits.
+# Extended schema (~30 fields) generated ~500-600 tokens per product.
+# Now we load full product-type-specific schemas from FieldDefinition table.
 MULTI_PRODUCT_SKELETON_SCHEMA = [
     # Core identification fields (required)
     "name",
@@ -221,15 +224,24 @@ class AIClientV2:
         """
         Extract product data from content using AI Service V2.
 
+        Schema Loading (as of 2026-01-15):
+            - By default, loads full product-type-specific schema from FieldDefinition table
+            - GPT-4.1's 32K output token limit supports full schema for 20+ products
+            - Full schema includes derive_from fields for AI to derive taste metrics
+            - To add/modify fields, update crawler/fixtures/base_fields.json
+
         Args:
             content: Raw HTML content to process
             source_url: URL where content was fetched
-            product_type: Product type (whiskey, port_wine, etc.)
+            product_type: Product type (whiskey, port_wine, etc.). Determines which
+                         product-specific fields are loaded from the database.
             product_category: Optional category hint (bourbon, tawny, etc.)
-            extraction_schema: Optional schema to use - can be list of field names (strings)
-                              or full schema dicts with descriptions. Defaults to full schema
-                              from database.
-            detect_multi_product: Whether to detect if this is a multi-product/list page
+            extraction_schema: Optional override - can be list of field names (strings)
+                              or full schema dicts. If provided, overrides default
+                              database schema. When strings are provided, full schema
+                              definitions are still loaded from database for derive_from.
+            detect_multi_product: Whether to detect if this is a multi-product/list page.
+                                 When True, logs the full schema usage for debugging.
 
         Returns:
             ExtractionResultV2 with extracted products or error
@@ -260,15 +272,18 @@ class AIClientV2:
             )
 
             # Get extraction schema
-            # For multi-product detection, use skeleton schema to stay under 16K output token limit
-            # Full 76-field schema generates too many tokens for pages with 5+ products
+            # Always use full schema from database for comprehensive extraction
+            # GPT-4.1's 32K output token limit supports full schema for 20+ products
             if extraction_schema:
                 schema = extraction_schema
             elif detect_multi_product:
-                schema = MULTI_PRODUCT_SKELETON_SCHEMA
+                # Load full product-type-specific schema from database
+                # This captures all available information from source pages
+                schema = await self._aget_default_schema(product_type)
                 logger.info(
-                    "Using skeleton schema (%d fields) for multi-product extraction",
+                    "Using full schema (%d fields) for multi-product extraction (product_type=%s)",
                     len(schema),
+                    product_type,
                 )
             else:
                 schema = await self._aget_default_schema(product_type)

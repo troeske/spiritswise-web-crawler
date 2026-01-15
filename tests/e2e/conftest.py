@@ -246,11 +246,18 @@ class ReportDataCollector:
 
 @pytest.fixture(scope="session")
 def django_db_setup(django_db_blocker):
-    """Configure the test database and run migrations."""
+    """Configure the test database, run migrations, and load fixtures."""
     from django.core.management import call_command
 
     with django_db_blocker.unblock():
         call_command("migrate", "--run-syncdb", verbosity=0)
+        # Load base_fields.json fixture for FieldDefinition entries
+        # Required for full schema extraction (as of 2026-01-15)
+        try:
+            call_command("loaddata", "base_fields.json", verbosity=0)
+            logger.info("Loaded base_fields.json fixture for E2E tests")
+        except Exception as e:
+            logger.warning(f"Could not load base_fields fixture: {e}")
 
 
 @pytest.fixture(scope="session")

@@ -287,15 +287,15 @@ class TestAIClientAPICallWithFullSchema:
                     product_type="whiskey",
                 )
 
-        # Verify schema was sent
+        # Verify full schema was sent in 'schema' field
         assert captured_payload is not None
-        assert "extraction_schema" in captured_payload
+        assert "schema" in captured_payload, "Full schema should be in 'schema' field"
 
-        schema = captured_payload["extraction_schema"]
+        schema = captured_payload["schema"]
         assert isinstance(schema, list)
         assert len(schema) >= 2
 
-        # Schema should contain dicts with full definitions, not just strings
+        # Schema should contain dicts with full definitions
         assert all(isinstance(item, dict) for item in schema)
 
         # Verify schema items have descriptions
@@ -349,9 +349,10 @@ class TestAIClientAPICallWithFullSchema:
                     product_type="whiskey",
                 )
 
-        # Verify payload structure
+        # Verify payload structure - full schema in 'schema' field
         assert captured_payload is not None
-        schema = captured_payload["extraction_schema"]
+        assert "schema" in captured_payload, "Full schema should be in 'schema' field"
+        schema = captured_payload["schema"]
 
         # Each schema item should have name, type, description at minimum
         for field_def in schema:
@@ -366,9 +367,16 @@ class TestAIClientSchemaBackwardCompatibility:
 
     @pytest.fixture
     def setup_fields(self, db):
-        """Create test field definitions."""
-        from crawler.models import FieldDefinition
+        """Create test field definitions for whiskey product type."""
+        from crawler.models import FieldDefinition, ProductTypeConfig
 
+        # Create product type config for whiskey
+        whiskey_config = ProductTypeConfig.objects.create(
+            product_type="whiskey",
+            display_name="Whiskey",
+        )
+
+        # Create shared fields
         FieldDefinition.objects.create(
             field_name="name",
             display_name="Product Name",
@@ -378,6 +386,30 @@ class TestAIClientSchemaBackwardCompatibility:
             product_type_config=None,
             target_model="DiscoveredProduct",
             target_field="name",
+            is_active=True,
+        )
+        FieldDefinition.objects.create(
+            field_name="brand",
+            display_name="Brand",
+            field_group="core",
+            field_type="string",
+            description="Brand name.",
+            product_type_config=None,
+            target_model="DiscoveredProduct",
+            target_field="brand",
+            is_active=True,
+        )
+        # Create whiskey-specific field with derive_from
+        FieldDefinition.objects.create(
+            field_name="warmth",
+            display_name="Warmth",
+            field_group="tasting_finish",
+            field_type="integer",
+            description="Warmth rating 1-10",
+            derive_from="finish_description",
+            product_type_config=whiskey_config,
+            target_model="WhiskeyDetails",
+            target_field="warmth",
             is_active=True,
         )
 
@@ -416,9 +448,14 @@ class TestAIClientSchemaBackwardCompatibility:
         assert request["extraction_schema"] == custom_schema
 
     @pytest.mark.asyncio
-    async def test_multi_product_skeleton_schema_still_works(self, setup_fields):
-        """MULTI_PRODUCT_SKELETON_SCHEMA still works for list pages."""
-        from crawler.services.ai_client_v2 import AIClientV2, MULTI_PRODUCT_SKELETON_SCHEMA
+    @pytest.mark.django_db(transaction=True)
+    async def test_multi_product_uses_full_schema(self, setup_fields):
+        """detect_multi_product=True uses full schema from database (not skeleton).
+
+        Updated: As of 2026-01-15, we use full schema for all extractions.
+        GPT-4.1's 32K output token limit supports full schema for 20+ products.
+        """
+        from crawler.services.ai_client_v2 import AIClientV2
 
         client = AIClientV2(base_url="http://test:8000", api_key="test-key")
 
@@ -455,7 +492,7 @@ class TestAIClientSchemaBackwardCompatibility:
             with patch("crawler.services.ai_client_v2.get_content_preprocessor") as mock_pp:
                 mock_pp.return_value.preprocess = mock_preprocess
 
-                # With detect_multi_product=True, should use skeleton schema
+                # With detect_multi_product=True, should use full schema from database
                 await client.extract(
                     content="<html>List page</html>",
                     source_url="https://example.com/products",
@@ -463,9 +500,14 @@ class TestAIClientSchemaBackwardCompatibility:
                     detect_multi_product=True,
                 )
 
-        # Should use skeleton schema (list of strings)
+        # Should use full schema (list of dicts with descriptions)
         assert captured_payload is not None
-        assert captured_payload["extraction_schema"] == MULTI_PRODUCT_SKELETON_SCHEMA
+        assert "schema" in captured_payload, "Full schema should be in 'schema' field"
+
+        schema = captured_payload["schema"]
+        assert len(schema) > 0, "Schema should not be empty"
+        assert isinstance(schema[0], dict), "Schema should contain full field definitions (dicts)"
+        assert "name" in schema[0], "Schema dicts should have 'name' key"
 
 
 class TestAIClientEnumValidation:
