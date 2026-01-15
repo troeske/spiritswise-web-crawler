@@ -88,6 +88,39 @@ MUTUALLY_EXCLUSIVE_KEYWORDS: List[Tuple[Set[str], Set[str]]] = [
 # These stopwords are common English words that don't contribute to product identity.
 STOPWORDS: Set[str] = {"the", "a", "an", "of", "and", "or", "in", "on", "at", "to", "for"}
 
+# Category-specific stopwords that don't contribute to product identity.
+# These terms are common across many products in the same category and would
+# inflate token counts unfairly, causing false negatives in name matching.
+#
+# Example problem: "Ballantine's 10 YO Blended Scotch Whisky"
+# Without filtering: tokens = {ballantine, blended, scotch, whisky} = 4 tokens
+# If extracted has "Ballantine 10 Year", overlap = {ballantine} = 1/4 = 25% < 30% = FAIL
+#
+# With filtering: tokens = {ballantine} = 1 token
+# Overlap = {ballantine} = 1/1 = 100% = PASS
+#
+# These categories are filtered:
+# - Product type: whisky, whiskey, port, wine, spirit, liquor
+# - Category: scotch, bourbon, rye, malt, blended, single, tawny, ruby
+# - Age indicators: year, years, old, aged
+# - Bottling info: cask, strength, reserve, edition, limited, special
+# - Production: distillery, bottled, vintage
+CATEGORY_STOPWORDS: Set[str] = {
+    # Product types
+    "whisky", "whiskey", "port", "wine", "spirit", "spirits", "liquor",
+    # Whisky categories
+    "scotch", "bourbon", "malt", "blended", "single", "straight",
+    # Port wine categories
+    "tawny", "ruby", "vintage", "lbv",
+    # Age indicators
+    "year", "years", "old", "aged",
+    # Bottling info
+    "cask", "strength", "reserve", "edition", "limited", "special",
+    "release", "collection", "batch", "bottled",
+    # Geographic terms (already in name as part of brand typically)
+    "highland", "speyside", "islay", "lowland", "campbeltown", "kentucky",
+}
+
 # Minimum token length to be considered significant (filters out abbreviations and noise).
 MIN_TOKEN_LENGTH: int = 3
 
@@ -109,6 +142,7 @@ class ProductMatchValidator:
         Level 1 - Brand Matching:
             Checks if brand names overlap (one contained in the other).
             Empty brands are considered a match.
+            Brand names are normalized to handle apostrophes, hyphens, etc.
 
         Level 2 - Product Type Keywords:
             Checks for mutually exclusive keywords that indicate different products.
@@ -136,9 +170,52 @@ class ProductMatchValidator:
     def __init__(self) -> None:
         """Initialize the ProductMatchValidator with default configuration."""
         self.stopwords = STOPWORDS
+        self.category_stopwords = CATEGORY_STOPWORDS
         self.min_token_length = MIN_TOKEN_LENGTH
         self.min_overlap_ratio = MIN_OVERLAP_RATIO
         self.mutually_exclusive_keywords = MUTUALLY_EXCLUSIVE_KEYWORDS
+
+    def _normalize_brand(self, brand: str) -> str:
+        """
+        Normalize brand name for comparison by removing special characters.
+
+        This handles common variations in brand names across different sources:
+        - Removes apostrophes (straight ' and curly '/') for brands like "Ballantine's"
+        - Normalizes hyphens and whitespace for brands like "Johnnie-Walker"
+        - Removes "The " prefix for brands like "The Macallan"
+
+        Args:
+            brand: Brand name to normalize. May be empty.
+
+        Returns:
+            Normalized lowercase brand name with special characters removed.
+            Returns empty string if input is empty or None.
+
+        Example:
+            >>> validator = ProductMatchValidator()
+            >>> validator._normalize_brand("Ballantine's")
+            'ballantines'
+            >>> validator._normalize_brand("The Macallan")
+            'macallan'
+            >>> validator._normalize_brand("Johnnie-Walker")
+            'johnnie walker'
+        """
+        if not brand:
+            return ""
+
+        # Remove apostrophes (straight ', curly ', Unicode variations U+2019 U+2018)
+        normalized = re.sub(r"['\u2019\u2018\u0027]", "", brand)
+
+        # Normalize hyphens to spaces
+        normalized = re.sub(r"-", " ", normalized)
+
+        # Normalize multiple whitespace to single space
+        normalized = re.sub(r"\s+", " ", normalized)
+
+        # Remove "The " prefix (case insensitive)
+        normalized = re.sub(r"^the\s+", "", normalized, flags=re.IGNORECASE)
+
+        return normalized.lower().strip()
 
     def validate(
         self,
@@ -214,7 +291,12 @@ class ProductMatchValidator:
 
         Checks if the brand names overlap by seeing if one is contained within
         the other. This handles cases where brands have variations like
-        "Macallan" vs "The Macallan".
+        "Macallan" vs "The Macallan" or "Ballantine's" vs "Ballantines".
+
+        Brand names are normalized before comparison to handle:
+        - Apostrophes (straight ' and curly ')
+        - Hyphens vs spaces ("Johnnie-Walker" vs "Johnnie Walker")
+        - "The" prefix ("The Macallan" vs "Macallan")
 
         Empty brands are allowed because:
         1. Not all products have brand information
@@ -241,12 +323,14 @@ class ProductMatchValidator:
         if target_empty or extracted_empty:
             return True, "one_empty_allowed"
 
-        target_lower = target_brand.lower().strip()
-        extracted_lower = extracted_brand.lower().strip()
+        # Normalize brands to handle apostrophes, hyphens, "The" prefix
+        # This fixes the Ballantine's vs Ballantines mismatch issue
+        target_normalized = self._normalize_brand(target_brand)
+        extracted_normalized = self._normalize_brand(extracted_brand)
 
         # Check for overlap (one contained in the other)
         # This handles cases like "Macallan" matching "The Macallan"
-        if target_lower in extracted_lower or extracted_lower in target_lower:
+        if target_normalized in extracted_normalized or extracted_normalized in target_normalized:
             return True, "brand_overlap"
 
         return False, f"brand_mismatch: target='{target_brand}', extracted='{extracted_brand}'"
@@ -376,7 +460,13 @@ class ProductMatchValidator:
         Tokenize text into a set of significant tokens.
 
         Splits text on non-alphanumeric characters, converts to lowercase,
-        and filters out stopwords and tokens shorter than MIN_TOKEN_LENGTH.
+        and filters out:
+        - General stopwords (the, a, an, of, etc.)
+        - Category-specific stopwords (whisky, scotch, bourbon, year, etc.)
+        - Tokens shorter than MIN_TOKEN_LENGTH
+
+        This improved filtering ensures product identity tokens (brand, name)
+        are prioritized over common category terms that would inflate counts.
 
         Args:
             text: Text to tokenize. May be empty.
@@ -387,9 +477,9 @@ class ProductMatchValidator:
 
         Example:
             >>> validator = ProductMatchValidator()
-            >>> tokens = validator._tokenize("The Macallan 18 Year Old")
+            >>> tokens = validator._tokenize("Ballantine's 10 Year Blended Scotch Whisky")
             >>> print(tokens)
-            {'macallan', 'year', 'old'}  # 'the', '18' filtered out
+            {'ballantines'}  # category terms 'year', 'blended', 'scotch', 'whisky' filtered
         """
         if not text:
             return set()
@@ -398,11 +488,13 @@ class ProductMatchValidator:
         text_lower = text.lower()
         tokens = re.split(r'[^a-z0-9]+', text_lower)
 
-        # Filter out stopwords and short tokens
+        # Filter out stopwords, category stopwords, and short tokens
+        # This ensures product identity tokens are prioritized
         filtered = {
             token for token in tokens
             if token
             and token not in self.stopwords
+            and token not in self.category_stopwords
             and len(token) >= self.min_token_length
         }
 

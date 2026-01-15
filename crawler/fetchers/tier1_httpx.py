@@ -41,15 +41,21 @@ class Tier1HttpxFetcher:
     - Default fallback cookies for unknown domains
     """
 
+    # Use a browser User-Agent to avoid bot detection
+    # Many sites serve different content or block crawler user agents
     DEFAULT_USER_AGENT = (
-        "SpiritsWise-Crawler/1.0 "
-        "(+https://spiritswise.com/crawler; contact@spiritswise.com)"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
     )
 
+    # Note: Removed 'br' (brotli) from Accept-Encoding because httpx doesn't
+    # decompress brotli by default, resulting in garbled content with null chars.
+    # Only request gzip/deflate which httpx handles correctly.
     DEFAULT_HEADERS = {
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Encoding": "gzip, deflate",
         "Connection": "keep-alive",
         "Cache-Control": "max-age=0",
     }
@@ -88,18 +94,20 @@ class Tier1HttpxFetcher:
         await self.close()
 
     async def _init_http_client(self):
-        """Initialize HTTP client with HTTP/2 support."""
+        """Initialize HTTP client."""
         if self._http_client is None:
             headers = {
                 **self.DEFAULT_HEADERS,
                 "User-Agent": self.user_agent,
             }
 
+            # Note: http2=False to match original enrichment pipeline behavior
+            # Some sites handle HTTP/2 differently and may block H2 requests
             self._http_client = httpx.AsyncClient(
                 timeout=httpx.Timeout(self.timeout),
                 headers=headers,
                 follow_redirects=True,
-                http2=True,
+                http2=False,
             )
 
     async def close(self):
@@ -164,11 +172,18 @@ class Tier1HttpxFetcher:
                 headers=request_headers,
             )
 
+            is_success = 200 <= response.status_code < 400
+            error_msg = None
+            if not is_success:
+                error_msg = f"HTTP {response.status_code}"
+                logger.warning(f"Tier 1 HTTP {response.status_code} for {url}")
+
             return FetchResponse(
                 content=response.text,
                 status_code=response.status_code,
                 headers=dict(response.headers),
-                success=200 <= response.status_code < 400,
+                success=is_success,
+                error=error_msg,
                 tier=1,
             )
 

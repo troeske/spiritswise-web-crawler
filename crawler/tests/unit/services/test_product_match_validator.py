@@ -120,6 +120,89 @@ class BrandMatchingTests(TestCase):
         self.assertTrue(is_match)
         self.assertIn("brand_overlap", reason)
 
+    # ========== Apostrophe Normalization Tests (TDD for Ballantine's fix) ==========
+
+    def test_brand_match_with_straight_apostrophe(self):
+        """Test brand with straight apostrophe matches without apostrophe.
+
+        This is the ROOT CAUSE of Ballantine's extraction degradation.
+        Target: "Ballantine's" (with apostrophe)
+        Extracted: "Ballantines" (without apostrophe)
+        Should MATCH after normalization.
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        is_match, reason = validator._validate_brand_match("Ballantine's", "Ballantines")
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+        self.assertIn("brand_overlap", reason)
+
+    def test_brand_match_with_curly_apostrophe(self):
+        """Test brand with curly apostrophe matches without apostrophe.
+
+        Different systems encode apostrophes differently:
+        - Straight: ' (U+0027)
+        - Right single quote: ' (U+2019)
+        - Left single quote: ' (U+2018)
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Curly right quote (U+2019) - common in HTML
+        is_match, reason = validator._validate_brand_match("Ballantine's", "Ballantines")
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_brand_match_apostrophe_both_sides(self):
+        """Test when both brands have apostrophes but different styles."""
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Straight vs curly apostrophe
+        is_match, reason = validator._validate_brand_match("Ballantine's", "Ballantine's")
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_brand_match_with_hyphen_normalization(self):
+        """Test brand with hyphen matches without hyphen."""
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Johnnie-Walker vs Johnnie Walker
+        is_match, reason = validator._validate_brand_match("Johnnie-Walker", "Johnnie Walker")
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_brand_match_with_the_prefix(self):
+        """Test brand with 'The' prefix matches without it."""
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        is_match, reason = validator._validate_brand_match("The Macallan", "Macallan")
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_brand_match_the_prefix_reverse(self):
+        """Test brand without 'The' matches brand with 'The' prefix."""
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        is_match, reason = validator._validate_brand_match("Macallan", "The Macallan")
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_brand_mismatch_still_works(self):
+        """Test that different brands still correctly mismatch."""
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # These should NOT match even after normalization
+        is_match, reason = validator._validate_brand_match("Glenfiddich", "Glenlivet")
+
+        self.assertFalse(is_match)
+        self.assertIn("brand_mismatch", reason)
+
 
 class ProductTypeKeywordTests(TestCase):
     """Tests for Level 2: Product type keyword validation."""
@@ -176,8 +259,22 @@ class ProductTypeKeywordTests(TestCase):
         self.assertTrue(is_match)
         self.assertIn("keywords_compatible", reason)
 
-    def test_scotch_vs_irish_mismatch(self):
-        """Test scotch target with irish extracted returns False."""
+    def test_scotch_vs_irish_not_rejected_by_keywords(self):
+        """Test scotch target with irish extracted is NOT rejected by keyword check.
+
+        NOTE: The scotch/irish/japanese/american rule was intentionally REMOVED
+        because it caused false positives when official distillery pages mention
+        other whisky types in navigation, footers, or general text.
+
+        See product_match_validator.py line 82:
+        # REMOVED: ({"scotch"}, {"irish", "japanese", "american"}) - too aggressive
+
+        Cross-contamination between scotch/irish is caught by:
+        - Level 1: Brand mismatch (Macallan != Jameson)
+        - Level 3: Name token overlap failure
+
+        The keyword check alone should PASS for geographic whisky types.
+        """
         from crawler.services.product_match_validator import ProductMatchValidator
 
         validator = ProductMatchValidator()
@@ -186,8 +283,9 @@ class ProductTypeKeywordTests(TestCase):
 
         is_match, reason = validator._validate_product_type_keywords(target_data, extracted_data)
 
-        self.assertFalse(is_match)
-        self.assertIn("product_type_mismatch", reason)
+        # Keyword check passes - other levels will catch the mismatch
+        self.assertTrue(is_match)
+        self.assertIn("keywords_compatible", reason)
 
     def test_vintage_vs_lbv_mismatch(self):
         """Test vintage port target with LBV extracted returns False."""
@@ -405,6 +503,92 @@ class NameTokenOverlapTests(TestCase):
 
         self.assertTrue(is_match)
         self.assertIn("name_overlap", reason)
+
+    # ========== Category Stopwords Tests (TDD for Ballantine's name matching fix) ==========
+
+    def test_ballantines_name_with_category_terms(self):
+        """Test Ballantine's name matching when extracted only has brand token.
+
+        This is the SECONDARY CAUSE of Ballantine's extraction degradation.
+        Target: "Ballantine's 10 YO Blended Scotch Whisky" -> tokens without stopwords
+        Without category filtering: {ballantine, blended, scotch, whisky} = 4 tokens
+        If extracted only has "ballantine", that's 1/4 = 25% < 30% threshold = FAIL
+
+        With category filtering: "scotch", "whisky", "blended" should be filtered
+        Remaining: {ballantine} = 1 token
+        Overlap: 1/1 = 100% = PASS
+
+        This test should pass after implementing category stopwords.
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        is_match, reason = validator._validate_name_overlap(
+            "Ballantine's 10 YO Blended Scotch Whisky",
+            "Ballantine 10 Year"  # Sparse name from a source
+        )
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_category_terms_excluded_whiskey_variants(self):
+        """Test that whiskey category terms are filtered from token matching.
+
+        Common category terms that should be excluded:
+        - whisky, whiskey (product type)
+        - scotch, bourbon, rye, malt (category)
+        - single, blended (production type)
+        - year, years, old, aged (age indicators)
+        - cask, strength (bottling info)
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Target has many category terms
+        is_match, reason = validator._validate_name_overlap(
+            "Glenfiddich Single Malt Scotch Whisky 12 Years Old",
+            "Glenfiddich 12"  # Minimal name
+        )
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_category_terms_excluded_port_wine(self):
+        """Test that port wine category terms are filtered."""
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        is_match, reason = validator._validate_name_overlap(
+            "Taylor's 20 Year Old Tawny Port Wine",
+            "Taylor 20 Year Tawny"
+        )
+
+        self.assertTrue(is_match, f"Expected match but got: {reason}")
+
+    def test_brand_name_must_still_match(self):
+        """Test that actual brand name differences still cause rejection after category filtering.
+
+        Currently (before fix): "Glenfiddich 12 Year Scotch Whisky" vs "Glenlivet 12 Year Scotch Whisky"
+        Tokens: {glenfiddich, year, scotch, whisky} vs {glenlivet, year, scotch, whisky}
+        Overlap: {year, scotch, whisky} = 3/4 = 75% -> PASS (incorrectly!)
+
+        After category filtering: {glenfiddich} vs {glenlivet}
+        Overlap: {} = 0/1 = 0% -> FAIL (correctly!)
+
+        This test will fail UNTIL category stopwords are implemented, then pass.
+        """
+        from crawler.services.product_match_validator import ProductMatchValidator
+
+        validator = ProductMatchValidator()
+        # Different brands - after category filtering, only brand tokens remain
+        # so they should fail
+        is_match, reason = validator._validate_name_overlap(
+            "Glenfiddich 12 Year Scotch Whisky",
+            "Glenlivet 12 Year Scotch Whisky"
+        )
+
+        # After category terms filtered, only "glenfiddich" vs "glenlivet" remain
+        # which have 0% overlap and should fail
+        self.assertFalse(is_match, f"Expected mismatch but got: {reason}")
+        self.assertIn("name_mismatch", reason)
 
 
 class FullValidationPipelineTests(TestCase):

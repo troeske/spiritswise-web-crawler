@@ -65,6 +65,7 @@ from urllib.parse import urlparse
 import httpx
 from asgiref.sync import sync_to_async
 
+from crawler.fetchers.smart_router import SmartRouter
 from crawler.models import EnrichmentConfig, ProductTypeConfig
 from crawler.services.ai_client_v2 import AIClientV2, get_ai_client_v2
 from crawler.services.confidence_merger import ConfidenceBasedMerger, get_confidence_merger
@@ -317,6 +318,7 @@ class EnrichmentPipelineV3:
         self._quality_gate = quality_gate
         self._validator = product_match_validator
         self._merger = confidence_merger
+        self._smart_router: Optional[SmartRouter] = None
 
         logger.debug("EnrichmentPipelineV3 initialized")
 
@@ -345,6 +347,12 @@ class EnrichmentPipelineV3:
         if self._validator is None:
             self._validator = get_product_match_validator()
         return self._validator
+
+    def _get_smart_router(self) -> SmartRouter:
+        """Get or create SmartRouter for tiered content fetching."""
+        if self._smart_router is None:
+            self._smart_router = SmartRouter(timeout=self.DEFAULT_TIMEOUT)
+        return self._smart_router
 
     def _get_merger(self) -> ConfidenceBasedMerger:
         """Get or create confidence merger from singleton."""
@@ -1384,36 +1392,36 @@ class EnrichmentPipelineV3:
             Tuple of (extracted_data, field_confidences). Returns empty dicts
             on any error or if no products are found.
         """
-        try:
-            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
-                response = await client.get(
-                    url,
-                    follow_redirects=True,
-                    headers={
-                        "User-Agent": (
-                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36"
-                        ),
-                    },
-                )
-                response.raise_for_status()
-                content = response.text
+        # Use SmartRouter for 3-tier fetching (httpx -> Playwright -> ScrapingBee)
+        smart_router = self._get_smart_router()
+        result = await smart_router.fetch(url)
 
-        except httpx.TimeoutException:
-            logger.warning("Timeout fetching %s", url)
+        if not result.success:
+            logger.warning(
+                "Failed to fetch %s (tier %d): %s",
+                url,
+                result.tier_used,
+                result.error or "Unknown error",
+            )
             return {}, {}
 
-        except httpx.HTTPStatusError as e:
-            logger.warning("HTTP error fetching %s: %s", url, e.response.status_code)
-            return {}, {}
+        content = result.content
 
-        except Exception as e:
-            logger.warning("Failed to fetch %s: %s", url, str(e))
-            return {}, {}
+        if result.tier_used > 1:
+            logger.info(
+                "Fetched %s using Tier %d (escalated from Tier 1)",
+                url,
+                result.tier_used,
+            )
 
         if not content:
             return {}, {}
+
+        # Strip null characters that can cause AI extraction to fail
+        # with "Null characters are not allowed" errors
+        if '\x00' in content:
+            logger.debug("Stripping null characters from content of %s", url)
+            content = content.replace('\x00', '')
 
         try:
             ai_client = self._get_ai_client()

@@ -446,7 +446,9 @@ class SmartRouter:
         """Attempt Tier 1 fetch."""
         logger.debug(f"Trying Tier 1 for {url}")
         fetcher = self._get_tier1_fetcher()
-        return await fetcher.fetch(url, cookies=cookies)
+        # Don't use default cookies - some sites respond differently when they see
+        # age gate cookies they don't recognize. Only use source-specific cookies.
+        return await fetcher.fetch(url, cookies=cookies, use_default_cookies=False)
 
     async def _try_tier2(
         self,

@@ -157,11 +157,20 @@ class EscalationHeuristics:
         - "Checking your browser" message
         - "Just a moment..." title
         - cf_chl challenge tokens
+
+        Note: We only consider it a challenge if the content is short (< 50KB).
+        Legitimate pages often have "cloudflare ray id" in footers but have
+        substantial content. A real challenge page is typically under 10KB.
         """
+        # Large pages with actual content aren't Cloudflare challenges
+        # (they may just be hosted behind Cloudflare and show ray ID in footer)
+        if len(content) > 50000:  # 50KB threshold
+            return False
+
         content_lower = content.lower()
 
-        # Check for common Cloudflare patterns
-        cloudflare_patterns = [
+        # High-confidence patterns (definitely a challenge)
+        challenge_patterns = [
             "checking your browser",
             "just a moment...",
             "cf_chl_opt",
@@ -169,11 +178,19 @@ class EscalationHeuristics:
             "cf-browser-verification",
             "challenge-platform",
             "__cf_chl_tk",
-            "cloudflare ray id",
         ]
 
-        for pattern in cloudflare_patterns:
+        for pattern in challenge_patterns:
             if pattern in content_lower:
+                return True
+
+        # Lower-confidence pattern: only flag if content is very short
+        # (under 10KB, which is typical for challenge pages)
+        if len(content) < 10000 and "cloudflare ray id" in content_lower:
+            # Additional check: real challenge pages have minimal text content
+            import re
+            text_content = re.sub(r"<[^>]+>", "", content).strip()
+            if len(text_content) < 1000:  # Very sparse text
                 return True
 
         return False
