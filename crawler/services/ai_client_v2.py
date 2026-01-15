@@ -337,12 +337,15 @@ class AIClientV2:
         """
         # Convert schema dicts to field names for API
         # The VPS API expects extraction_schema to be a list of strings (field names)
-        # If schema contains dicts, extract just the field names
+        # If schema contains dicts, extract just the field names AND send full schema
         api_schema = extraction_schema
+        full_schema = None
+
         if extraction_schema and isinstance(extraction_schema[0], dict):
             api_schema = [field.get("name") for field in extraction_schema if field.get("name")]
+            full_schema = extraction_schema  # Preserve full schema with derive_from
             logger.debug(
-                "Converted %d schema dicts to field names for API",
+                "Converted %d schema dicts to field names for API, preserving full schema",
                 len(api_schema),
             )
 
@@ -359,6 +362,11 @@ class AIClientV2:
                 "max_products": 10,
             },
         }
+
+        # Send full schema with derive_from info for proper derivation
+        if full_schema:
+            payload["schema"] = full_schema
+            logger.debug("Including full schema with derive_from for %d fields", len(full_schema))
 
         if product_category:
             payload["product_category"] = product_category

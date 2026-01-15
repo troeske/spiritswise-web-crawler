@@ -771,7 +771,7 @@ class TestIWSCCompetitionE2E:
                 "likely_js_heavy": profile.likely_js_heavy,
                 "recommended_tier": profile.recommended_tier,
                 "tier_used": result.tier_used,
-                "success": fetch_result.success,
+                "success": result.success,
             })
 
             output_path = exporter.finalize("COMPLETED")
