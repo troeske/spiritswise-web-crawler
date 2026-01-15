@@ -7,10 +7,9 @@ def rename_table_if_exists(old_name, new_name):
     """Generate a function that renames a table only if it exists."""
     def do_rename(apps, schema_editor):
         with connection.cursor() as cursor:
-            # Check if the old table exists
+            # Check if the old table exists (use string formatting to avoid Django debug SQL issue)
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
-                [old_name]
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{old_name}';"
             )
             if cursor.fetchone():
                 cursor.execute(f'ALTER TABLE "{old_name}" RENAME TO "{new_name}";')
@@ -21,10 +20,9 @@ def reverse_rename_table_if_exists(old_name, new_name):
     """Generate a function that reverses table rename only if applicable."""
     def do_reverse(apps, schema_editor):
         with connection.cursor() as cursor:
-            # Check if the new table exists (to reverse to old name)
+            # Check if the new table exists (use string formatting to avoid Django debug SQL issue)
             cursor.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
-                [new_name]
+                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{new_name}';"
             )
             if cursor.fetchone():
                 cursor.execute(f'ALTER TABLE "{new_name}" RENAME TO "{old_name}";')

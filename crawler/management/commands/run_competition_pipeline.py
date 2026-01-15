@@ -393,9 +393,9 @@ class Command(BaseCommand):
             return
 
         # Import the task and run it directly
-        from crawler.tasks import process_skeleton_enrichment_queue
+        from crawler.tasks import process_enrichment_queue
 
-        result = process_skeleton_enrichment_queue(max_urls=actual_max)
+        result = process_enrichment_queue(max_urls=actual_max)
 
         if result.get("status") == "completed":
             metrics = result.get("metrics", {})
