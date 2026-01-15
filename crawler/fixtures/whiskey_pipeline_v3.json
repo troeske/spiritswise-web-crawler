@@ -132,7 +132,7 @@
       "template_name": "tasting_notes",
       "display_name": "Tasting Notes Search",
       "search_template": "{name} {brand} tasting notes review",
-      "target_fields": ["nose_description", "palate_description", "finish_description", "palate_flavors", "primary_aromas", "finish_flavors"],
+      "target_fields": ["nose_description", "palate_description", "finish_description", "palate_flavors", "primary_aromas", "finish_flavors", "finish_length", "warmth", "dryness", "finish_evolution", "final_notes"],
       "priority": 10,
       "is_active": true
     },

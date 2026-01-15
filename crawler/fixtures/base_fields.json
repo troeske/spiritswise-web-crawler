@@ -1055,8 +1055,8 @@
       "field_group": "related",
       "field_type": "array",
       "item_type": "object",
-      "description": "Competition awards won by this product. Extract competition name, year, medal level, and category if available.",
-      "examples": [[{"competition": "IWSC", "year": 2024, "medal": "Gold"}, {"competition": "San Francisco World Spirits", "year": 2023, "medal": "Double Gold"}]],
+      "description": "Competition awards won by this product. Extract competition name, year, medal level, score (if available), and category. IMPORTANT: For IWSC awards, the score (e.g., 92, 95) is often shown on medal images or near the medal. Look for numeric scores between 70-100.",
+      "examples": [[{"competition": "IWSC", "year": 2024, "medal": "Gold", "score": 95}, {"competition": "San Francisco World Spirits", "year": 2023, "medal": "Double Gold", "score": 98}]],
       "allowed_values": [],
       "item_schema": {
         "type": "object",
@@ -1064,6 +1064,7 @@
           "competition": {"type": "string", "description": "Name of the competition"},
           "year": {"type": "integer", "description": "Year the award was given"},
           "medal": {"type": "string", "description": "Medal or award level (Gold, Silver, Bronze, Double Gold, Best in Class)"},
+          "score": {"type": "integer", "description": "Numeric score if available (typically 70-100 for IWSC). Look for scores on medal images or near award text."},
           "category": {"type": "string", "description": "Category within the competition"}
         },
         "required": ["competition", "year", "medal"]
