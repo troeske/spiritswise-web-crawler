@@ -68,14 +68,18 @@ logger = logging.getLogger(__name__)
 #   IMPORTANT: Use specific phrases like "rye whiskey", "straight rye" to avoid
 #   false positives from "high rye mashbill" in bourbon descriptions
 # - Single Malt and Blended are fundamentally different production methods
-# - Scotch, Irish, Japanese, and American whiskies have distinct characteristics
 # - Vintage and LBV (Late Bottled Vintage) are different port wine categories
 # - Tawny and Ruby are distinct port wine styles with different aging processes
+#
+# NOTE: Scotch/Irish/Japanese/American rule was REMOVED because it caused false
+# positives when official Scotch distillery pages mention other whisky types in
+# navigation, footers, or general text. Brand and name overlap validation are
+# sufficient to prevent cross-contamination between these categories.
 MUTUALLY_EXCLUSIVE_KEYWORDS: List[Tuple[Set[str], Set[str]]] = [
     # Use specific "rye whiskey" phrases to avoid matching "high rye mashbill" in bourbons
     ({"bourbon"}, {"rye whiskey", "straight rye", "rye whisky", "corn whiskey"}),
     ({"single malt"}, {"blended", "blend"}),
-    ({"scotch"}, {"irish", "japanese", "american"}),
+    # REMOVED: ({"scotch"}, {"irish", "japanese", "american"}) - too aggressive
     ({"vintage"}, {"lbv", "late bottled vintage"}),
     ({"tawny"}, {"ruby"}),
 ]
