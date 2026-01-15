@@ -71,10 +71,15 @@ MULTI_PRODUCT_SKELETON_SCHEMA = [
     "primary_aromas",
     "palate_flavors",
     "finish_flavors",
-    # Derived taste metrics (1-10 scales)
-    "finish_length",
+    # Derived taste metrics (1-10 scales) - derived from prose descriptions
+    "finish_length",  # derive_from: finish_description
+    "warmth",  # derive_from: finish_description
+    "dryness",  # derive_from: finish_description
     "flavor_intensity",
     "overall_balance",
+    # Derived text fields - derived from finish_description
+    "finish_evolution",  # derive_from: finish_description
+    "final_notes",  # derive_from: finish_description
     # Price information (often included on listicles)
     "prices",
 ]
