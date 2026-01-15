@@ -273,6 +273,26 @@ class AIClientV2:
             else:
                 schema = await self._aget_default_schema(product_type)
 
+            # Ensure we have full schema with derive_from for the API
+            # If schema is list of strings (field names only), load full definitions from database
+            full_schema = None
+            if schema and isinstance(schema[0], str):
+                # Load full schema from database to get derive_from, descriptions, etc.
+                try:
+                    full_schema = await self._aget_default_schema(product_type)
+                    logger.debug(
+                        "Loaded full schema (%d fields) for field-name-only extraction schema",
+                        len(full_schema),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to load full schema from database: %s. Proceeding with field names only.",
+                        str(e),
+                    )
+            elif schema and isinstance(schema[0], dict):
+                # Schema already contains full definitions
+                full_schema = schema
+
             # Build request payload
             payload = self._build_request(
                 preprocessed=preprocessed,
@@ -280,6 +300,7 @@ class AIClientV2:
                 product_type=product_type,
                 product_category=product_category,
                 extraction_schema=schema,
+                full_schema=full_schema,
             )
 
             # Send request with retry logic
@@ -326,6 +347,7 @@ class AIClientV2:
         product_type: str,
         product_category: Optional[str],
         extraction_schema: SchemaType,
+        full_schema: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """
         Build V2 API request payload.
@@ -336,6 +358,7 @@ class AIClientV2:
             product_type: Product type for extraction
             product_category: Optional category hint
             extraction_schema: Fields to extract - can be list of field names or full schema dicts
+            full_schema: Full schema with derive_from info (optional, loaded from database)
 
         Returns:
             Request payload dictionary
@@ -344,11 +367,12 @@ class AIClientV2:
         # The VPS API expects extraction_schema to be a list of strings (field names)
         # If schema contains dicts, extract just the field names AND send full schema
         api_schema = extraction_schema
-        full_schema = None
 
         if extraction_schema and isinstance(extraction_schema[0], dict):
             api_schema = [field.get("name") for field in extraction_schema if field.get("name")]
-            full_schema = extraction_schema  # Preserve full schema with derive_from
+            # Use extraction_schema as full_schema if not already provided
+            if full_schema is None:
+                full_schema = extraction_schema
             logger.debug(
                 "Converted %d schema dicts to field names for API, preserving full schema",
                 len(api_schema),
@@ -368,10 +392,16 @@ class AIClientV2:
             },
         }
 
-        # Send full schema with derive_from info for proper derivation
+        # Send full schema with derive_from info for proper derivation (REQUIRED by VPS API)
         if full_schema:
             payload["schema"] = full_schema
             logger.debug("Including full schema with derive_from for %d fields", len(full_schema))
+        else:
+            logger.warning(
+                "No full schema available for request - VPS API may reject. "
+                "Ensure schema is loaded from database for product_type=%s",
+                product_type,
+            )
 
         if product_category:
             payload["product_category"] = product_category
