@@ -61,7 +61,7 @@ class TestProcessCompetitionSourceUsesV2Orchestrator:
                 mock_router.close = AsyncMock()
 
                 # Mock source and job
-                from crawler.models import CrawlerSource, CrawlJob, SourceCategory
+                from crawler.models import CrawlerSource, Job, JobType, JobStatus, SourceCategory
 
                 source = MagicMock(spec=CrawlerSource)
                 source.id = "test-source-id"
@@ -70,8 +70,9 @@ class TestProcessCompetitionSourceUsesV2Orchestrator:
                 source.slug = "test-iwsc"
                 source.category = SourceCategory.COMPETITION
 
-                job = MagicMock(spec=CrawlJob)
+                job = MagicMock(spec=Job)
                 job.id = "test-job-id"
+                job.job_type = JobType.CRAWL
 
                 # Act: Import and call the function
                 from crawler.tasks import _crawl_competition_source
@@ -185,23 +186,49 @@ class TestCompetitionExtractsTastingNotes:
     @pytest.mark.django_db
     def test_ai_client_v2_fallback_schema_includes_tasting_notes(self):
         """
-        Verify AIClientV2 fallback schema includes tasting notes fields.
+        Verify AIClientV2 extraction schema includes tasting notes fields.
 
-        The _get_default_schema method should return a list that includes
-        nose_description, palate_description, finish_description fields.
+        The _get_default_schema method loads from ProductTypeSchema in the database.
+        This test sets up a proper schema fixture with tasting notes.
         """
         from crawler.services.ai_client_v2 import AIClientV2
+        from crawler.models import ProductTypeSchema
+        from crawler.services.schema_builder import get_schema_builder
+
+        # Create ProductTypeSchema with tasting notes in base_fields
+        ProductTypeSchema.objects.update_or_create(
+            product_type='whiskey',
+            defaults={
+                'display_name': 'Whiskey',
+                'is_active': True,
+                'schema': {
+                    'base_fields': [
+                        'name', 'brand', 'description', 'abv', 'country', 'region',
+                        'nose_description', 'palate_description', 'finish_description',
+                        'primary_aromas', 'palate_flavors', 'finish_flavors',
+                    ],
+                    'type_specific_fields': [],
+                    'fingerprint_fields': ['name', 'brand', 'abv'],
+                }
+            }
+        )
+
+        # Invalidate schema cache to ensure fresh load
+        get_schema_builder().invalidate_cache('whiskey')
 
         # Create client and get default schema
         client = AIClientV2()
 
-        # Get the fallback schema (sync method)
+        # Get the schema (sync method)
         schema = client._get_default_schema("whiskey")
 
-        # Assert: Tasting notes are in fallback schema
-        assert 'nose_description' in schema, "Schema must include nose_description"
-        assert 'palate_description' in schema, "Schema must include palate_description"
-        assert 'finish_description' in schema, "Schema must include finish_description"
+        # Schema is a list of field dicts - extract field names
+        field_names = {field.get('name', field.get('field_name', '')) for field in schema}
+
+        # Assert: Tasting notes are in schema
+        assert 'nose_description' in field_names, "Schema must include nose_description"
+        assert 'palate_description' in field_names, "Schema must include palate_description"
+        assert 'finish_description' in field_names, "Schema must include finish_description"
 
     def test_competition_extraction_result_can_hold_tasting_notes(self):
         """
